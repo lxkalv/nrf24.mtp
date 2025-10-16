@@ -116,7 +116,7 @@ nrf.set_pa_level(RF24_PA.MAX)
 
 # CRC
 nrf.enable_crc()
-nrf.set_crc_bytes(16)
+nrf.set_crc_bytes(2)
 
 
 # global payload 
