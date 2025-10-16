@@ -125,7 +125,7 @@ payload:list[bytes] = []
 
 
 # auto-retries
-nrf.set_retransmission(1, 500)
+nrf.set_retransmission(1, 15)
 
 
 # Tx/Rx addresses
