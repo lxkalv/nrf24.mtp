@@ -187,8 +187,8 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         # split the contents into chunks
         chunks = [
-            content[i:i+nrf.payload_size]
-            for i in range(0, content_len, nrf.payload_size)
+            content[i:i+nrf.get_payload_size()]
+            for i in range(0, content_len, nrf.get_payload_size())
         ]
         chunks_len = len(chunks)
         # INFO(f'Generated {chunks_len} chunks of {nrf.payload_size} bytes: {chunks}')
@@ -197,7 +197,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         # store the encoded bytes
         packets = []
         for chunk in chunks:
-            packets.append(struct.pack(f"<{nrf.payload_size}s", chunk))
+            packets.append(struct.pack(f"<{nrf.get_payload_size()}s", chunk))
 
 
         for idx in range(chunks_len):
@@ -263,7 +263,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 
                 packet = nrf.get_payload()
 
-                chunk: str = struct.unpack(f"<{nrf.payload_size}s", packet)[0] # the struct.unpack method returs more things than just the data
+                chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
                 chunks.append(chunk)
                 
                 SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
