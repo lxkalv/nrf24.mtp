@@ -270,7 +270,10 @@ def BEGIN_RECEIVER_MODE() -> None:
             tac = time.monotonic()
 
             # check if there are frames
+            INFO('Checking if there is data ready')
             while nrf.data_ready():
+                SUCC('Data is ready!')
+
                 payload_pipe = nrf.data_pipe()
                 INFO(f'Detected something in payload_pipe: {payload_pipe}')
 
