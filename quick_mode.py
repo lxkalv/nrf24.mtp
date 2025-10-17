@@ -1,8 +1,13 @@
 # :::: LIBRARY IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-from nrf24 import *
-import pigpio
+from nrf24 import (
+    NRF24,
 
-from pathlib import Path
+    RF24_DATA_RATE,
+    RF24_PA,
+    RF24_RX_ADDR,
+)
+
+import pigpio
 import struct
 import time
 import sys
@@ -111,7 +116,7 @@ nrf.set_data_rate(RF24_DATA_RATE.RATE_1MBPS)
 
 
 # Tx/Rx power
-nrf.set_pa_level(RF24_PA.MAX)
+nrf.set_pa_level(RF24_PA.MIN)
 
 
 # CRC
