@@ -266,20 +266,15 @@ def BEGIN_RECEIVER_MODE() -> None:
         INFO(f'Timeout set to {timeout} seconds')
 
         chunks = []
-        idx = 0
         while (tac - tic) < timeout:
             tac = time.monotonic()
 
             # check if there are frames
-            INFO(f'Checking if there is data ready {idx}')
             while nrf.data_ready():
-                SUCC('Data is ready!')
 
                 payload_pipe = nrf.data_pipe()
-                INFO(f'Detected something in payload_pipe: {payload_pipe}')
 
                 packet = nrf.get_payload()
-                INFO(f'Detected packet: {payload_pipe}')
 
                 chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
                 chunks.append(chunk)
@@ -287,7 +282,6 @@ def BEGIN_RECEIVER_MODE() -> None:
                 SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
             
                 tic = time.monotonic()
-            idx += 1
 
         INFO('Connection timed-out')
         
