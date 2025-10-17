@@ -38,7 +38,7 @@ def SUCC(message: str) -> None:
     """
     Prints a message to the console with the green prefix `[SUCC]:`
     """
-    print(f"\033[33m[INFO]:\033[0m {message}")
+    print(f"\033[32m[SUCC]:\033[0m {message}")
 
 
 def ERROR(message: str) -> None:
@@ -149,15 +149,21 @@ while not address_is_valid:
             INFO(f'Address set to {possible_addreses[0]}')
             address_is_valid = True
 
-            nrf.open_writing_pipe(possible_addreses[0])
-            nrf.open_reading_pipe(RF24_RX_ADDR.P1, possible_addreses[1])
+            if role == "T":
+                nrf.open_writing_pipe(possible_addreses[1])
+            
+            elif role == "R":
+                nrf.open_reading_pipe(RF24_RX_ADDR.P1, possible_addreses[0])
 
         if val == 1:
             INFO(f'Address set to {possible_addreses[1]}')
             address_is_valid = True
 
-            nrf.open_writing_pipe(possible_addreses[1])
-            nrf.open_reading_pipe(RF24_RX_ADDR.P1, possible_addreses[0])
+            if role == "T":
+                nrf.open_writing_pipe(possible_addreses[0])
+            
+            elif role == "R":
+                nrf.open_reading_pipe(RF24_RX_ADDR.P1, possible_addreses[1])
         
         else:
             continue
@@ -196,7 +202,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             for i in range(0, content_len, nrf.get_payload_size())
         ]
         chunks_len = len(chunks)
-        # INFO(f'Generated {chunks_len} chunks of {nrf.payload_size} bytes: {chunks}')
 
 
         # store the encoded bytes
@@ -211,20 +216,22 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             # reset the packages that we have lost
             nrf.reset_packages_lost()
 
-            tic = time.monotonic_ns()
+            
             nrf.send(packets[idx])
-            tac = time.monotonic_ns()
+
 
             try:
+                tic = time.monotonic_ns()
                 nrf.wait_until_sent()
+                tac = time.monotonic_ns()
             except TimeoutError:
                 ERROR("Timeout while transmitting")
 
-            if nrf.get_packages_lost() > 0:
-                ERROR(f"Lost packet after {nrf.get_retries()} retries")
+            if nrf.get_packages_lost() == 0:
+                SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {nrf.get_retries()}")
 
             else:
-                SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {nrf.get_retries()}")
+                ERROR(f"Lost packet after {nrf.get_retries()} retries")
 
             time.sleep(1) # wait for one second because why not
     
@@ -265,8 +272,10 @@ def BEGIN_RECEIVER_MODE() -> None:
             # check if there are frames
             while nrf.data_ready():
                 payload_pipe = nrf.data_pipe()
-                
+                INFO(f'Detected something in payload_pipe: {payload_pipe}')
+
                 packet = nrf.get_payload()
+                INFO(f'Detected packet: {payload_pipe}')
 
                 chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
                 chunks.append(chunk)
