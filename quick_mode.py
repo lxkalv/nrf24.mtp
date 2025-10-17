@@ -266,11 +266,12 @@ def BEGIN_RECEIVER_MODE() -> None:
         INFO(f'Timeout set to {timeout} seconds')
 
         chunks = []
+        idx = 0
         while (tac - tic) < timeout:
             tac = time.monotonic()
 
             # check if there are frames
-            INFO('Checking if there is data ready')
+            INFO(f'Checking if there is data ready {idx}')
             while nrf.data_ready():
                 SUCC('Data is ready!')
 
@@ -285,7 +286,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 
                 SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
             
-            tic = time.monotonic()
+                tic = time.monotonic()
 
         INFO('Connection timed-out')
         
