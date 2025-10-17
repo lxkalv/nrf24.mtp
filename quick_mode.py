@@ -282,6 +282,8 @@ def BEGIN_RECEIVER_MODE() -> None:
                 SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
             
                 tic = time.monotonic()
+            
+            time.sleep(.1)
 
         INFO('Connection timed-out')
         
