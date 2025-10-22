@@ -184,6 +184,8 @@ def _disable_auto_ack(nrf_obj):
     nrf_obj._nrf_write_reg(nrf_obj.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
     nrf_obj.set_ce()
 
+    nrf_obj.set_retransmission(0, 0)  # <<< disable auto-retransmissions
+
 _disable_auto_ack(nrf) 
 # =================================================================================
 
@@ -197,20 +199,25 @@ nrf.show_registers()
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def _send_ack_packet() -> None:
-    ack = b"ACK" + b"\x00"*(PAYLOAD_SIZE-3)        # Fix payload for the "ACK" + padding
-    nrf.send(ack)                                  # Send messages
-    nrf.wait_until_sent()                         
+    ack = b"ACK"                                    # build 32B: "ACK" 
+    nrf.send(ack)                                   # send (this flips radio to TX)
+    nrf.wait_until_sent()                           # block until TX done (radio goes back to RX)
 
 
 def _wait_for_ack(timeout_s: float) -> bool:
-    t0 = time.monotonic()
-    nrf.power_up_rx()                               # From Rx to Tx
-    while (time.monotonic() - t0) < timeout_s:
-        if nrf.data_ready():                        # If something arrives we consider the ACK
-            _ = nrf.get_payload()                   # Read without parsing
-            return True
-        time.sleep(0.001)
-    return False
+    t0 = time.monotonic()                           # start a small timeout window
+    while (time.monotonic() - t0) < timeout_s:      # poll until we hit the timeout
+        if nrf.data_ready():                        # got something in RX FIFO
+            payload = nrf.get_payload()             # read & clear one frame from FIFO
+            # sanity: ensure we have at least 3 bytes and they are "ACK"
+            if len(payload) >= 3 and bytes(payload[:3]) == b"ACK":
+                return True                         # legit ACK → success
+            else:
+                ERROR(f"Invalid ACK payload: {bytes(payload[:8])!r}")  # not an ACK, keep waiting
+                # note: we keep looping to allow the real ACK to arrive within the timeout
+        time.sleep(0.001)                           # tiny nap to be nice to CPU
+    return False                                     # timed out without a valid "ACK"
+
 
 
 
@@ -241,8 +248,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         for chunk in chunks:
             packets.append(struct.pack(f"<{nrf.get_payload_size()}s", chunk))
 
-        # We start transmitting
-        nrf.power_up_tx()                           
+        # We start transmitting                       
         start = time.monotonic()          
         for idx in range(chunks_len):
             attempt = 1
@@ -250,8 +256,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
             while attempt <= MAX_ATTEMPTS:          # Manual attempts
                 INFO(f"Sending packet #{idx} (attempt {attempt}): {chunks[idx]} --> {packets[idx]}")
-
-                nrf.reset_packages_lost()           
+           
                 nrf.send(packets[idx])              # Data send
 
                 try:
@@ -268,11 +273,9 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK] pkt#{idx} ok | app_retries={attempt-1} | tx_time={(tac - tic)/1000:.1f} us | ack_rtt={ack_rtt_ms:.2f} ms")
                     sent_ok = True
-                    nrf.power_up_tx()        # We return to TX mode to start trasnmitting the next packet
                     break
                 else:
                     ERROR(f"No manual ACK for packet #{idx}")
-                    nrf.power_up_tx()               # We try to retrasnmit the packet
                     attempt += 1
                     time.sleep(0.005)
 
