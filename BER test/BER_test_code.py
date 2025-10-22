@@ -306,7 +306,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         INFO(f'Saved {content_len} bytes to: file_received.txt')
 
         BER = ones_counter/(total_tx_packets*nrf.get_payload_size())
-        INFO(f'The final BER is of: {BER} with {ones_counter} ones received over {total_tx_packets*nrf.get_payload_size()} total bits sent')
+        INFO(f'The final BER is of: {BER} with {ones_counter} ones received over {total_tx_packets*nrf.get_payload_size()*8} total bits sent')
 
     finally:
         nrf.power_down()
