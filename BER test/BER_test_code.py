@@ -179,7 +179,6 @@ nrf.show_registers()
 
 # Number of transmitted packets
 total_tx_packets = 10
-ones_counter = 0
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -265,7 +264,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 payload_pipe = nrf.data_pipe()
 
                 packet = nrf.get_payload()
-
+                ones_counter = 0
                 for byte_individual in packet:
                     string_binario = f'{byte_individual:08b}'
                     for bit in string_binario:
