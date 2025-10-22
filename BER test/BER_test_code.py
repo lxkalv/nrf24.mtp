@@ -122,6 +122,7 @@ nrf.set_pa_level(RF24_PA.MIN)
 # CRC
 nrf.enable_crc()
 nrf.set_crc_bytes(2)
+nrf.disable_crc()
 
 
 # global payload 
@@ -178,6 +179,7 @@ nrf.show_registers()
 
 # Number of transmitted packets
 total_tx_packets = 10
+ones_counter = 0
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -264,6 +266,13 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 packet = nrf.get_payload()
 
+                for byte_individual in packet:
+                    string_binario = f'{byte_individual:08b}'
+                    for bit in string_binario:
+                        if bit == 1:
+                            ones_counter += 1
+                        
+
                 chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
                 chunks.append(chunk)
                 
@@ -296,6 +305,9 @@ def BEGIN_RECEIVER_MODE() -> None:
             f.write(content)
         content_len = len(content)
         INFO(f'Saved {content_len} bytes to: file_received.txt')
+
+        BER = ones_counter/(total_tx_packets*nrf.get_payload_size())
+        INFO(f'The final BER is of: {BER} with {ones_counter} ones received over {total_tx_packets*nrf.get_payload_size()} total bits sent')
 
     finally:
         nrf.power_down()
