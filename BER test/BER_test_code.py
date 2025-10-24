@@ -181,7 +181,15 @@ nrf.show_registers()
 total_tx_packets = 10
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+# === DESACTIVATE AUTO-ACK DE HARDWARE (EN_AA=0) TO MAKE ACKz MANUALS=========
+def _disable_auto_ack(nrf_obj):
+    nrf_obj.unset_ce()
+    nrf_obj._nrf_write_reg(nrf_obj.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
+    nrf_obj.set_ce()
 
+    nrf_obj.set_retransmission(0, 0)  # <<< disable auto-retransmissions
+
+_disable_auto_ack(nrf)
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def BEGIN_TRANSMITTER_MODE() -> None:
