@@ -201,7 +201,7 @@ nrf.show_registers()
 def _send_ack_packet() -> None:
     ack = b"ACK"                                    # build 32B: "ACK" 
     nrf.send(ack)                                   # send (this flips radio to TX)
-    nrf.wait_until_sent()                           # block until TX done (radio goes back to RX)
+    nrf.wait_until_sent(timeout_ns = 100_000_000_000)              # block until TX done (radio goes back to RX)
 
 
 def _wait_for_ack(timeout_s: float) -> bool:
