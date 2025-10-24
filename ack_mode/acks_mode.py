@@ -20,7 +20,7 @@ import sys
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.2        # <<< tiempo máx esperando ACK manual (500 us)
+ACK_TIMEOUT_S = 0.01        # <<< tiempo máx esperando ACK manual (500 us)
 MAX_ATTEMPTS  = 3             # <<< reintentos por paquete (puedes ajustar)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -207,7 +207,6 @@ def _send_ack_packet() -> None:
     INFO('ACK payload loaded into FIFO')
     # print(f"status: {"".join([str(bit) for bit in bytes(nrf.get_status())])}")
     print(f"status: {nrf.get_status()}")
-    nrf.show_registers()
     INFO('Wait until sending done...')
     nrf.wait_until_sent(timeout_ns = 100_000_000_000)              # block until TX done (radio goes back to RX)
 
