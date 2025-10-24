@@ -20,7 +20,7 @@ import sys
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.05          # <<< tiempo máx esperando ACK manual (50 ms)
+ACK_TIMEOUT_S = 500e-6          # <<< tiempo máx esperando ACK manual (50 ms)
 MAX_ATTEMPTS  = 3             # <<< reintentos por paquete (puedes ajustar)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -184,7 +184,7 @@ def _disable_auto_ack(nrf_obj):
     nrf_obj._nrf_write_reg(nrf_obj.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
     nrf_obj.set_ce()
 
-    nrf_obj.set_retransmission(0, 0)  # <<< disable auto-retransmissions
+    nrf_obj.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250us
 
 _disable_auto_ack(nrf) 
 # =================================================================================
@@ -310,8 +310,6 @@ def BEGIN_RECEIVER_MODE() -> None:
     INFO('Starting reception (manual ACK)')
 
     try:
-        # empezar oyendo
-        nrf.power_up_rx()                           # MODE RX
 
         # start the timers
         tic     = time.monotonic()
