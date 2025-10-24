@@ -209,6 +209,8 @@ def _wait_for_ack(timeout_s: float) -> bool:
     while (time.monotonic() - t0) < timeout_s:      # poll until we hit the timeout
         if nrf.data_ready():                        # got something in RX FIFO
             payload = nrf.get_payload()             # read & clear one frame from FIFO
+            print(payload)
+            print(b"ACK")
             # sanity: ensure we have at least 3 bytes and they are "ACK"
             if len(payload) >= 3 and bytes(payload[:3]) == b"ACK":
                 return True                         # legit ACK → success
