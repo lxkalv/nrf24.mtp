@@ -192,7 +192,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
     try:
         # open the file to read
-        with open("file_to_send.txt", "rb") as file:
+        with open("lorem.txt", "rb") as file:
             content = file.read()
 
         content_len = len(content)
