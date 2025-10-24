@@ -204,9 +204,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         chunks_len = len(chunks)
 
         # header packet encoded on 4 octets (total of chunks)
-        # chuncks_len = chunk_ID - 1
-        header_packet = struct.pack("<I", chunks_len)
+        # chuncks_len = chunk_ID + 1
+        header_packet = struct.pack('i',chunks_len)
         INFO(f"Sending header (total chunks): {chunks_len}")
+        INFO(f'Header packet: {header_packet}')
         nrf.send(header_packet)
         try:
             nrf.wait_until_sent()
@@ -283,7 +284,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             time.sleep(0.05)
 
         header_packet = nrf.get_payload()
-        total_chunks = struct.unpack("<I", header_packet)[0]
+        total_chunks = struct.unpack("i", header_packet)[0]
         SUCC(f"Header received: expecting {total_chunks} chunks")
 
         # Recieving chunks
