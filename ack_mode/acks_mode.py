@@ -20,7 +20,7 @@ import sys
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 500e-6          # <<< tiempo máx esperando ACK manual (50 ms)
+ACK_TIMEOUT_S = 500e-6          # <<< tiempo máx esperando ACK manual (500 us)
 MAX_ATTEMPTS  = 3             # <<< reintentos por paquete (puedes ajustar)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -217,7 +217,9 @@ def _wait_for_ack(timeout_s: float) -> bool:
             else:
                 ERROR(f"Invalid ACK payload: {bytes(payload[:8])!r}")  # not an ACK, keep waiting
                 # note: we keep looping to allow the real ACK to arrive within the timeout
-        time.sleep(0.001)                           # tiny nap to be nice to CPU
+        else:
+            print("ERRIRR no data ready")
+       
     return False                                     # timed out without a valid "ACK"
 
 

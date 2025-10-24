@@ -130,7 +130,7 @@ payload:list[bytes] = []
 
 
 # auto-retries
-nrf.set_retransmission(1, 15)
+nrf.set_retransmission(1, 15) #Retransmitting (1+1)*250us and just 15 times will try it. Automatic ACKs. Es defoult
 
 
 # Tx/Rx addresses
@@ -201,10 +201,17 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             content[i:i+nrf.get_payload_size()]
             for i in range(0, content_len, nrf.get_payload_size())
         ]
-        chunks_len = len(chunks)
+        chunks_len = len(chunks) #et dona el número total de chunks en què s'ha dividit la trama
 
 
-        # store the encoded bytes
+        # store the encoded bytes struct.pack() convierte tus bytes (chunk) en una estructura binaria de tamaño fijo, 
+        # exactamente igual al payload_size del nRF (por ejemplo, 32 bytes).
+        # El formato "<32s" significa:
+        # < → orden little-endian (no afecta aquí mucho).
+        # 32s → cadena de bytes de 32 bytes.
+        # Esto rellena con ceros (\x00) si el chunk es más corto que 32 bytes
+        # Así todos los paquetes enviados tienen el mismo tamaño, que es lo que el nRF24 espera.
+
         packets = []
         for chunk in chunks:
             packets.append(struct.pack(f"<{nrf.get_payload_size()}s", chunk))
@@ -297,7 +304,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         for chunk in chunks:
             content += chunk
         INFO(f'Merged data: {content}')
-        
+
 
         if len(content) == 0:
             ERROR('Did not receive anything')
