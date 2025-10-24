@@ -20,7 +20,7 @@ import sys
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.05        # <<< tiempo máx esperando ACK manual (500 us)
+ACK_TIMEOUT_S = 500e-6          # <<< tiempo máx esperando ACK manual (50 ms)
 MAX_ATTEMPTS  = 3             # <<< reintentos por paquete (puedes ajustar)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -199,11 +199,9 @@ nrf.show_registers()
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def _send_ack_packet() -> None:
-    ack = b"ACK"                                     # build 32B: "ACK" 
-    nrf.send(ack)                                       # send (this flips radio to TX)
-    # print(f"status: {"".join([str(bit) for bit in bytes(nrf.get_status())])}")
-    print(f"status: {nrf.get_status()}")
-    nrf.wait_until_sent(timeout_ns = 100_000_000_000)              # block until TX done (radio goes back to RX)
+    ack = b"ACK"                                    # build 32B: "ACK" 
+    nrf.send(ack)                                   # send (this flips radio to TX)
+    nrf.wait_until_sent()                           # block until TX done (radio goes back to RX)
 
 
 def _wait_for_ack(timeout_s: float) -> bool:
@@ -211,17 +209,13 @@ def _wait_for_ack(timeout_s: float) -> bool:
     while (time.monotonic() - t0) < timeout_s:      # poll until we hit the timeout
         if nrf.data_ready():                        # got something in RX FIFO
             payload = nrf.get_payload()             # read & clear one frame from FIFO
-            print(payload)
-            print(b"ACK")
             # sanity: ensure we have at least 3 bytes and they are "ACK"
             if len(payload) >= 3 and bytes(payload[:3]) == b"ACK":
                 return True                         # legit ACK → success
             else:
                 ERROR(f"Invalid ACK payload: {bytes(payload[:8])!r}")  # not an ACK, keep waiting
                 # note: we keep looping to allow the real ACK to arrive within the timeout
-        else:
-            print("ERRIRR no data ready")
-       
+        time.sleep(0.001)                           # tiny nap to be nice to CPU
     return False                                     # timed out without a valid "ACK"
 
 
