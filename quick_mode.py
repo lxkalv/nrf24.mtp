@@ -271,11 +271,11 @@ def BEGIN_RECEIVER_MODE() -> None:
         chunks = []
 
         
+        started_timer = False
         while (tac - tic) < timeout:
             tac = time.monotonic()
 
             # check if there are frames
-            started_timer = False
             while nrf.data_ready():
                 if not started_timer:
                     PROCESS_START = time.monotonic()
