@@ -347,8 +347,8 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 tic = time.monotonic()
             
-            #time.sleep(.1)
-            time.sleep(.001)
+            time.sleep(.1)
+            #time.sleep(.001)
 
         INFO('Connection timed-out')
         
