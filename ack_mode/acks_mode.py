@@ -201,8 +201,10 @@ nrf.show_registers()
 def _send_ack_packet() -> None:
     ack = b"ACK"     
     INFO('Sending ACK')                                # build 32B: "ACK" 
+    nrf.unset_ce()
     nrf.send(ack)   
-    INFO('ACK sent')                                     # send (this flips radio to TX)
+    #INFO('ACK sent')                                     # send (this flips radio to TX)
+    INFO('ACK payload loaded into FIFO')
     # print(f"status: {"".join([str(bit) for bit in bytes(nrf.get_status())])}")
     print(f"status: {nrf.get_status()}")
     nrf.show_registers()
