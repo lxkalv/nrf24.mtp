@@ -200,14 +200,13 @@ nrf.show_registers()
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def _send_ack_packet() -> None:
     ack = b"ACK"     
-    INFO('Sending ACK')                                # build 32B: "ACK" 
+
     nrf.unset_ce()
     nrf.send(ack)   
-    #INFO('ACK sent')                                     # send (this flips radio to TX)
-    INFO('ACK payload loaded into FIFO')
+
+
     # print(f"status: {"".join([str(bit) for bit in bytes(nrf.get_status())])}")
-    print(f"status: {nrf.get_status()}")
-    INFO('Wait until sending done...')
+
     nrf.wait_until_sent(timeout_ns = 100_000_000_000)              # block until TX done (radio goes back to RX)
 
 
@@ -217,15 +216,12 @@ def _wait_for_ack(timeout_s: float) -> bool:
         if nrf.data_ready():                        # got something in RX FIFO
             payload = nrf.get_payload()             # read & clear one frame from FIFO
             print(payload)
-            print(b"ACK")
             # sanity: ensure we have at least 3 bytes and they are "ACK"
             if len(payload) >= 3 and bytes(payload[:3]) == b"ACK":
                 return True                         # legit ACK → success
             else:
                 ERROR(f"Invalid ACK payload: {bytes(payload[:8])!r}")  # not an ACK, keep waiting
                 # note: we keep looping to allow the real ACK to arrive within the timeout
-        else:
-            print("ERRIRR no data ready")
        
     return False                                     # timed out without a valid "ACK"
 
