@@ -199,10 +199,12 @@ nrf.show_registers()
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def _send_ack_packet() -> None:
-    ack = b"ACK"                                     # build 32B: "ACK" 
+    ack = b"ACK"     
+    INFO('Sending ACK')                                # build 32B: "ACK" 
     nrf.send(ack)                                       # send (this flips radio to TX)
     # print(f"status: {"".join([str(bit) for bit in bytes(nrf.get_status())])}")
     print(f"status: {nrf.get_status()}")
+    INFO('Wait until sending done...')
     nrf.wait_until_sent(timeout_ns = 100_000_000_000)              # block until TX done (radio goes back to RX)
 
 
@@ -340,8 +342,11 @@ def BEGIN_RECEIVER_MODE() -> None:
                 SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
 
                 # --- SEND ACK --------------------------------
-                nrf.power_up_tx()                   
-                _send_ack_packet()                  
+                INFO('Power up tx to send ACK')
+                nrf.power_up_tx()       
+                INFO('Sending ACK packet')            
+                _send_ack_packet()   
+                INFO('Power up rx to continue receiving')               
                 nrf.power_up_rx()                 
                 # -----------------------------------------------------------------
 
