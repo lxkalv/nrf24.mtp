@@ -199,8 +199,9 @@ nrf.show_registers()
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def _send_ack_packet() -> None:
-    ack = b"ACK"                                    # build 32B: "ACK" 
-    nrf.send(ack)                                   # send (this flips radio to TX)
+    ack = b"ACK"                                     # build 32B: "ACK" 
+    nrf.send(ack)                                       # send (this flips radio to TX)
+    print(f"status: {nrf.get_status()}")
     nrf.wait_until_sent(timeout_ns = 100_000_000_000)              # block until TX done (radio goes back to RX)
 
 
