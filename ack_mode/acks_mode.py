@@ -341,11 +341,8 @@ def BEGIN_RECEIVER_MODE() -> None:
                 SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
 
                 # --- SEND ACK --------------------------------
-                INFO('Power up tx to send ACK')
-                nrf.power_up_tx()       
-                INFO('Sending ACK packet')            
-                _send_ack_packet()   
-                INFO('Power up rx to continue receiving')               
+                nrf.power_up_tx()                
+                _send_ack_packet()             
                 nrf.power_up_rx()                 
                 # -----------------------------------------------------------------
 
