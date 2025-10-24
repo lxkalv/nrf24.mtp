@@ -284,14 +284,12 @@ def BEGIN_RECEIVER_MODE() -> None:
                 payload_pipe = nrf.data_pipe()
 
                 packet = nrf.get_payload()
-
-                packet = nrf.get_payload()
                 raw_chunk = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0]
                 # Use rstrip() to remove trailing null bytes
                 trimmed_chunk = raw_chunk.rstrip(b'\x00')
                 chunks.append(trimmed_chunk)
 
-                SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
+                SUCC(f"Received {len(trimmed_chunk)} bytes on pipe {payload_pipe}: {packet} --> {trimmed_chunk}")
             
                 tic = time.monotonic()
             
