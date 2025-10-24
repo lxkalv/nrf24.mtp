@@ -281,17 +281,17 @@ def BEGIN_RECEIVER_MODE() -> None:
         # 1st packet = header (total of chuncks)
         INFO("Waiting for header packet...")
         while not nrf.data_ready():
-            time.sleep(0.05)
+            pass
 
         header_packet = nrf.get_payload()
-        total_chunks = struct.unpack("i", header_packet)[0]
+        total_chunks = struct.unpack("i", header_packet[:4])[0]
         SUCC(f"Header received: expecting {total_chunks} chunks")
 
         # Recieving chunks
         received_chunks = 0         # not the ID
 
         chunks = []
-        while received_chunks < total_chunks | (tac - tic) < timeout:
+        while (received_chunks < total_chunks) and ((tac - tic) < timeout):
             tac = time.monotonic()
 
             # check if there are frames
@@ -310,8 +310,6 @@ def BEGIN_RECEIVER_MODE() -> None:
                 SUCC(f"Received chunk {received_chunks}/{total_chunks}")
 
                 tic = time.monotonic()
-            
-            time.sleep(.1)
 
         INFO('All chunks recieved or Connection timed-out')
         if received_chunks == total_chunks :
