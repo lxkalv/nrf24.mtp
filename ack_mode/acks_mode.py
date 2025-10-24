@@ -20,7 +20,7 @@ import sys
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.05        # <<< tiempo máx esperando ACK manual (500 us)
+ACK_TIMEOUT_S = 0.2        # <<< tiempo máx esperando ACK manual (500 us)
 MAX_ATTEMPTS  = 3             # <<< reintentos por paquete (puedes ajustar)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -347,7 +347,8 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 tic = time.monotonic()
             
-            time.sleep(.1)
+            #time.sleep(.1)
+            time.sleep(.001)
 
         INFO('Connection timed-out')
         
