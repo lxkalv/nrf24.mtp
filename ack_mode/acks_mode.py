@@ -200,13 +200,9 @@ nrf.show_registers()
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def _send_ack_packet() -> None:
     ack = b"ACK"     
-
     nrf.unset_ce()
     nrf.send(ack)   
-
-
     # print(f"status: {"".join([str(bit) for bit in bytes(nrf.get_status())])}")
-
     nrf.wait_until_sent(timeout_ns = 100_000_000_000)              # block until TX done (radio goes back to RX)
 
 
