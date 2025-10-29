@@ -20,7 +20,7 @@ import sys
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.2        # <<< tiempo máx esperando ACK manual (500 us)
+ACK_TIMEOUT_S = 0.2           # <<< tiempo máx esperando ACK manual (500 us)
 MAX_ATTEMPTS  = 3             # <<< reintentos por paquete (puedes ajustar)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -280,13 +280,13 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 else:
                     ERROR(f"No manual ACK for packet #{idx}")
                     attempt += 1
-                    time.sleep(0.005)
+                    # time.sleep(0.005)
 
             if not sent_ok:
                 ERROR(f"Giving up packet #{idx} after {MAX_ATTEMPTS} attempts")
                 # break
 
-            time.sleep(0.2) 
+            # time.sleep(0.2) 
 
     finally:
         nrf.power_down()
@@ -348,8 +348,8 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 tic = time.monotonic()
             
-            #time.sleep(.1)
-            time.sleep(.001)
+            # time.sleep(.1)
+            # time.sleep(.001)
         PROCESS_STOP = time.monotonic()
 
 
