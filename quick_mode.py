@@ -7,6 +7,7 @@ from nrf24 import (
     RF24_RX_ADDR,
 )
 
+from pathlib import Path
 import pigpio
 import struct
 import time
@@ -44,11 +45,66 @@ def SUCC(message: str) -> None:
     print(f"\033[32m[SUCC]:\033[0m {message}")
 
 
+
 def ERROR(message: str) -> None:
     """
     Prints a message to the console with the red prefix `[~ERR]:`
     """
     print(f"\033[31m[~ERR]:\033[0m {message}")
+
+
+
+
+USB_MOUNT_PATH = Path("/media")
+def find_usb_txt_file() -> Path:
+    """
+    Searchs for all the txt files in the USB mount location and returs the path to
+    first one
+    """
+
+    possible_files: list[str] = []
+    usb_mount_point: Path | None = None
+
+    # analyze the subtree of the USB mount point
+    for path, dirs, files in USB_MOUNT_PATH.walk():
+        if path.is_mount():
+            INFO(f"""Found mount path: {path}
+        Directories: {", ".join(dirs)}
+        Files: {", ".join(files)}""")
+            possible_files  = files
+            usb_mount_point = path
+    
+
+    # filter out invalid files
+    possible_files = [
+        file
+        for file in possible_files
+        if not file.startswith(".")
+    and file.endswith(".txt")
+    ]
+    INFO(f"Detected valid files: {", ".join(possible_files)}")
+
+
+    # TODO: ask the teacher if the USB will only contain one file
+    # choose the first file
+    file = possible_files[0]
+    INFO(f"Selected file: {file}")
+
+    return usb_mount_point / file
+
+
+
+def find_usb_mount_point() -> Path:
+    usb_mount_point: Path | None = None
+
+    # analyze the subtree of the USB mount point
+    for path, _, _ in USB_MOUNT_PATH.walk():
+        if path.is_mount():
+            INFO(f"Found mount path: {path}")
+            usb_mount_point = path
+            break
+    
+    return usb_mount_point
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -191,12 +247,14 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     INFO('Starting transmission')
 
     try:
+        file_path = find_usb_txt_file()
+        
         # open the file to read
-        with open("lorem.txt", "rb") as file:
+        with open(file_path, "rb") as file:
             content = file.read()
 
         content_len = len(content)
-        INFO(f'Read {content_len} raw bytes read from file_to_send.txt: {content}')
+        INFO(f'Read {content_len} raw bytes read from {file_path}: {content}')
 
 
         # split the contents into chunks
@@ -297,15 +355,15 @@ def BEGIN_RECEIVER_MODE() -> None:
         INFO('Connection timed-out')
         
         
-        # INFO('Collected:')
-        # for chunk in chunks:
-        #     print(f"    {chunk}")
+        INFO('Collected:')
+        for chunk in chunks:
+            print(f"    {chunk}")
         
 
         content = bytes()
         for chunk in chunks:
             content += chunk
-        # INFO(f'Merged data: {content}')
+        INFO(f'Merged data: {content}')
         
 
         if len(content) == 0:
@@ -313,10 +371,14 @@ def BEGIN_RECEIVER_MODE() -> None:
             return
         
         
-        with open("file_received.txt", "wb") as f:
+        usb_mount_point = find_usb_mount_point()
+        file_path = usb_mount_point / "received_file.txt"
+        
+        with open(file_path, "wb") as f:
             f.write(content)
         content_len = len(content)
-        INFO(f'Saved {content_len} bytes to: file_received.txt')
+
+        INFO(f'Saved {content_len} bytes to: {file_path}')
         INFO(f'Computed throughput: {((content_len*8/1024) / (PROCESS_STOP - PROCESS_START - timeout)):.2f} Kbps')
 
     finally:
