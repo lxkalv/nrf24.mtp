@@ -20,7 +20,7 @@ import sys
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.2           # <<< tiempo máx esperando ACK manual (500 us)
+ACK_TIMEOUT_S = 500e-6        # <<< tiempo máx esperando ACK manual (500 us)
 MAX_ATTEMPTS  = 3             # <<< reintentos por paquete (puedes ajustar)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
