@@ -321,11 +321,15 @@ def BEGIN_RECEIVER_MODE() -> None:
         INFO(f'Timeout set to {timeout} seconds')
 
         chunks = []
+        started_timer = False
         while (tac - tic) < timeout:
             tac = time.monotonic()
 
             # check if there are frames
             while nrf.data_ready():
+                if not started_timer:
+                    PROCESS_START = time.monotonic()
+                    started_timer = True
 
                 payload_pipe = nrf.data_pipe()
 
@@ -346,6 +350,8 @@ def BEGIN_RECEIVER_MODE() -> None:
             
             #time.sleep(.1)
             time.sleep(.001)
+        PROCESS_STOP = time.monotonic()
+
 
         INFO('Connection timed-out')
         
@@ -370,6 +376,8 @@ def BEGIN_RECEIVER_MODE() -> None:
             f.write(content)
         content_len = len(content)
         SUCC(f'Saved {content_len} bytes to: file_received.txt')
+
+        INFO(f'Computed throughput: {((content_len*8/1024) / (PROCESS_STOP - PROCESS_START - timeout)):.2f} Kbps')
 
     finally:
         nrf.power_down()
