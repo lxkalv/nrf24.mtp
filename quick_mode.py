@@ -22,6 +22,8 @@ from enum import Enum
 
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN = 22
+
+USB_MOUNT_PATH = Path("/media")
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -29,24 +31,35 @@ CE_PIN = 22
 
 
 # :::: HELPER FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+def RED(message: str) -> str:
+    """
+    Returns a copy of the string wrapped in ANSI scape sequences to make it red
+    """
+    return f"\033[31m{message}\033[0m"
+
+
+
+def GREEN(message: str) -> str:
+    """
+    Returns a copy of the string wrapped in ANSI scape sequences to make it green
+    """
+    return f"\033[32m{message}\033[0m"
+
+
+
 def YELLOW(message: str) -> str:
+    """
+    Returns a copy of the string wrapped in ANSI scape sequences to make it yellow
+    """
     return f"\033[33m{message}\033[0m"
 
 
 
-def INFO(message: str) -> None:
+def BLUE(message: str) -> str:
     """
-    Prints a message to the console with the blue prefix `[INFO]:`
+    Returns a copy of the string wrapped in ANSI scape sequences to make it blue
     """
-    print(f"\033[34m[INFO]:\033[0m {message}")
-
-
-
-def SUCC(message: str) -> None:
-    """
-    Prints a message to the console with the green prefix `[SUCC]:`
-    """
-    print(f"\033[32m[SUCC]:\033[0m {message}")
+    return f"\033[34m{message}\033[0m"
 
 
 
@@ -54,12 +67,34 @@ def ERROR(message: str) -> None:
     """
     Prints a message to the console with the red prefix `[~ERR]:`
     """
-    print(f"\033[31m[~ERR]:\033[0m {message}")
+    print(f"{RED('[~ERR]:')} {message}")
 
 
 
+def SUCC(message: str) -> None:
+    """
+    Prints a message to the console with the green prefix `[SUCC]:`
+    """
+    print(f"{GREEN('[SUCC]:')} {message}")
 
-USB_MOUNT_PATH = Path("/media")
+
+
+def WARN(message: str) -> None:
+    """
+    Prints a message to the console with the yellow prefix `[WARN]:`
+    """
+    print(f"{YELLOW('[WARN]:')} {message}")
+
+
+
+def INFO(message: str) -> None:
+    """
+    Prints a message to the console with the blue prefix `[INFO]:`
+    """
+    print(f"{BLUE('[INFO]:')} {message}")
+
+
+
 def find_usb_txt_file() -> Path:
     """
     Searchs for all the txt files in the USB mount location and returs the path to
@@ -137,25 +172,26 @@ def choose_node_role() -> Role:
         
         try:
             val = val.upper()
-
-            if val == "T":
-                INFO(f'Device set to {Role.TRANSMITTER} role')
-                return Role.TRANSMITTER
-                
-            elif val == "R":
-                INFO(f'Device set to {Role.RECEIVER} role')
-                return Role.RECEIVER
-
-            elif val == "C":
-                INFO(f'Device set to {Role.CARRIER} role')
-                return Role.CARRIER
-            
-            elif val == "Q":
-                INFO('Quitting program...')
-                return Role.QUIT
-
         except:
             continue
+
+        if val == "T":
+            INFO(f"Device set to {Role.TRANSMITTER} role")
+            return Role.TRANSMITTER
+            
+        elif val == "R":
+            INFO(f"Device set to {Role.RECEIVER} role")
+            return Role.RECEIVER
+
+        elif val == "C":
+            INFO(f"Device set to {Role.CARRIER} role")
+            return Role.CARRIER
+        
+        elif val == "Q":
+            INFO("Quitting program...")
+            return Role.QUIT
+
+        
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -237,10 +273,22 @@ def choose_address_based_on_role(role: Role, nrf: NRF24) -> None:
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def BEGIN_TRANSMITTER_MODE() -> None:
     """
-    Transmits the first txt file found in the mounted USB
+    Transmits the first txt file found in the mounted USB, the flow of the TX MODE
+    is the following:
+    
+    1. An appropiate file is selected from all the candidate files found in the
+    mounted USB. The content of the file is extracted as raw bytes
+
+    2. The bytes are splitted into chunks of size `payload_size` and then packed
+    for future transmission
+
+    3. An information message is sent containing the number of frames that the
+    receiver should expect
+
+    4. The rest of the frames are sent in a stop & wait fashion
     """
 
-    INFO('Starting transmission')
+    INFO("Starting transmission")
 
     try:
         file_path = find_usb_txt_file()
@@ -250,7 +298,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             content = file.read()
 
         content_len = len(content)
-        INFO(f'Read {content_len} raw bytes read from {file_path}: {content}')
+        INFO(f"Read {content_len} raw bytes read from {file_path}")
 
 
         # split the contents into chunks
@@ -267,15 +315,25 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             packets.append(struct.pack(f"<{nrf.get_payload_size()}s", chunk))
 
 
+        # send and information message containing the expected number of frames
+        frame = struct.pack("i", chunks_len)
+
+        nrf.reset_packages_lost()
+        nrf.send(frame)
+
+        try:
+            nrf.wait_until_sent()
+            SUCC("Header sent successfully")
+        except TimeoutError:
+            ERROR("Timeout while sending header")
+
+
+        # send the rest of the frames
         for idx in range(chunks_len):
-            INFO(f"Sending packet: {chunks[idx]} --> {packets[idx]}")
+            INFO(f"Sending packet: {chunks[idx]} -> {packets[idx]}")
 
-            # reset the packages that we have lost
             nrf.reset_packages_lost()
-
-            
             nrf.send(packets[idx])
-
 
             try:
                 tic = time.monotonic_ns()
@@ -285,12 +343,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 ERROR("Timeout while transmitting")
 
             if nrf.get_packages_lost() == 0:
-                SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {nrf.get_retries()}")
+                SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {nrf.get_retries()} retries")
 
             else:
                 ERROR(f"Lost packet after {nrf.get_retries()} retries")
-
-            # time.sleep(1) # wait for one second because why not
     
     finally:
         nrf.power_down()
@@ -310,73 +366,110 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 def BEGIN_RECEIVER_MODE() -> None:
     """
     Receives multiple frames from a transmitter and reassembles the blocks into a
-    txt file
+    `txt` file, the location of the `txt` depends on if there is a mounted USB or
+    not. The flow of the RX MODE is the following:
+
+    1. Start the timer that will interrupt the receiving process if there has not
+    been any frame for `timeout` seconds
+
+    2. Start listening the channel for frames. The first frame is treated
+    differently as it contains the number of frames that the receiver will expect
+
+    3. Start listening for the regular data frames
+
+    4. After all the frames has been received (or connection has timed-out), we
+    merge the payloads into one chunk of data and store it in the mounted USB. If
+    there is no mounted USB then the file is stored in memory
     """
 
-    INFO('Starting reception')
+    INFO("Starting reception")
 
     try:
         # start the timers
         tic     = time.monotonic()
         tac     = time.monotonic()
         timeout = 5
-        INFO(f'Timeout set to {timeout} seconds')
+        INFO(f"Timeout set to {timeout} seconds")
 
+
+        # list that will contain all the received chunks
         chunks = []
 
-        
-        started_timer = False
-        while (tac - tic) < timeout:
+
+        # wait for the first frame of the communication containing the expected number
+        # of frames and extract its contents
+        INFO("Waiting for header packet...")
+        while not nrf.data_ready():
+            pass
+
+        header_packet = nrf.get_payload()
+        total_chunks  = struct.unpack("i", header_packet[:4])[0] # NOTE: the default size of an int is 4 bytes
+        SUCC(f"Header received: expecting {total_chunks} chunks")
+
+
+        # start listening for frames
+        received_chunks   = 0  # NOTE: not the ID
+        timer_has_started = False
+
+        while received_chunks < total_chunks and (tac - tic) < timeout:
             tac = time.monotonic()
 
             # check if there are frames
             while nrf.data_ready():
-                if not started_timer:
-                    PROCESS_START = time.monotonic()
-                    started_timer = True
 
-                payload_pipe = nrf.data_pipe()
+                if not timer_has_started:
+                    throughput_tic = time.monotonic()
+                    timer_has_started = True
 
                 packet = nrf.get_payload()
 
-                chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
+                chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
+
+
+                # remove the padding null bytes, NOTE: this will not be necessary while using dynamic payload lenghts
                 chunk = chunk.rstrip(b"\x00")
                 chunks.append(chunk)
                 
-                SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
+                SUCC(f"Received chunk ({received_chunks}/{total_chunks})")
             
                 tic = time.monotonic()
             
-        PROCESS_STOP = time.monotonic()
+        throughput_tac = time.monotonic()
 
-        INFO('Connection timed-out')
-        
-        
-        INFO('Collected:')
-        for chunk in chunks:
-            print(f"    {chunk}")
-        
 
-        content = bytes()
-        for chunk in chunks:
-            content += chunk
-        INFO(f'Merged data: {content}')
+        if received_chunks == total_chunks:
+            SUCC("All chunks received")
+        else:
+            WARN("Connection timed-out")
         
 
         if len(content) == 0:
-            ERROR('Did not receive anything')
+            ERROR("Did not receive anything")
             return
         
+
+        # merge all the received bytes
+        content = bytes()
+        for chunk in chunks:
+            content += chunk
         
+        
+        # get the location where the file is going to be stored
         usb_mount_point = find_usb_mount_point()
-        file_path = usb_mount_point / "received_file.txt"
+
+        if usb_mount_point:
+            file_path = usb_mount_point / "received_file.txt"
+        else:
+            file_path = "received_file.txt"
         
+
+        # store the file
         with open(file_path, "wb") as f:
             f.write(content)
         content_len = len(content)
 
-        INFO(f'Saved {content_len} bytes to: {file_path}')
-        INFO(f'Computed throughput: {((content_len*8/1024) / (PROCESS_STOP - PROCESS_START - timeout)):.2f} Kbps')
+        INFO(f"Saved {content_len} bytes to: {file_path}")
+        INFO(f"Computed throughput: {((content_len * 8 / 1024) / (throughput_tac - throughput_tic - timeout)):.2f} Kbps")
 
     finally:
         nrf.power_down()
