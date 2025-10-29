@@ -344,6 +344,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 packet = nrf.get_payload()
 
                 chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
+                chunk.rstrip(b"\x00")
                 chunks.append(chunk)
                 
                 SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
