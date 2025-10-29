@@ -12,6 +12,8 @@ import pigpio
 import struct
 import time
 import sys
+
+from enum import Enum
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -19,10 +21,7 @@ import sys
 
 
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-CE_PIN  = 22
-
-PROCESS_START: float | None = None
-PROCESS_STOP: float | None = None
+CE_PIN = 22
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -30,6 +29,11 @@ PROCESS_STOP: float | None = None
 
 
 # :::: HELPER FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+def YELLOW(message: str) -> str:
+    return f"\033[33m{message}\033[0m"
+
+
+
 def INFO(message: str) -> None:
     """
     Prints a message to the console with the blue prefix `[INFO]:`
@@ -111,40 +115,47 @@ def find_usb_mount_point() -> Path:
 
 
 
-# :::: ROLE CONFIG  :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-role = ""
+# :::: NODE CONFIG  :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+class Role(Enum):
+    TRANSMITTER = "TRANSMITTER"
+    RECEIVER    = "RECEIVER"
+    CARRIER     = "CARRIER"
+    QUIT        = "QUIT"
 
-option_is_valid = False
-while not option_is_valid:
-    val = input("\033[33m[>>>>]:\033[0m Please choose a role for this device [T]ransmitter, [R]eceiver, [C]arrier, [Q]uit: ")
-    try:
-        val = val.upper()
+    def __str__(self: "Role") -> str:
+        return self.value
 
-        if val == "T":
-            INFO('Device set to TRANSMITTER role')
-            role = "T"
-            option_is_valid = True
-        
-        elif val == "R":
-            INFO('Device set to RECEIVER role')
-            role = "R"
-            option_is_valid = True
 
-        elif val == "C":
-            INFO('Device set to CONSTANT CARRIER role')
-            role = "C"
-            option_is_valid = True
+
+def choose_node_role() -> Role:
+    """
+    Function to choose the role of the current node
+    """
+
+    while True:
+        val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver, [C]arrier, [Q]uit: ")
         
-        elif val == "Q":
-            INFO('Quitting program...')
-            role = "Q"
-            option_is_valid = True
-        
-        else:
+        try:
+            val = val.upper()
+
+            if val == "T":
+                INFO(f'Device set to {Role.TRANSMITTER} role')
+                return Role.TRANSMITTER
+                
+            elif val == "R":
+                INFO(f'Device set to {Role.RECEIVER} role')
+                return Role.RECEIVER
+
+            elif val == "C":
+                INFO(f'Device set to {Role.CARRIER} role')
+                return Role.CARRIER
+            
+            elif val == "Q":
+                INFO('Quitting program...')
+                return Role.QUIT
+
+        except:
             continue
-
-    except:
-        continue
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -194,46 +205,31 @@ nrf.set_retransmission(1, 15)
 
 # Tx/Rx addresses
 nrf.set_address_bytes(4) # [2 - 5] Bytes
-possible_addreses = [b"TAN1", b"TAN2"] # Team A Node X 
-address = ""
-
-
-address_is_valid = False
-while not address_is_valid:
-    val = input("\033[33m[>>>>]:\033[0m Please choose a value for the address [0: TAN1, 1: TAN2]: ")
-    try:
-        val = int(val)
-
-        if val == 0:
-            INFO(f'Address set to {possible_addreses[0]}')
-            address_is_valid = True
-
-            if role == "T":
-                nrf.open_writing_pipe(possible_addreses[1])
-            
-            elif role == "R":
-                nrf.open_reading_pipe(RF24_RX_ADDR.P1, possible_addreses[0])
-
-        if val == 1:
-            INFO(f'Address set to {possible_addreses[1]}')
-            address_is_valid = True
-
-            if role == "T":
-                nrf.open_writing_pipe(possible_addreses[0])
-            
-            elif role == "R":
-                nrf.open_reading_pipe(RF24_RX_ADDR.P1, possible_addreses[1])
-        
-        else:
-            continue
-
-    except:
-        continue
 
 
 # status visualization
 INFO(f"Radio details:")
 nrf.show_registers()
+
+
+
+def choose_address_based_on_role(role: Role, nrf: NRF24) -> None:
+    """
+    Choose the address of the current node based on the role that it has been
+    assigned
+    """
+    
+    if role is Role.TRANSMITTER:
+        nrf.open_writing_pipe(b"TAN1")
+        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN0")
+        INFO("Writing @: TAN1 | Reading @; TAN0")
+    
+    elif role is Role.RECEIVER:
+        nrf.open_writing_pipe(b"TAN0")
+        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN1")
+        INFO("Writing @: TAN0 | Reading @; TAN1")
+
+    return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -412,22 +408,22 @@ def BEGIN_CONSTANT_CARRIER_MODE() -> None:
 
 # :::: MAIN :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def main():
-    match role:
-        case "T":
-            BEGIN_TRANSMITTER_MODE()
-            return
+    """
+    Main flow of the application
+    """
+
+    role = choose_node_role()
+    choose_address_based_on_role(role, nrf)
+
+    if role is Role.TRANSMITTER:
+        BEGIN_TRANSMITTER_MODE()
+    
+    elif role is Role.RECEIVER:
+        BEGIN_RECEIVER_MODE()
         
-        case "R":
-            BEGIN_RECEIVER_MODE()
-            return
-        
-        case "C":
-            BEGIN_CONSTANT_CARRIER_MODE()
-            return
-        
-        case "Q":
-            return
-        
+    elif role is Role.CARRIER:
+        BEGIN_CONSTANT_CARRIER_MODE()
+
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
