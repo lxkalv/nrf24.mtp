@@ -428,11 +428,12 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
 
-
                 # remove the padding null bytes, NOTE: this will not be necessary while using dynamic payload lenghts
                 chunk = chunk.rstrip(b"\x00")
                 chunks.append(chunk)
                 
+
+                received_chunks += 1
                 SUCC(f"Received chunk ({received_chunks}/{total_chunks})")
             
                 tic = time.monotonic()
