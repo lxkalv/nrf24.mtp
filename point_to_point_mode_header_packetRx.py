@@ -198,6 +198,17 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         chunks_len = len(chunks)
         # INFO(f'Generated {chunks_len} chunks of {nrf.payload_size} bytes: {chunks}')
 
+        # header packet encoded on 4 octets (total of chunks)
+        # chuncks_len = chunk_ID + 1
+        header_packet = struct.pack('i',chunks_len)
+        INFO(f"Sending header (total chunks): {chunks_len}")
+        INFO(f'Header packet: {header_packet}')
+        nrf.send(header_packet)
+        try:
+            nrf.wait_until_sent()
+            SUCC("Header sent successfully")
+        except TimeoutError:
+            ERROR("Timeout while sending header")
 
         # store the encoded bytes
         packets = []
@@ -258,8 +269,20 @@ def BEGIN_RECEIVER_MODE() -> None:
         timeout = 20
         INFO(f'Timeout set to {timeout} seconds')
 
+        # 1st packet = header (total of chuncks)
+        INFO("Waiting for header packet...")
+        while not nrf.data_ready():
+            pass
+
+        header_packet = nrf.get_payload()
+        total_chunks = struct.unpack("i", header_packet[:4])[0]
+        SUCC(f"Header received: expecting {total_chunks} chunks")
+
+        # Recieving chunks
+        received_chunks = 0         # not the ID
+
         chunks = []
-        while (tac - tic) < timeout:
+        while (received_chunks < total_chunks) and ((tac - tic) < timeout):
             tac = time.monotonic()
 
             # check if there are frames
@@ -271,11 +294,18 @@ def BEGIN_RECEIVER_MODE() -> None:
                 chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
                 chunks.append(chunk)
                 
+                received_chunks += 1
+                
                 SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
-            
+                SUCC(f"Received chunk {received_chunks}/{total_chunks}")
+
             tic = time.monotonic()
 
-        INFO('Connection timed-out')
+        INFO('All chunks recieved or Connection timed-out')
+        if received_chunks == total_chunks :
+            INFO('All chunks recieved')
+        else :
+            INFO("Timed out")
         
         
         INFO('Collected:')
