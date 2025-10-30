@@ -335,11 +335,13 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         for idx in range(chunks_len):
             INFO(f"Sending packet: {chunks[idx]} -> {packets[idx]}")
 
-            nrf.reset_packages_lost()
+            
             num_retries = 0
             
             tic = time.monotonic_ns()
             while True:
+                
+                nrf.reset_packages_lost()
                 nrf.send(packets[idx])
 
                 try:
