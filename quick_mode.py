@@ -23,6 +23,8 @@ from enum import Enum
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN = 22
 
+RECEIVER_TIMEOUT_S = 20
+
 USB_MOUNT_PATH = Path("/media")
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -193,8 +195,6 @@ def choose_node_role() -> Role:
         elif val == "Q":
             INFO("Quitting program...")
             return Role.QUIT
-
-        
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -239,7 +239,7 @@ payload:list[bytes] = []
 
 
 # auto-retries
-nrf.set_retransmission(1, 15)
+nrf.set_retransmission(0, 0)
 
 
 # Tx/Rx addresses
@@ -336,21 +336,29 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             INFO(f"Sending packet: {chunks[idx]} -> {packets[idx]}")
 
             nrf.reset_packages_lost()
-            nrf.send(packets[idx])
+            num_retries = 0
+            
+            tic = time.monotonic_ns()
+            while True:
+                nrf.send(packets[idx])
 
-            try:
-                tic = time.monotonic_ns()
-                nrf.wait_until_sent()
-                tac = time.monotonic_ns()
-            except TimeoutError:
-                ERROR("Timeout while transmitting")
+                try:
+                    nrf.wait_until_sent()
+                    
+                except TimeoutError:
+                    ERROR("Timeout while transmitting")
 
-            if nrf.get_packages_lost() == 0:
-                SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {nrf.get_retries()} retries")
+                if nrf.get_packages_lost() == 0:
+                    tac = time.monotonic_ns()
+                    SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {num_retries} retries")
+                    break
 
-            else:
-                ERROR(f"Lost packet after {nrf.get_retries()} retries")
+                else:
+                    num_retries += 1
     
+    except KeyboardInterrupt:
+        ERROR("Process interrupted by user")
+
     finally:
         nrf.power_down()
         pi.stop()
@@ -385,16 +393,9 @@ def BEGIN_RECEIVER_MODE() -> None:
     there is no mounted USB then the file is stored in memory
     """
 
-    INFO("Starting reception")
+    INFO(f"Starting reception: {RECEIVER_TIMEOUT_S} seconds time-out")
 
     try:
-        # start the timers
-        tic     = time.monotonic()
-        tac     = time.monotonic()
-        timeout = 5
-        INFO(f"Timeout set to {timeout} seconds")
-
-
         # list that will contain all the received chunks
         chunks = []
 
@@ -414,7 +415,9 @@ def BEGIN_RECEIVER_MODE() -> None:
         received_chunks   = 0  # NOTE: not the ID
         timer_has_started = False
 
-        while received_chunks < total_chunks and (tac - tic) < timeout:
+        tic     = time.monotonic()
+        tac     = time.monotonic()
+        while received_chunks < total_chunks and (tac - tic) < RECEIVER_TIMEOUT_S:
             tac = time.monotonic()
 
             # check if there are frames
@@ -475,9 +478,12 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         INFO(f"Saved {content_len} bytes to: {file_path}")
 
-        total_time = throughput_tac - throughput_tic - timeout
-        INFO(f"Process took: {(throughput_tac - throughput_tic):.2f} - {timeout:.2f} = {total_time:.2f} seconds")
+        total_time = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
+        INFO(f"Process took: {(throughput_tac - throughput_tic):.2f} - {RECEIVER_TIMEOUT_S:.2f} = {total_time:.2f} seconds")
         INFO(f"Computed throughput: {(content_len * 8 / 1024)} Kb / {total_time} s = {((content_len * 8 / 1024) / total_time):.2f} Kbps")
+    
+    except KeyboardInterrupt:
+        ERROR("Process interrupted by user")
 
     finally:
         nrf.power_down()
