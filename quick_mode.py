@@ -485,7 +485,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
 
                 # compute the average througput every 1000 packets
-                if received_chunks % 1000:
+                if (received_chunks % 1_000) == 0:
                     average_througput = (received_chunks * 32) / 1024 / (tic - throughput_tic)
                 
 
