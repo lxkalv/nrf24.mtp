@@ -262,6 +262,8 @@ def BEGIN_RECEIVER_MODE() -> None:
 
     INFO('Starting reception')
 
+    PACK_SIZE = 3  # number of chunks per packet
+
     try:
         # start the timers
         tic     = time.monotonic()
@@ -277,6 +279,13 @@ def BEGIN_RECEIVER_MODE() -> None:
         header_packet = nrf.get_payload()
         total_chunks = struct.unpack("i", header_packet[:4])[0]
         SUCC(f"Header received: expecting {total_chunks} chunks")
+
+        # Calculate number of packets
+        total_packets = total_chunks // PACK_SIZE
+        remaining_chunks = total_chunks % PACK_SIZE
+        if remaining_chunks > 0:
+            total_packets += 1
+        INFO(f"Total packets = {total_packets}, Packet size = {PACK_SIZE} chunks, last packet has {remaining_chunks} chunks")
 
         # Recieving chunks
         received_chunks = 0         # not the ID
