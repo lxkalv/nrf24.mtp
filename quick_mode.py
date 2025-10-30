@@ -462,8 +462,9 @@ def BEGIN_RECEIVER_MODE() -> None:
         received_chunks   = 0  # NOTE: not the ID
         timer_has_started = False
 
-        tic     = time.monotonic()
-        tac     = time.monotonic()
+        tic = time.monotonic()
+        tac = time.monotonic()
+        average_througput = 0
         while received_chunks < total_chunks and (tac - tic) < RECEIVER_TIMEOUT_S:
             tac = time.monotonic()
 
@@ -481,12 +482,17 @@ def BEGIN_RECEIVER_MODE() -> None:
                 # remove the padding null bytes, NOTE: this will not be necessary while using dynamic payload lenghts
                 chunk = chunk.rstrip(b"\x00")
                 chunks.append(chunk)
+
+
+                # compute the average througput every 1000 packets
+                if received_chunks % 1000:
+                    average_througput = (received_chunks * 32) / 1024 / (tic - throughput_tic)
                 
 
                 received_chunks += 1
                 progress_bar(
-                    active_msg     = f"Receiving chunks    | throughput: {(received_chunks/1024 / (tic - throughput_tic)):.2f} KBps",
-                    finished_msg   = f"All chunks received | throughput: {(received_chunks/1024 / (tic - throughput_tic)):.2f} KBps",
+                    active_msg     = f"Receiving chunks    | av. througput: {average_througput:.2f}",
+                    finished_msg   = f"All chunks received | av. througput: {average_througput:.2f}",
                     current_status = received_chunks,
                     max_status     = total_chunks,
                 )
