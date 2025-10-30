@@ -485,8 +485,8 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 received_chunks += 1
                 progress_bar(
-                    active_msg     = "Receiving chunks",
-                    finished_msg   = "All chunks received",
+                    active_msg     = f"Receiving chunks    | throughput: {(len(chunks)/1024 / (tac - throughput_tic)):.2f} KBps",
+                    finished_msg   = f"All chunks received | throughput: {(len(chunks)/1024 / (tac - throughput_tic)):.2f} KBps",
                     current_status = received_chunks,
                     max_status     = total_chunks,
                 )
