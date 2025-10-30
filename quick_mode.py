@@ -340,7 +340,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             
             tic = time.monotonic_ns()
             while True:
-                
+
                 nrf.reset_packages_lost()
                 nrf.send(packets[idx])
 
@@ -357,7 +357,9 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
                 else:
                     num_retries += 1
-    
+
+        SUCC("All frames sent")
+        
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
 
