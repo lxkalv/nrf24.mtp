@@ -112,6 +112,9 @@ def find_usb_txt_file() -> Path:
         Files: {", ".join(files)}""")
             possible_files  = files
             usb_mount_point = path
+
+    if usb_mount_point is None:
+        return Path("lorem.txt")
     
 
     # filter out invalid files
