@@ -282,7 +282,7 @@ payload:list[bytes] = []
 
 
 # auto-retries
-nrf.set_retransmission(0, 0)
+nrf.set_retransmission(1, 15)
 
 
 # Tx/Rx addresses
@@ -376,13 +376,20 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         # send the rest of the frames
         for idx in range(chunks_len):
-            INFO(f"Sending packet: {chunks[idx]} -> {packets[idx]}")
+            # INFO(f"Sending packet: {chunks[idx]} -> {packets[idx]}")
 
             
             num_retries = 0
             
-            tic = time.monotonic_ns()
+            # tic = time.monotonic_ns()
             while True:
+
+                progress_bar(
+                    active_msg     = f"Sending frame {idx}, retries {num_retries}",
+                    finished_msg   = f"All frames sent",
+                    current_status = idx,
+                    max_status     = chunks_len,
+                )
 
                 nrf.reset_packages_lost()
                 nrf.send(packets[idx])
@@ -394,14 +401,14 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     ERROR("Timeout while transmitting")
 
                 if nrf.get_packages_lost() == 0:
-                    tac = time.monotonic_ns()
-                    SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {num_retries} retries")
+                    # tac = time.monotonic_ns()
+                    # SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {num_retries} retries")
                     break
 
                 else:
-                    num_retries += 1
+                    num_retries += nrf.get_retries()
 
-        SUCC("All frames sent")
+        # SUCC("All frames sent")
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
