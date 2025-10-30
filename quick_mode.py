@@ -387,7 +387,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 progress_bar(
                     active_msg     = f"Sending frame {idx}, retries {num_retries}",
                     finished_msg   = f"All frames sent",
-                    current_status = idx,
+                    current_status = idx + 1,
                     max_status     = chunks_len,
                 )
 
@@ -406,6 +406,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     break
 
                 else:
+                    ERROR(f"Lost packet {idx}, retrying...")
                     num_retries += nrf.get_retries()
 
         # SUCC("All frames sent")
@@ -501,6 +502,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 tic = time.monotonic()
             
         throughput_tac = time.monotonic()
+        total_time     = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
 
 
         if received_chunks != total_chunks:
@@ -535,9 +537,9 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         INFO(f"Saved {content_len} bytes to: {file_path}")
 
-        total_time = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
-        INFO(f"Process took: {(throughput_tac - throughput_tic):.2f} - {RECEIVER_TIMEOUT_S:.2f} = {total_time:.2f} seconds")
-        INFO(f"Computed throughput: {(content_len / 1024)} KB / {total_time} s = {((content_len / 1024) / total_time):.2f} KBps")
+        
+        
+        INFO(f"Computed throughput: {((content_len / 1024) / total_time):.2f} KBps")
     
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
