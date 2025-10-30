@@ -221,7 +221,7 @@ nrf.set_channel(76)
 
 
 # data rate
-nrf.set_data_rate(RF24_DATA_RATE.RATE_1MBPS)
+nrf.set_data_rate(RF24_DATA_RATE.RATE_2MBPS)
 
 
 # Tx/Rx power
@@ -453,6 +453,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         
 
         # merge all the received bytes
+        INFO("Constructing file...")
         content = bytes()
         for chunk in chunks:
             content += chunk
@@ -473,7 +474,10 @@ def BEGIN_RECEIVER_MODE() -> None:
         content_len = len(content)
 
         INFO(f"Saved {content_len} bytes to: {file_path}")
-        INFO(f"Computed throughput: {((content_len * 8 / 1024) / (throughput_tac - throughput_tic - timeout)):.2f} Kbps")
+
+        total_time = throughput_tac - throughput_tic - timeout
+        INFO(f"Process took: {(throughput_tac - throughput_tic):.2f} - {timeout:.2f} = {total_time:.2f} seconds")
+        INFO(f"Computed throughput: {(content_len * 8 / 1024)} Kb / {total_time} s = {((content_len * 8 / 1024) / total_time):.2f} Kbps")
 
     finally:
         nrf.power_down()
