@@ -262,7 +262,8 @@ def BEGIN_RECEIVER_MODE() -> None:
 
     INFO('Starting reception')
 
-    PACK_SIZE = 3  # number of chunks per packet
+    WINDOW_SIZE = 3  # number of chunks per packet
+    DATA_BYTES = 31        # Number of data bytes per packet (matches transmitter)
 
     try:
         # start the timers
@@ -281,32 +282,80 @@ def BEGIN_RECEIVER_MODE() -> None:
         SUCC(f"Header received: expecting {total_chunks} chunks")
 
         # Calculate number of packets
-        total_packets = total_chunks // PACK_SIZE
-        remaining_chunks = total_chunks % PACK_SIZE
+        total_windows = total_chunks // WINDOW_SIZE
+        remaining_chunks = total_chunks % WINDOW_SIZE
         if remaining_chunks > 0:
-            total_packets += 1
-        INFO(f"Total packets = {total_packets}, Packet size = {PACK_SIZE} chunks, last packet has {remaining_chunks} chunks")
+            total_windows += 1
+        INFO(f"Total packets = {total_windows}, Packet size = {WINDOW_SIZE} chunks, last packet has {remaining_chunks} chunks")
 
         # Recieving chunks
         received_chunks = 0         # not the ID
-
+        current_window = total_windows
         chunks = []
-        while (received_chunks < total_chunks) and ((tac - tic) < timeout):
+        window_chunks = []
+        while (received_chunks < total_chunks) and ((tac - tic) < timeout) and (current_window > 0):
             tac = time.monotonic()
 
-            # check if there are frames
-            while nrf.data_ready():
-                payload_pipe = nrf.data_pipe()
-                
-                packet = nrf.get_payload()
+            if not nrf.data_ready():
+                time.sleep(0.01)
+                continue
 
-                chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
-                chunks.append(chunk)
+            # Retrieve packet from radio
+            packet = nrf.get_payload()
+            payload_pipe = nrf.data_pipe()
+            if not packet:
+                continue
+
+            seq_id, data = struct.unpack(f"<B{DATA_BYTES}s", packet)
+            data = data.rstrip(b"\x00")  # remove padding
+            window_chunks.append(data)
+            SUCC(f"Received seq_id={seq_id}")
+
+            # if (current_window>1 and remaining_chunks!=0) or ( remaining_chunks==0 and current_window>0):
+            if current_window > 1 or (current_window ==1 and remaining_chunks==0):
+                if len(window_chunks) == WINDOW_SIZE :
+                    chunks.extend(window_chunks)
+                    window_chunks.clear()
+                    SUCC("Window recieved succesfuly")
+                    received_chunks += WINDOW_SIZE
+                    current_window -= 1
+                    # _send_ack(seq_id)
+                    # INFO(f"Sent ACK for seq_id={seq_id}")
+                    SUCC(f"Received chunk {received_chunks}/{total_chunks}")
+                    INFO(f"Remaining packets : {current_window} / {total_windows}")
+                else:
+                    # ERROR(f"There are missing chunks in the window ({len(window_chunks)}/{WINDOW_SIZE})")
+                    # ERROR(f"Chunks : {window_chunks}")
+                    INFO(f"Waiting for window chunks ({len(window_chunks)}/{WINDOW_SIZE})")
+            else :
+                if len(window_chunks) == remaining_chunks:
+                    chunks.extend(window_chunks)
+                    window_chunks.clear()
+                    SUCC("Last window recieved succesfuly")
+                    received_chunks += remaining_chunks
+                    current_window -= 1
+                    # _send_ack(seq_id)
+                    # INFO(f"Sent ACK for seq_id={seq_id}")
+                    SUCC(f"Received chunk {received_chunks}/{total_chunks}")
+                    INFO(f"Remaining packets : {current_window} / {total_windows}")
+                else:
+                    # ERROR(f"There are missing chunks in the window ({len(window_chunks)}/{remaining_chunks})")
+                    # ERROR(f"Chunks : {window_chunks}")
+                    INFO(f"Waiting for last window chunks ({len(window_chunks)}/{remaining_chunks})")
+            
+            # check if there are frames
+            # while nrf.data_ready():
+            #     payload_pipe = nrf.data_pipe()
                 
-                received_chunks += 1
+            #     packet = nrf.get_payload()
+
+            #     chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # the struct.unpack method returs more things than just the data
+            #     chunks.append(chunk)
                 
-                SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
-                SUCC(f"Received chunk {received_chunks}/{total_chunks}")
+            #     received_chunks += 1
+                
+            #     SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
+            #     SUCC(f"Received chunk {received_chunks}/{total_chunks}")
 
             tic = time.monotonic()
 
