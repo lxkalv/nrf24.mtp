@@ -181,7 +181,7 @@ def find_usb_txt_file() -> Path:
 
 
 
-def find_usb_mount_point() -> Path:
+def find_usb_mount_point() -> Path | None:
     usb_mount_point: Path | None = None
 
     # analyze the subtree of the USB mount point
@@ -537,9 +537,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         INFO(f"Saved {content_len} bytes to: {file_path}")
 
-        
-        
-        INFO(f"Computed throughput: {((content_len / 1024) / total_time):.2f} KBps")
+        INFO(f"Process finished in {total_time:.2f} seconds | Computed throughput: {((content_len / 1024) / total_time):.2f} KBps")
     
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
