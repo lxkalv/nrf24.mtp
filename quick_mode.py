@@ -10,6 +10,7 @@ from nrf24 import (
 from pathlib import Path
 import pigpio
 import struct
+import shutil
 import time
 import sys
 
@@ -26,6 +27,9 @@ CE_PIN = 22
 RECEIVER_TIMEOUT_S = 20
 
 USB_MOUNT_PATH = Path("/media")
+
+spinner         = "⣾⣽⣻⢿⡿⣟⣯⣷"
+IDX_SPINNER     = [0]
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -65,35 +69,74 @@ def BLUE(message: str) -> str:
 
 
 
-def ERROR(message: str) -> None:
+def ERROR(message: str, end = "\n") -> None:
     """
     Prints a message to the console with the red prefix `[~ERR]:`
     """
-    print(f"{RED('[~ERR]:')} {message}")
+    print(f"{RED('[~ERR]:')} {message}", end = end)
 
 
 
-def SUCC(message: str) -> None:
+def SUCC(message: str, end = "\n") -> None:
     """
     Prints a message to the console with the green prefix `[SUCC]:`
     """
-    print(f"{GREEN('[SUCC]:')} {message}")
+    print(f"{GREEN('[SUCC]:')} {message}", end = end)
 
 
 
-def WARN(message: str) -> None:
+def WARN(message: str, end = "\n") -> None:
     """
     Prints a message to the console with the yellow prefix `[WARN]:`
     """
-    print(f"{YELLOW('[WARN]:')} {message}")
+    print(f"{YELLOW('[WARN]:')} {message}", end = end)
 
 
 
-def INFO(message: str) -> None:
+def INFO(message: str, end = "\n") -> None:
     """
     Prints a message to the console with the blue prefix `[INFO]:`
     """
-    print(f"{BLUE('[INFO]:')} {message}")
+    print(f"{BLUE('[INFO]:')} {message}", end = end)
+
+
+
+def reset_line() -> None:
+    """
+    Delete the last CMD line
+    """
+
+    print("\x1b[2K\r", end = "")
+    
+    return
+
+
+
+def progress_bar(active_msg: str, finished_msg: str, current_status: int, max_status: int) -> None:
+    """
+    Create a progress bar that gets updated everytime this function is called
+    """
+    
+    terminal_width  = shutil.get_terminal_size().columns
+    IDX_SPINNER[0] += 1
+    spin            = spinner[IDX_SPINNER[0] % len(spinner)]
+    progress        = f"({current_status}/{max_status}) {spin}"
+
+    if current_status < max_status:
+        progress = f"({current_status}/{max_status}) {spin}"
+
+        reset_line()
+        INFO(f"{active_msg} {progress.rjust(terminal_width - 8 - len(active_msg) - 2)}", end = "")
+        sys.stdout.flush()
+        
+    
+    else:
+        progress = f"({current_status}/{max_status}) █"
+
+        reset_line()
+        SUCC(f"{finished_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 2)}")
+    
+    return
 
 
 
@@ -359,7 +402,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     num_retries += 1
 
         SUCC("All frames sent")
-        
+
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
 
@@ -441,16 +484,19 @@ def BEGIN_RECEIVER_MODE() -> None:
                 
 
                 received_chunks += 1
-                SUCC(f"Received chunk ({received_chunks}/{total_chunks})")
+                progress_bar(
+                    active_msg     = "Receiving chunks",
+                    finished_msg   = "All chunks received",
+                    current_status = received_chunks,
+                    max_status     = total_chunks,
+                )
             
                 tic = time.monotonic()
             
         throughput_tac = time.monotonic()
 
 
-        if received_chunks == total_chunks:
-            SUCC("All chunks received")
-        else:
+        if received_chunks != total_chunks:
             WARN("Connection timed-out")
         
 
