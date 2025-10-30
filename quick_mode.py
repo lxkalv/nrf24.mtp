@@ -447,7 +447,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             WARN("Connection timed-out")
         
 
-        if len(content) == 0:
+        if len(chunks) == 0:
             ERROR("Did not receive anything")
             return
         
