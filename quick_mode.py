@@ -480,7 +480,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         total_time = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
         INFO(f"Process took: {(throughput_tac - throughput_tic):.2f} - {RECEIVER_TIMEOUT_S:.2f} = {total_time:.2f} seconds")
-        INFO(f"Computed throughput: {(content_len * 8 / 1024)} Kb / {total_time} s = {((content_len * 8 / 1024) / total_time):.2f} Kbps")
+        INFO(f"Computed throughput: {(content_len / 1024)} KB / {total_time} s = {((content_len / 1024) / total_time):.2f} KBps")
     
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
