@@ -277,7 +277,7 @@ nrf.set_crc_bytes(2)
 
 
 # global payload 
-nrf.set_payload_size(32) # [1 - 32] Bytes
+nrf.set_payload_size(0) # [1 - 32] Bytes, NOTE: 0 is dynamic
 payload:list[bytes] = []
 
 
@@ -487,7 +487,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
 
                 # remove the padding null bytes, NOTE: this will not be necessary while using dynamic payload lenghts
-                chunk = chunk.rstrip(b"\x00")
+                # hunk = chunk.rstrip(b"\x00")
                 chunks.append(chunk)
                 
 
