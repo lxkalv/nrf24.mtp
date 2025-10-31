@@ -470,6 +470,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         # start listening for frames
         received_chunks   = 0 # NOTE: not the ID
+        total_bytes       = 0
         timer_has_started = False
 
         tic = time.monotonic()
@@ -492,6 +493,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 # display the progress of the transmission
                 received_chunks += 1
+                total_bytes     += len(chunk)
 
                 if received_chunks % 100 == 0 or received_chunks == total_chunks:
                     progress_bar(
@@ -519,10 +521,10 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         # merge all the received bytes
         INFO("Constructing file...")
-        content = bytes()
+        content = bytes(total_bytes)
         
         for idx in range(chunks_len):
-            content += chunks[idx]
+            content[idx:idx + len(chunks[idx])] = chunks[idx]
 
             if idx % 100 == 0 or idx == chunks_len - 1:
                 progress_bar(
