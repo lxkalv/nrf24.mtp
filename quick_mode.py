@@ -30,6 +30,8 @@ USB_MOUNT_PATH = Path("/media")
 
 spinner         = "⣾⣽⣻⢿⡿⣟⣯⣷"
 IDX_SPINNER     = [0]
+
+DATA_SIZE       = 32
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -349,8 +351,8 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         # split the contents into chunks
         chunks = [
-            content[i:i+nrf.get_payload_size()]
-            for i in range(0, content_len, nrf.get_payload_size())
+            content[i:i+DATA_SIZE]
+            for i in range(0, content_len, DATA_SIZE)
         ]
         chunks_len = len(chunks)
 
@@ -358,7 +360,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         # store the encoded bytes
         packets = []
         for chunk in chunks:
-            packets.append(struct.pack(f"<{nrf.get_payload_size()}s", chunk))
+            packets.append(struct.pack(f"<{len(chunk)}s", chunk))
 
 
         # send and information message containing the expected number of frames
@@ -487,7 +489,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
 
                 # remove the padding null bytes, NOTE: this will not be necessary while using dynamic payload lenghts
-                # hunk = chunk.rstrip(b"\x00")
+                # chunk = chunk.rstrip(b"\x00")
                 chunks.append(chunk)
                 
 
