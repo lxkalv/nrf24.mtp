@@ -480,7 +480,6 @@ def BEGIN_RECEIVER_MODE() -> None:
                     timer_has_started = True
 
                 packet = nrf.get_payload()
-                INFO(f"Received {len(packet)} bytes: {packet}")
 
                 chunk = struct.unpack(f"<{len(packet)}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
                 chunks.append(chunk)
