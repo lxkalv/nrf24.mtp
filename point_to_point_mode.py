@@ -13,6 +13,9 @@ import struct
 import shutil
 import time
 import sys
+import os
+
+os.system("cls" if os.name == "nt" else "clear")
 
 from enum import Enum
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -585,7 +588,8 @@ def main():
     """
     Main flow of the application
     """
-
+    # clear the screen
+    print("\033c", end = "")
     role = choose_node_role()
     choose_address_based_on_role(role, nrf)
 
