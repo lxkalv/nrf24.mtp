@@ -486,7 +486,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 packet = nrf.get_payload()
 
-                chunk: str = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
+                chunk: str = struct.unpack(f"<{len(packet)}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
 
                 # remove the padding null bytes, NOTE: this will not be necessary while using dynamic payload lenghts
                 # chunk = chunk.rstrip(b"\x00")
