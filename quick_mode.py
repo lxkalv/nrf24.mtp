@@ -28,10 +28,10 @@ RECEIVER_TIMEOUT_S = 20
 
 USB_MOUNT_PATH = Path("/media")
 
-spinner         = "⣾⣽⣻⢿⡿⣟⣯⣷"
-IDX_SPINNER     = [0]
+spinner     = "⣾⣽⣻⢿⡿⣟⣯⣷"
+IDX_SPINNER = [0]
 
-DATA_SIZE       = 32
+DATA_SIZE = 32
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -257,6 +257,7 @@ if not pi.connected:
     ERROR("Not connected to Raspberry Pi, exiting")
     sys.exit(1)
 
+
 # radio object
 nrf = NRF24(pi, ce = CE_PIN)
 
@@ -280,7 +281,7 @@ nrf.set_crc_bytes(2)
 
 # global payload 
 nrf.set_payload_size(0) # [1 - 32] Bytes, NOTE: 0 is dynamic
-payload:list[bytes] = []
+PAYLOAD:list[bytes] = []
 
 
 # auto-retries
@@ -369,6 +370,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         nrf.reset_packages_lost()
         nrf.send(frame)
 
+        # TODO: maybe we should wrap this in an infinite loop
         try:
             nrf.wait_until_sent()
             SUCC("Header sent successfully")
@@ -378,14 +380,11 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         # send the rest of the frames
         for idx in range(chunks_len):
-            # INFO(f"Sending packet: {chunks[idx]} -> {packets[idx]}")
 
-            
             num_retries = 0
             
-            # tic = time.monotonic_ns()
+            # NOTE: we try to send the same frame until it gets sent correctly
             while True:
-
                 progress_bar(
                     active_msg     = f"Sending frame {idx}, retries {num_retries}",
                     finished_msg   = f"All frames sent",
@@ -403,15 +402,11 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     ERROR("Timeout while transmitting")
 
                 if nrf.get_packages_lost() == 0:
-                    # tac = time.monotonic_ns()
-                    # SUCC(f"Frame sent in {(tac - tic)/1000:.2f} us and {num_retries} retries")
                     break
 
                 else:
                     ERROR(f"Lost packet {idx}, retrying...")
                     num_retries += nrf.get_retries()
-
-        # SUCC("All frames sent")
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
@@ -454,7 +449,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
     try:
         # list that will contain all the received chunks
-        chunks = []
+        chunks:list[str] = []
 
 
         # wait for the first frame of the communication containing the expected number
@@ -469,7 +464,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
 
         # start listening for frames
-        received_chunks   = 0  # NOTE: not the ID
+        received_chunks   = 0 # NOTE: not the ID
         timer_has_started = False
 
         tic = time.monotonic()
@@ -487,13 +482,11 @@ def BEGIN_RECEIVER_MODE() -> None:
                 packet = nrf.get_payload()
                 INFO(f"Received {len(packet)} bytes: {packet}")
 
-                chunk: str = struct.unpack(f"<{len(packet)}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
-                INFO(f"Received {len(chunk)} bytes: {chunk}")
-                # remove the padding null bytes, NOTE: this will not be necessary while using dynamic payload lenghts
-                # chunk = chunk.rstrip(b"\x00")
+                chunk = struct.unpack(f"<{len(packet)}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
                 chunks.append(chunk)
                 
 
+                # display the progress of the transmission
                 received_chunks += 1
                 progress_bar(
                     active_msg     = f"Receiving chunks",
@@ -506,13 +499,14 @@ def BEGIN_RECEIVER_MODE() -> None:
             
         throughput_tac = time.monotonic()
         total_time     = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
+        chunks_len     = len(chunks)
 
 
         if received_chunks != total_chunks:
             WARN("Connection timed-out")
         
 
-        if len(chunks) == 0:
+        if chunks_len == 0:
             ERROR("Did not receive anything")
             return
         
@@ -520,8 +514,16 @@ def BEGIN_RECEIVER_MODE() -> None:
         # merge all the received bytes
         INFO("Constructing file...")
         content = bytes()
-        for chunk in chunks:
-            content += chunk
+        
+        for idx in range(chunks_len):
+            content += chunks[idx]
+
+            progress_bar(
+                active_msg     = "Contructing file",
+                finished_msg   = "File constructed successfully",
+                current_status = idx + 1,
+                max_status     = chunks_len
+            )
         
         
         # get the location where the file is going to be stored
@@ -537,9 +539,10 @@ def BEGIN_RECEIVER_MODE() -> None:
         with open(file_path, "wb") as f:
             f.write(content)
         content_len = len(content)
-
         INFO(f"Saved {content_len} bytes to: {file_path}")
+        
 
+        # show a last information message with the througput
         INFO(f"Process finished in {total_time:.2f} seconds | Computed throughput: {((content_len / 1024) / total_time):.2f} KBps")
     
     except KeyboardInterrupt:
