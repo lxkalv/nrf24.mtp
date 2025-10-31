@@ -521,18 +521,15 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         # merge all the received bytes
         INFO("Constructing file...")
-        content = bytes(total_bytes)
-        
-        for idx in range(chunks_len):
-            content[idx:idx + len(chunks[idx])] = chunks[idx]
+        content = b"".join(chunks)
 
-            if idx % 100 == 0 or idx == chunks_len - 1:
-                progress_bar(
-                    active_msg     = "Contructing file",
-                    finished_msg   = "File constructed successfully",
-                    current_status = idx + 1,
-                    max_status     = chunks_len
-                )
+            # if idx % 100 == 0 or idx == chunks_len - 1:
+            #     progress_bar(
+            #         active_msg     = "Contructing file",
+            #         finished_msg   = "File constructed successfully",
+            #         current_status = idx + 1,
+            #         max_status     = chunks_len
+            #     )
         
         
         # get the location where the file is going to be stored
