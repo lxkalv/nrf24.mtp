@@ -1,5 +1,7 @@
 # :::: IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 from pathlib import Path
+import shutil
+import sys
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -61,6 +63,51 @@ def INFO(message: str, end = "\n") -> None:
     """
     print(f"{BLUE('[INFO]:')} {message}", end = end)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+
+
+
+
+# :::: PROGRESS FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+SPINNER     = "⣾⣽⣻⢿⡿⣟⣯⣷"
+IDX_SPINNER = [0]
+
+def reset_line() -> None:
+    """
+    Delete the last CMD line
+    """
+
+    print("\x1b[2K\r", end = "")
+    
+    return
+
+def progress_bar(active_msg: str, finished_msg: str, current_status: int, max_status: int) -> None:
+    """
+    Create a progress bar that gets updated everytime this function is called
+    """
+    
+    terminal_width  = shutil.get_terminal_size().columns
+    IDX_SPINNER[0] += 1
+    spin            = SPINNER[IDX_SPINNER[0] % len(SPINNER)]
+    progress        = f"({current_status}/{max_status}) {spin}"
+
+    if current_status < max_status:
+        progress = f"({current_status}/{max_status}) {spin}"
+
+        reset_line()
+        INFO(f"{active_msg} {progress.rjust(terminal_width - 8 - len(active_msg) - 2)}", end = "")
+        sys.stdout.flush()
+        
+    
+    else:
+        progress = f"({current_status}/{max_status}) █"
+
+        reset_line()
+        SUCC(f"{finished_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 2)}")
+    
+    return
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
 
 
 

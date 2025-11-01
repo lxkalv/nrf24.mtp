@@ -7,6 +7,8 @@ from utils import (
     WARN,
     INFO,
 
+    progress_bar,
+
     get_usb_mount_path,
     find_valid_txt_file_in_usb,
 )
@@ -66,22 +68,17 @@ def TX_PRESENTATION_LAYER() -> None:
     # Compress each page
     compressed_pages = []
     compressor = zlib.compressobj(level = 6)
-    for idx, page in enumerate(pages):
-        l1 = len(page)
+    for idx, page in enumerate(pages, 1):
         compressed_page  = compressor.compress(page)
         compressed_page += compressor.flush(zlib.Z_SYNC_FLUSH)
-        l2 = len(compressed_page)
         compressed_pages.append(compressed_page)
-        INFO(f"Compressed page {idx + 1}: {l1} -> {l2}")
 
-
-    # Decompress each page (just for testing)
-    decompressor = zlib.decompressobj()
-    for idx, compressed_page in enumerate(compressed_pages):
-        l1 = len(compressed_page)
-        page = decompressor.decompress(compressed_page)
-        l2 = len(page)
-        INFO(f"Decompressed page {idx}: {l1} -> {l2}")
+        progress_bar(
+            active_msg     = "Compressing pages...",
+            finished_msg   = f"Pages compressed successfully, | Compression ratio: ~{(sum(len(compressed_page) for compressed_page in compressed_pages) / content_len):.2f}",
+            current_status = idx,
+            max_status     = len(pages)
+        )
         
 
 
