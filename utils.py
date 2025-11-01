@@ -81,8 +81,8 @@ def get_usb_mount_path() -> Path | None:
 
 def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
     """
-    Searches for all the txt files in the USB mount location and returns the path to
-    first one ordered alphabetically
+    Searches for all the txt files in the first level of depth of the USB mount
+    location and returns the path to first one ordered alphabetically
     """
 
     possible_files: list[str] = []
@@ -92,8 +92,14 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
     file = [
         file
         for file in usb_mount_path.iterdir()
+        if file.is_file()
+        and file.suffix == ".txt"
+        and not str(file).startswith(".")
     ]
 
-    print(file)
-    return usb_mount_point / file
+    file = sorted(file)
+
+    print(file.resolve())
+    print(file[0].resolve())
+    return file
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
