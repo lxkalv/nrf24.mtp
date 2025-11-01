@@ -290,11 +290,11 @@ PAYLOAD:list[bytes] = []
 
 
 # auto-retries
-nrf.set_retransmission(0, 15)
+nrf.set_retransmission(1, 15)
 
 
 # Tx/Rx addresses
-nrf.set_address_bytes(4) # [2 - 5] Bytes
+nrf.set_address_bytes(3) # [2 - 5] Bytes
 
 
 # status visualization
@@ -310,14 +310,14 @@ def choose_address_based_on_role(role: Role, nrf: NRF24) -> None:
     """
     
     if role is Role.TRANSMITTER:
-        nrf.open_writing_pipe(b"TAN1")
-        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN0")
-        INFO("Writing @: TAN1 | Reading @; TAN0")
+        nrf.open_writing_pipe(b"TA1")
+        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TA0")
+        INFO("Writing @: TA1 | Reading @; TA0")
     
     elif role is Role.RECEIVER:
-        nrf.open_writing_pipe(b"TAN0")
-        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN1")
-        INFO("Writing @: TAN0 | Reading @; TAN1")
+        nrf.open_writing_pipe(b"TA0")
+        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TA1")
+        INFO("Writing @: TA0 | Reading @; TA1")
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
