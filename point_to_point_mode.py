@@ -290,7 +290,7 @@ PAYLOAD:list[bytes] = []
 
 
 # auto-retries
-nrf.set_retransmission(1, 15)
+nrf.set_retransmission(0, 15)
 
 
 # Tx/Rx addresses
@@ -472,7 +472,6 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         # start listening for frames
         received_chunks   = 0 # NOTE: not the ID
-        total_bytes       = 0
         timer_has_started = False
 
         tic = time.monotonic()
@@ -495,7 +494,6 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 # display the progress of the transmission
                 received_chunks += 1
-                total_bytes     += len(chunk)
 
                 if received_chunks % 100 == 0 or received_chunks == total_chunks:
                     progress_bar(
