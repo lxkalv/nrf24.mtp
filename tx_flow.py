@@ -70,7 +70,7 @@ def TX_PRESENTATION_LAYER() -> None:
         l1 = len(page)
         compressed_page = compresor.compress(page)
         compressed_pages.append(compressed_page)
-        l2 = len(compressed_pages)
+        l2 = len(compressed_page)
         INFO(f"Compressed page {idx + 1}: {l1} -> {l2}")
 
 
