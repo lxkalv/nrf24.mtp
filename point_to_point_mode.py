@@ -5,6 +5,8 @@ from nrf24 import (
     RF24_DATA_RATE,
     RF24_PA,
     RF24_RX_ADDR,
+    RF24_PAYLOAD,
+    RF24_CRC,
 )
 
 from pathlib import Path
@@ -262,7 +264,7 @@ if not pi.connected:
 
 
 # radio object
-nrf = NRF24(pi, ce = CE_PIN)
+nrf = NRF24(pi = pi, ce = CE_PIN, spi_speed = 10_000_000)
 
 
 # radio channel
@@ -279,11 +281,11 @@ nrf.set_pa_level(RF24_PA.MIN)
 
 # CRC
 nrf.enable_crc()
-nrf.set_crc_bytes(2)
+nrf.set_crc_bytes(RF24_CRC.BYTES_2)
 
 
 # global payload 
-nrf.set_payload_size(0) # [1 - 32] Bytes, NOTE: 0 is dynamic
+nrf.set_payload_size(RF24_PAYLOAD.DYNAMIC) # [1 - 32] Bytes
 PAYLOAD:list[bytes] = []
 
 
@@ -518,21 +520,8 @@ def BEGIN_RECEIVER_MODE() -> None:
             ERROR("Did not receive anything")
             return
         
-
-        # merge all the received bytes
-        INFO("Constructing file...")
-        content = b"".join(chunks)
-
-            # if idx % 100 == 0 or idx == chunks_len - 1:
-            #     progress_bar(
-            #         active_msg     = "Contructing file",
-            #         finished_msg   = "File constructed successfully",
-            #         current_status = idx + 1,
-            #         max_status     = chunks_len
-            #     )
         
-        
-        # get the location where the file is going to be stored
+        # check if there is a mounted USB. If not, store the file in memory
         usb_mount_point = find_usb_mount_point()
 
         if usb_mount_point:
@@ -542,6 +531,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         
 
         # store the file
+        content = b"".join(chunks)
         with open(file_path, "wb") as f:
             f.write(content)
         content_len = len(content)
@@ -587,8 +577,7 @@ def main():
     """
     Main flow of the application
     """
-    # clear the screen
-    print("\033c", end = "")
+
     role = choose_node_role()
     choose_address_based_on_role(role, nrf)
 
