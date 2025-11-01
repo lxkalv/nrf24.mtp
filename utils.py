@@ -99,7 +99,7 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
 
     file = sorted(file)
 
-    print(file.resolve())
+    print(file[0])
     print(file[0].resolve())
     return file
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
