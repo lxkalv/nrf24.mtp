@@ -19,6 +19,7 @@ from utils import (
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def TX_PRESENTATION_LAYER() -> None:
     usb_mount_path = get_usb_mount_path()
+    print(usb_mount_path)
 
     if usb_mount_path:
         find_valid_txt_file_in_usb(usb_mount_path)
