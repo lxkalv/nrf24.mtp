@@ -212,6 +212,21 @@ class CustomNRF24(NRF24):
     
     def __init__(self: "CustomNRF24", pi: Any, ce: int, spi_speed: float = 10_000_000) -> None:
         super().__init__(pi = pi, ce = ce, spi_speed = spi_speed)
+        return
+    
+
+    # NOTE: I trust that someday my wonderful team will either develop or discard
+    # this function
+    # def send_three_frames_fast(self: "CustomNRF24", frame_1: list[bytes], frame_2: list[bytes] | None, frame_3: list[bytes] | None) -> None:
+    #     """
+    #     Function to send three frames without waiting for an ACK between them
+    #     """
+    # 
+    #     if frame_2 is None:
+    #         self.send(frame_1)
+    # 
+    #     
+    #     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -309,7 +324,6 @@ nrf.set_address_bytes(3) # [2 - 5] Bytes
 
 
 # status visualization
-INFO(f"Radio details:")
 nrf.show_registers()
 
 
