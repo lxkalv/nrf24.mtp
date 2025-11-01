@@ -1,6 +1,7 @@
 # :::: IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 from pathlib import Path
 from math import ceil
+import zlib
 
 from utils import (
     WARN,
@@ -62,6 +63,15 @@ def TX_PRESENTATION_LAYER() -> None:
     INFO(f"Splitted file into 10 pages of {page_len} Bytes (last page may be shorter)")
 
 
+    # Compress each page
+    compressed_pages = []
+    compresor = zlib.compressobj(level = 6)
+    for idx, page in enumerate(pages):
+        l1 = len(page)
+        compressed_page = compresor.compress(page)
+        compressed_pages.append(compressed_page)
+        l2 = len(compressed_pages)
+        INFO(f"Compressed page {idx + 1}: {l1} -> {l2}")
 
 
     return
