@@ -70,9 +70,9 @@ USB_MOUNT_PATH = Path("/media")
 
 def get_usb_mount_path() -> Path | None:
     """
-    Looks if there is a valid device connected in a USB mount path
+    Try to find a valid USB device connected to the USB mount path
     """
-    # analyze the subtree of the USB mount point
+    
     for path, _, _ in USB_MOUNT_PATH.walk():
         if path.is_mount():
             return path
@@ -85,10 +85,6 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
     location and returns the path to first one ordered alphabetically
     """
 
-    possible_files: list[str] = []
-    usb_mount_point: Path | None = None
-
-    # analyze the subtree of the USB mount point
     file = [
         file
         for file in usb_mount_path.iterdir()
@@ -99,7 +95,8 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
 
     file = sorted(file)
 
-    print(file[0])
-    print(file[0].resolve())
-    return file
+    if not file:
+        return None
+
+    return file[0].resolve()
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
