@@ -77,9 +77,11 @@ def TX_PRESENTATION_LAYER() -> None:
 
     # Decompress each page (just for testing)
     decompressor = zlib.decompressobj()
-    for compressed_page in compressed_pages:
+    for idx, compressed_page in enumerate(compressed_pages):
+        l1 = len(compressed_page)
         page = decompressor.decompress(compressed_page)
-        INFO(f"Decompressed page: {page}")
+        l2 = len(page)
+        INFO(f"Decompressed page {idx}: {l1} -> {l2}")
         
 
 
