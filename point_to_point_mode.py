@@ -508,12 +508,15 @@ def BEGIN_RECEIVER_MODE() -> None:
                 tic = time.monotonic()
             
         throughput_tac = time.monotonic()
-        total_time     = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
         chunks_len     = len(chunks)
 
 
         if received_chunks != total_chunks:
+            total_time = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
             WARN("Connection timed-out")
+        
+        else:
+            total_time = throughput_tac - throughput_tic
         
 
         if chunks_len == 0:
