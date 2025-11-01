@@ -18,6 +18,14 @@ from utils import (
 
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def TX_PRESENTATION_LAYER() -> None:
+    """
+    This layer is responsible for for the following things:
+    - Finding a candidate file to transmit, either by looking inside a USB or by
+    looking in a directory with test files as a fallback
+    - Splitting the selected file into pages
+    - Compressing each page 
+    """
+    
     usb_mount_path = get_usb_mount_path()
     print(usb_mount_path)
 
