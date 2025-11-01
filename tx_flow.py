@@ -170,6 +170,6 @@ def TX_TRANSPORT_LAYER(compressed_pages: list[bytes]) -> None:
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def FULL_TX_MODE() -> None:
     compressed_pages = TX_PRESENTATION_LAYER()
-
+    TX_TRANSPORT_LAYER(compressed_pages)
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
