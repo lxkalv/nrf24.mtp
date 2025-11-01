@@ -19,6 +19,7 @@ import os
 
 os.system("cls" if os.name == "nt" else "clear")
 
+from typing import Any
 from enum import Enum
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -202,6 +203,16 @@ def find_usb_mount_point() -> Path | None:
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
+# :::: CLASS EXTENSION ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+class CustomNRF24(NRF24):
+    """
+    Custom NRF24 class that allows for extending the NRF24 base class without
+    modifying the library itself
+    """
+    
+    def __init__(self: "CustomNRF24", pi: Any, ce: int, spi_speed: float = 10_000_000) -> None:
+        super().__init__(pi = pi, ce = ce, spi_speed = spi_speed)
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
 
@@ -264,7 +275,7 @@ if not pi.connected:
 
 
 # radio object
-nrf = NRF24(pi = pi, ce = CE_PIN, spi_speed = 10_000_000)
+nrf = CustomNRF24(pi = pi, ce = CE_PIN, spi_speed = 10_000_000)
 
 
 # radio channel
