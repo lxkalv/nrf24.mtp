@@ -65,10 +65,11 @@ def TX_PRESENTATION_LAYER() -> None:
 
     # Compress each page
     compressed_pages = []
-    compresor = zlib.compressobj(level = 6)
+    compressor = zlib.compressobj(level = 6)
     for idx, page in enumerate(pages):
         l1 = len(page)
-        compressed_page = compresor.compress(page)
+        compressed_page  = compressor.compress(page)
+        compressed_page += compressor.flush(zlib.Z_SYNC_FLUSH)
         l2 = len(compressed_page)
         compressed_pages.append(compressed_page)
         INFO(f"Compressed page {idx + 1}: {l1} -> {l2}")
