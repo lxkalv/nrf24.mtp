@@ -9,7 +9,6 @@ from nrf24 import (
     RF24_CRC,
 )
 
-from pathlib import Path
 import pigpio
 import struct
 import shutil
@@ -21,6 +20,17 @@ os.system("cls" if os.name == "nt" else "clear")
 
 from typing import Any
 from enum import Enum
+
+from tx_flow import FULL_TX_MODE
+
+from utils import (
+    YELLOW,
+
+    ERROR,
+    SUCC,
+    WARN,
+    INFO,
+)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -32,7 +42,7 @@ CE_PIN = 22
 
 RECEIVER_TIMEOUT_S = 20
 
-USB_MOUNT_PATH = Path("/media")
+
 
 spinner     = "⣾⣽⣻⢿⡿⣟⣯⣷"
 IDX_SPINNER = [0]
@@ -45,67 +55,15 @@ DATA_SIZE = 32
 
 
 # :::: HELPER FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def RED(message: str) -> str:
-    """
-    Returns a copy of the string wrapped in ANSI scape sequences to make it red
-    """
-    return f"\033[31m{message}\033[0m"
 
 
 
-def GREEN(message: str) -> str:
-    """
-    Returns a copy of the string wrapped in ANSI scape sequences to make it green
-    """
-    return f"\033[32m{message}\033[0m"
 
 
 
-def YELLOW(message: str) -> str:
-    """
-    Returns a copy of the string wrapped in ANSI scape sequences to make it yellow
-    """
-    return f"\033[33m{message}\033[0m"
 
 
 
-def BLUE(message: str) -> str:
-    """
-    Returns a copy of the string wrapped in ANSI scape sequences to make it blue
-    """
-    return f"\033[34m{message}\033[0m"
-
-
-
-def ERROR(message: str, end = "\n") -> None:
-    """
-    Prints a message to the console with the red prefix `[~ERR]:`
-    """
-    print(f"{RED('[~ERR]:')} {message}", end = end)
-
-
-
-def SUCC(message: str, end = "\n") -> None:
-    """
-    Prints a message to the console with the green prefix `[SUCC]:`
-    """
-    print(f"{GREEN('[SUCC]:')} {message}", end = end)
-
-
-
-def WARN(message: str, end = "\n") -> None:
-    """
-    Prints a message to the console with the yellow prefix `[WARN]:`
-    """
-    print(f"{YELLOW('[WARN]:')} {message}", end = end)
-
-
-
-def INFO(message: str, end = "\n") -> None:
-    """
-    Prints a message to the console with the blue prefix `[INFO]:`
-    """
-    print(f"{BLUE('[INFO]:')} {message}", end = end)
 
 
 
@@ -148,58 +106,11 @@ def progress_bar(active_msg: str, finished_msg: str, current_status: int, max_st
 
 
 
-def find_usb_txt_file() -> Path:
-    """
-    Searchs for all the txt files in the USB mount location and returs the path to
-    first one
-    """
-
-    possible_files: list[str] = []
-    usb_mount_point: Path | None = None
-
-    # analyze the subtree of the USB mount point
-    for path, dirs, files in USB_MOUNT_PATH.walk():
-        if path.is_mount():
-            INFO(f"""Found mount path: {path}
-        Directories: {", ".join(dirs)}
-        Files: {", ".join(files)}""")
-            possible_files  = files
-            usb_mount_point = path
-
-    if usb_mount_point is None:
-        return Path("lorem.txt")
-    
-
-    # filter out invalid files
-    possible_files = [
-        file
-        for file in possible_files
-        if not file.startswith(".")
-    and file.endswith(".txt")
-    ]
-    INFO(f"Detected valid files: {", ".join(possible_files)}")
-
-
-    # TODO: ask the teacher if the USB will only contain one file
-    # choose the first file
-    file = possible_files[0]
-    INFO(f"Selected file: {file}")
-
-    return usb_mount_point / file
 
 
 
-def find_usb_mount_point() -> Path | None:
-    usb_mount_point: Path | None = None
 
-    # analyze the subtree of the USB mount point
-    for path, _, _ in USB_MOUNT_PATH.walk():
-        if path.is_mount():
-            INFO(f"Found mount path: {path}")
-            usb_mount_point = path
-            break
-    
-    return usb_mount_point
+
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -370,75 +281,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     INFO("Starting transmission")
 
     try:
-        file_path = find_usb_txt_file()
-        
-        # open the file to read
-        with open(file_path, "rb") as file:
-            content = file.read()
-
-        content_len = len(content)
-        INFO(f"Read {content_len} raw bytes read from {file_path}")
-
-
-        # split the contents into chunks
-        chunks = [
-            content[i:i+DATA_SIZE]
-            for i in range(0, content_len, DATA_SIZE)
-        ]
-        chunks_len = len(chunks)
-
-
-        # store the encoded bytes
-        packets = []
-        for chunk in chunks:
-            packets.append(struct.pack(f"<{len(chunk)}s", chunk))
-
-
-        # send and information message containing the expected number of frames
-        frame = struct.pack("i", chunks_len)
-
-        nrf.reset_packages_lost()
-        nrf.send(frame)
-
-        # TODO: maybe we should wrap this in an infinite loop
-        try:
-            nrf.wait_until_sent()
-            SUCC("Header sent successfully")
-        except TimeoutError:
-            ERROR("Timeout while sending header")
-
-
-        # send the rest of the frames
-        for idx in range(chunks_len):
-
-            num_retries = 0
-            
-            # NOTE: we try to send the same frame until it gets sent correctly
-            while True:
-
-                if idx % 100 == 0 or idx == chunks_len - 1:
-                    progress_bar(
-                        active_msg     = f"Sending frame {idx}, retries {num_retries}",
-                        finished_msg   = f"All frames sent",
-                        current_status = idx + 1,
-                        max_status     = chunks_len,
-                    )
-
-                nrf.reset_packages_lost()
-                nrf.send(packets[idx])
-
-                try:
-                    nrf.wait_until_sent()
-                    
-                except TimeoutError:
-                    ERROR("Timeout while transmitting")
-
-                if nrf.get_packages_lost() == 0:
-                    break
-
-                else:
-                    ERROR(f"Lost packet {idx}, retrying...")
-                    num_retries += nrf.get_retries()
+        FULL_TX_MODE()
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
@@ -548,7 +391,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         
         
         # check if there is a mounted USB. If not, store the file in memory
-        usb_mount_point = find_usb_mount_point()
+        usb_mount_point = None # find_usb_mount_point()
 
         if usb_mount_point:
             file_path = usb_mount_point / "received_file.txt"
