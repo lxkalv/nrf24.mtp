@@ -148,7 +148,7 @@ def TX_TRANSPORT_LAYER(compressed_pages: list[bytes]) -> None:
             for idx in range(len(chunks)):
                 IDc         = idx.to_bytes(1, "little")
                 chunks[idx] = IDc + chunks[idx]
-                INFO(IDc)
+                INFO([bit for bit in IDc])
 
             chunks_per_burst.append(chunks)
 
