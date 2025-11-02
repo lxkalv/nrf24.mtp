@@ -254,7 +254,7 @@ def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]
         page_info_message += (num_bytes_in_page).to_bytes(3)
         page_info_message += (len(STREAM[PageID])).to_bytes(3)
 
-        print(f"{PageID}: {page_info_message} -> {page_info_message[0]} | {int.from_bytes(page_info_message[1:3])} | {int.from_bytes(page_info_message[4:7])}")
+        print(f"{PageID}: {page_info_message} -> {page_info_message[0]} | {int.from_bytes(page_info_message[1:4])} | {int.from_bytes(page_info_message[4:7])}")
         
         tx.reset_packages_lost()
         tx.send(page_info_message)
