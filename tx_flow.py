@@ -238,17 +238,15 @@ def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]
         # in the page (page length). The PAGE_INFO_MESSAGE payload has the following
         # structure:
         #
-        # | PageID (1B) | PageWidth (3B) | PageLength (3B) |
+        # | PageID (1B) | PageLength (3B) | = 4 Bytes
         # 
         # PageID:     The identifier of the page           [0..255]
-        # PageWidth:  The number of bytes inside the page  [0..16_777_215]
         # PageLength: The number of bursts inside the page [0..16_777_215]
         page_info_message  = bytes()
         page_info_message += idx.to_bytes(1) # NOTE: The variable "PageID" contains the string "PAGE#", so it is easier to use the index "idx", but the idea is the same
-        page_info_message += (sum(len(STREAM[PageID][BurstID][ChunkID]) for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID])).to_bytes(3)
         page_info_message += (len(STREAM[PageID])).to_bytes(3)
 
-        print(f"{PageID}: {page_info_message} -> {page_info_message[0]} | {int.from_bytes(page_info_message[1:4])} | {int.from_bytes(page_info_message[4:7])}")
+        print(f"{PageID}: {page_info_message} -> PageID: {page_info_message[0]} | PageLength: {int.from_bytes(page_info_message[1:4])} bursts")
         
         tx.reset_packages_lost()
         tx.send(page_info_message)
