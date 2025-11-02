@@ -36,36 +36,8 @@ class Role(Enum):
 
     def __str__(self: "Role") -> str:
         return self.value
-
-def choose_node_role() -> Role:
-    """
-    Function to choose the role of the current node
-    """
-
-    while True:
-        val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver, [C]arrier, [Q]uit: ")
-        
-        try:
-            val = val.upper()
-        except:
-            continue
-
-        if val == "T":
-            INFO(f"Device set to {Role.TRANSMITTER} role")
-            return Role.TRANSMITTER
-            
-        elif val == "R":
-            INFO(f"Device set to {Role.RECEIVER} role")
-            return Role.RECEIVER
-
-        elif val == "C":
-            INFO(f"Device set to {Role.CARRIER} role")
-            return Role.CARRIER
-        
-        elif val == "Q":
-            INFO("Quitting program...")
-            return Role.QUIT
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
 
 
 
@@ -162,13 +134,13 @@ class CustomNRF24(NRF24):
         """
         
         if self.role is Role.TRANSMITTER:
-            radio.open_writing_pipe(b"TA1")
-            radio.open_reading_pipe(RF24_RX_ADDR.P1, b"TA0")
+            self.open_writing_pipe(b"TA1")
+            self.open_reading_pipe(RF24_RX_ADDR.P1, b"TA0")
             INFO("Writing @: TA1 | Reading @; TA0")
         
         elif self.role is Role.RECEIVER:
-            radio.open_writing_pipe(b"TA0")
-            radio.open_reading_pipe(RF24_RX_ADDR.P1, b"TA1")
+            self.open_writing_pipe(b"TA0")
+            self.open_reading_pipe(RF24_RX_ADDR.P1, b"TA1")
             INFO("Writing @: TA0 | Reading @; TA1")
 
         return
