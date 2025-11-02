@@ -230,7 +230,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
 
 
-def TX_TRANSPORT_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
+def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
     
     # for PageID in STREAM:
     #     tx.
@@ -258,8 +258,8 @@ def FULL_TX_MODE(tx: CustomNRF24) -> None:
                 STREAM[page][burst][chunk] = STREAM[page][burst][chunk].hex()
 
     import json
-    # with open("STREAM.json", "w") as f:
-    #     json.dump(STREAM, f, indent = 4)
+    with open("STREAM.json", "w") as f:
+        json.dump(STREAM, f, indent = 4)
 
     with open("CHECKSUMS.json", "w") as f:
         json.dump(CHECKSUMS, f, indent = 4)
