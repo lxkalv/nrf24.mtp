@@ -70,8 +70,8 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
 
     # Compress each page
     # TODO: Find the best compression mechanism that we can. Compression is a very
-    # critical aspect in this project given that the achieved throughput is so low and
-    # we expect interferences in the link
+    # critical aspect in this project given that the achieved throughput is very low
+    # and that we expect interferences in the link
     compressed_pages: list[bytes] = []
     compressor = zlib.compressobj(level = 6)
     for idx, page in enumerate(pages, 1):
@@ -93,69 +93,99 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
 
 
 
-def TX_TRANSPORT_LAYER(compressed_pages: list[bytes]) -> None:
+def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, bytes]]]:
     """
     This layer is responsible for the following things:
     - Splitting the compressed pages into bursts of 7936 Bytes. This is done so that
     later we can split each burst into chunks of 31 Bytes + 1 Byte of ChunkID (IDc)
     - Compute and store the checksum of each burst so that we can verify the integrity
     of the data after sending it
-    - Prepare the information messages for the receiver so that we can create a
-    reliable link
-    - Providing an unified stream to the next layer
+    - Providing a unified structure containing the bytes to be transmitted in an
+    ordered and hierarchical way
     """
+
+    # Generate the unified structure where we are goint to store the bytes categorized
+    # by page, burst and chunk.
+    # NOTE: The structure looks like this:
+    #
+    # PAGE 0:
+    #     BURST 0:
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #         ...
+    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    #     BURST 1:
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #         ...
+    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    #     ...
+    #     BURST N:
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #         ...
+    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    # PAGE 1:
+    #     BURST 0:
+    #         ...
+    #     BURST 1:
+    #         ...
+    #     ...
+    #     BURST N:
+    #         ...
+    # PAGE L:
+    #     BURST 0:
+    #         ...
+    #     BURST 1:
+    #         ...
+    #     ...
+    #     BURST N:
+    #         ...
+    #
+    #             PageID    BurstID   ChunkID
+    #             ↓         ↓         ↓
+    STREAM = dict[str, dict[str, dict[str, bytes]]] = dict()
 
     # Split each compressed page into bursts of 7936 Bytes
     # NOTE: The width of 7936 Bytes allows to split the burst into 256 chunks of 31
     # Bytes of width, this allows to limit the size of the IDc to 1 Byte, summing up
     # to a total payload of 32 Bytes. The IDc is resetted to 0 at each burst
-    bursts_per_page: list[list[bytes]] = []
-    BURST_WIDTH                        = 7936
-    page_info_messages: list[bytes]    = []
-    for idx, compressed_page in enumerate(compressed_pages):
-        page_len = len(compressed_page)
+    BURST_WIDTH = 7936
+    CHUNK_WIDTH = 31
+    for idx_page, page in enumerate(pages):
+
+        STREAM[f"PAGE{idx_page}"] = dict()
+
+        page_len = len(page)
         
+        # split the page into bursts
         bursts = [
-            compressed_page[i : i + BURST_WIDTH]
+            page[i : i + BURST_WIDTH]
             for i in range(0, page_len, BURST_WIDTH)
         ]
 
-        bursts_per_page.append(bursts)
+        for idx_burst, burst in enumerate(bursts):
 
-        # NOTE: as of now, or page information messages include the following:
-        # - 4 Bytes for the page index                   (up to 4.294.967.296 pages)
-        # - 4 Bytes for the page length                  (up to 4.294.967.296 Bytes)
-        # - 4 Bytes for the number of bursts in the page (up to 4.294.967.296 bursts)
-        page_info_messages.append(
-            struct.pack("<iii", idx, page_len, len(bursts))
-        )
-    
-
-    # split each bust into chunks 31 + 1 Bytes
-    chunks_per_burst: list[list[bytes]] = []
-    CHUNK_WIDTH                         = 31
-    burst_info_messages: list[bytes]    = []
-    for bursts_in_current_page in bursts_per_page:
-        for burst in bursts_in_current_page:
+            STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"] = dict()
+            
             burst_len = len(burst)
 
+            # split the burst into chunks
             chunks = [
                 burst[i : i + CHUNK_WIDTH]
                 for i in range(0, burst_len, CHUNK_WIDTH)
             ]
 
-            WARN("STARTING")
-            for idx in range(len(chunks)):
-                IDc         = idx.to_bytes(1, "little")
-                chunks[idx] = IDc + chunks[idx]
-                INFO([bit for bit in IDc])
+            for idx_chunk, chunk in enumerate(chunks):
 
-            chunks_per_burst.append(chunks)
+                STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"]  = bytes()
+                STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"] += idx_chunk.to_bytes(1)
+                STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"] += chunk
 
-            # NOTE: as of now, or burst information messages include the following:
-            # 
-
-    return
+    return STREAM
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -170,6 +200,10 @@ def TX_TRANSPORT_LAYER(compressed_pages: list[bytes]) -> None:
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def FULL_TX_MODE() -> None:
     compressed_pages = TX_PRESENTATION_LAYER()
-    TX_TRANSPORT_LAYER(compressed_pages)
+    STREAM = TX_TRANSPORT_LAYER(compressed_pages)
+
+    import json
+    with open("STREAM.json", "w") as f:
+        json.dump(STREAM, f, indent = 4)
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
