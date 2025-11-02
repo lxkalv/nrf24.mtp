@@ -59,7 +59,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
     finally:
         radio.power_down()
-        radio._pi.stop()
+        radio.pi_custom.stop()
     
     return
 
