@@ -202,6 +202,11 @@ def FULL_TX_MODE() -> None:
     compressed_pages = TX_PRESENTATION_LAYER()
     STREAM = TX_TRANSPORT_LAYER(compressed_pages)
 
+    for page in STREAM:
+        for burst in STREAM[page]:
+            for chunk in STREAM[page][burst]:
+                STREAM[page][burst][chunk] = STREAM[page][burst][chunk].hex()
+
     import json
     with open("STREAM.json", "w") as f:
         json.dump(STREAM, f, indent = 4)
