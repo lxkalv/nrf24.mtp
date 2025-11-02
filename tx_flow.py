@@ -7,6 +7,7 @@ import zlib
 from radio import CustomNRF24
 
 from utils import (
+    SUCC,
     WARN,
     INFO,
 
@@ -231,8 +232,19 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
 
 def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
-    
-    for idx, PageID in enumerate(STREAM):
+    """
+    This layer is responsible of the following things:
+    - Generating a PAGE_INFO message at the start of each page containing the PageID
+    and the PageLength
+    - Generating a BURST_INFO message at the start of each burst containing the
+    BurstID and the BurstLength
+    - Sending each chunk inside a burst
+    - Validating the checksum received by the PRX in order to decide wether to resend
+    the burst or move on to the next
+    """
+
+    for idx_page in range(len(STREAM)):
+        page = STREAM[f"PAGE{idx_page}"]
         # NOTE: everytime we start a page, we send a PAGE_INFO_MESSAGE containing the
         # PageID, the ammount of bytes in the page (page_width) and the number of bursts
         # in the page (page length). The PAGE_INFO_MESSAGE payload has the following
@@ -242,14 +254,20 @@ def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]
         # 
         # PageID:     The identifier of the page           [0..255]
         # PageLength: The number of bursts inside the page [0..16_777_215]
-        page_info_message  = bytes()
-        page_info_message += idx.to_bytes(1) # NOTE: The variable "PageID" contains the string "PAGE#", so it is easier to use the index "idx", but the idea is the same
-        page_info_message += (len(STREAM[PageID])).to_bytes(3)
-
-        print(f"{PageID}: {page_info_message} -> PageID: {page_info_message[0]} | PageLength: {int.from_bytes(page_info_message[1:4])} bursts")
+        PAGE_INFO  = bytes()
+        PAGE_INFO += idx_page.to_bytes(1)
+        PAGE_INFO += (len(page)).to_bytes(3)
         
-        tx.reset_packages_lost()
-        tx.send(page_info_message)
+        # send the PAGE_INFO message
+        while True:
+            tx.reset_packages_lost()
+            tx.send(PAGE_INFO)
+            try:
+                tx.wait_until_sent()
+                SUCC(f"Sent PAGE_INFO message: PageID = {PAGE_INFO[0]} | PageLength = {int.from_bytes(PAGE_INFO[1:4])}")
+                break
+            except TimeoutError:
+                WARN(f"Timeout while sending PAGE_INFO message for PageID = {PAGE_INFO[0]}")
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
