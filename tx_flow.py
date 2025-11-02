@@ -267,8 +267,9 @@ def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]
 
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def FULL_TX_MODE(tx: CustomNRF24) -> None:
-    compressed_pages = TX_PRESENTATION_LAYER()
+    compressed_pages  = TX_PRESENTATION_LAYER()
     STREAM, CHECKSUMS = TX_TRANSPORT_LAYER(compressed_pages)
+    TX_LINK_LAYER(tx, STREAM, CHECKSUMS)
 
     for page in STREAM:
         for burst in STREAM[page]:
