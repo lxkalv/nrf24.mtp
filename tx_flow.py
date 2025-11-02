@@ -4,6 +4,7 @@ from math import ceil
 import hashlib
 import zlib
 
+from radio import CustomNRF24
 
 from utils import (
     WARN,
@@ -221,7 +222,20 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
             CHECKSUMS[f"PAGE{idx_page}"][f"BURST{idx_burst}"] = burst_hasher.hexdigest()
 
+    # TODO: probably some information prints would be useful but I cannot come up with
+    # something clean right now
     return (STREAM, CHECKSUMS)
+
+
+
+
+
+def TX_TRANSPORT_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
+    
+    for PageID in STREAM:
+        tx.
+
+    return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -234,7 +248,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
 
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def FULL_TX_MODE() -> None:
+def FULL_TX_MODE(tx: CustomNRF24) -> None:
     compressed_pages = TX_PRESENTATION_LAYER()
     STREAM, CHECKSUMS = TX_TRANSPORT_LAYER(compressed_pages)
 
@@ -244,10 +258,12 @@ def FULL_TX_MODE() -> None:
                 STREAM[page][burst][chunk] = STREAM[page][burst][chunk].hex()
 
     import json
-    with open("STREAM.json", "w") as f:
-        json.dump(STREAM, f, indent = 4)
+    # with open("STREAM.json", "w") as f:
+    #     json.dump(STREAM, f, indent = 4)
 
     with open("CHECKSUMS.json", "w") as f:
         json.dump(CHECKSUMS, f, indent = 4)
+
+    
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::

@@ -1,31 +1,19 @@
 # :::: LIBRARY IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-from nrf24 import (
-    NRF24,
-
-    RF24_DATA_RATE,
-    RF24_PA,
-    RF24_RX_ADDR,
-    RF24_PAYLOAD,
-    RF24_CRC,
-)
-
-import pigpio
 import struct
-import shutil
 import time
-import sys
 import os
 
 os.system("cls" if os.name == "nt" else "clear")
 
-from typing import Any
-from enum import Enum
+from radio import (
+    Role,
+
+    radio
+)
 
 from tx_flow import FULL_TX_MODE
 
 from utils import (
-    YELLOW,
-
     ERROR,
     SUCC,
     WARN,
@@ -38,190 +26,9 @@ from utils import (
 
 
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-CE_PIN = 22
-
 RECEIVER_TIMEOUT_S = 20
-
-
-
-
-
-DATA_SIZE = 32
+DATA_SIZE          = 32
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-
-
-
-
-# :::: HELPER FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-
-# :::: CLASS EXTENSION ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-class CustomNRF24(NRF24):
-    """
-    Custom NRF24 class that allows for extending the NRF24 base class without
-    modifying the library itself
-    """
-    
-    def __init__(self: "CustomNRF24", pi: Any, ce: int, spi_speed: float = 10_000_000) -> None:
-        super().__init__(pi = pi, ce = ce, spi_speed = spi_speed)
-        return
-    
-
-    # NOTE: I trust that someday my wonderful team will either develop or discard
-    # this function
-    # def send_three_frames_fast(self: "CustomNRF24", frame_1: list[bytes], frame_2: list[bytes] | None, frame_3: list[bytes] | None) -> None:
-    #     """
-    #     Function to send three frames without waiting for an ACK between them
-    #     """
-    # 
-    #     if frame_2 is None:
-    #         self.send(frame_1)
-    # 
-    #     
-    #     return
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-
-
-# :::: NODE CONFIG  :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-class Role(Enum):
-    TRANSMITTER = "TRANSMITTER"
-    RECEIVER    = "RECEIVER"
-    CARRIER     = "CARRIER"
-    QUIT        = "QUIT"
-
-    def __str__(self: "Role") -> str:
-        return self.value
-
-
-
-def choose_node_role() -> Role:
-    """
-    Function to choose the role of the current node
-    """
-
-    while True:
-        val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver, [C]arrier, [Q]uit: ")
-        
-        try:
-            val = val.upper()
-        except:
-            continue
-
-        if val == "T":
-            INFO(f"Device set to {Role.TRANSMITTER} role")
-            return Role.TRANSMITTER
-            
-        elif val == "R":
-            INFO(f"Device set to {Role.RECEIVER} role")
-            return Role.RECEIVER
-
-        elif val == "C":
-            INFO(f"Device set to {Role.CARRIER} role")
-            return Role.CARRIER
-        
-        elif val == "Q":
-            INFO("Quitting program...")
-            return Role.QUIT
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-
-
-
-
-# :::: RADIO CONFIG :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-# pigpio
-hostname = "localhost"
-port     = 8888
-
-pi = pigpio.pi(hostname, port)
-if not pi.connected:
-    ERROR("Not connected to Raspberry Pi, exiting")
-    sys.exit(1)
-
-
-# radio object
-nrf = CustomNRF24(pi = pi, ce = CE_PIN, spi_speed = 10_000_000)
-
-
-# radio channel
-nrf.set_channel(76)
-
-
-# data rate
-nrf.set_data_rate(RF24_DATA_RATE.RATE_2MBPS)
-
-
-# Tx/Rx power
-nrf.set_pa_level(RF24_PA.MIN)
-
-
-# CRC
-nrf.enable_crc()
-nrf.set_crc_bytes(RF24_CRC.BYTES_2)
-
-
-# global payload 
-nrf.set_payload_size(RF24_PAYLOAD.DYNAMIC) # [1 - 32] Bytes
-PAYLOAD:list[bytes] = []
-
-
-# auto-retries
-nrf.set_retransmission(1, 15)
-
-
-# Tx/Rx addresses
-nrf.set_address_bytes(3) # [2 - 5] Bytes
-
-
-# status visualization
-nrf.show_registers()
-
-
-
-def choose_address_based_on_role(role: Role, nrf: NRF24) -> None:
-    """
-    Choose the address of the current node based on the role that it has been
-    assigned
-    """
-    
-    if role is Role.TRANSMITTER:
-        nrf.open_writing_pipe(b"TA1")
-        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TA0")
-        INFO("Writing @: TA1 | Reading @; TA0")
-    
-    elif role is Role.RECEIVER:
-        nrf.open_writing_pipe(b"TA0")
-        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TA1")
-        INFO("Writing @: TA0 | Reading @; TA1")
-
-    return
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
 
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -245,21 +52,16 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     INFO("Starting transmission")
 
     try:
-        FULL_TX_MODE()
+        FULL_TX_MODE(radio)
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
 
     finally:
-        nrf.power_down()
-        pi.stop()
+        radio.power_down()
+        radio._pi.stop()
     
     return
-
-
-
-
-
 
 
 
@@ -387,11 +189,6 @@ def BEGIN_RECEIVER_MODE() -> None:
 
 
 
-
-
-
-
-
 def BEGIN_CONSTANT_CARRIER_MODE() -> None:
     """
     Transmits a constant carrier until the user exits with CTRL+C
@@ -411,20 +208,19 @@ def main():
     Main flow of the application
     """
 
-    role = choose_node_role()
-    choose_address_based_on_role(role, nrf)
 
-    if role is Role.TRANSMITTER:
+    if radio.role is Role.TRANSMITTER:
         BEGIN_TRANSMITTER_MODE()
     
-    elif role is Role.RECEIVER:
+    elif radio.role is Role.RECEIVER:
         BEGIN_RECEIVER_MODE()
         
-    elif role is Role.CARRIER:
+    elif radio.role is Role.CARRIER:
         BEGIN_CONSTANT_CARRIER_MODE()
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
 
 
 
