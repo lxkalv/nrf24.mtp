@@ -245,7 +245,7 @@ def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]
         # PageLength: The number of bursts inside the page [0..16_777_215]
         page_info_message  = bytes()
         page_info_message += idx.to_bytes(1) # NOTE: The variable "PageID" contains the string "PAGE#", so it is easier to use the index "idx", but the idea is the same
-        page_info_message += (len(b"".join(STREAM[PageID][BurstID][ChunkID] for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID]))).to_bytes(3)
+        page_info_message += (sum(len(b"".join(STREAM[PageID][BurstID][ChunkID] for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID])))).to_bytes(3)
         page_info_message += (len(STREAM[PageID])).to_bytes(3)
 
         print(f"{PageID}: {page_info_message} -> {page_info_message[0]} | {int.from_bytes(page_info_message[1:3])} | {int.from_bytes(page_info_message[4:7])}")
