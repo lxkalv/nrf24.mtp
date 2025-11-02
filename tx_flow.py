@@ -145,9 +145,9 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, byte
     #     BURST N:
     #         ...
     #
-    #             PageID    BurstID   ChunkID
-    #             ↓         ↓         ↓
-    STREAM = dict[str, dict[str, dict[str, bytes]]] = dict()
+    #            PageID    BurstID   ChunkID
+    #            ↓         ↓         ↓
+    STREAM: dict[str, dict[str, dict[str, bytes]]] = dict()
 
     # Split each compressed page into bursts of 7936 Bytes
     # NOTE: The width of 7936 Bytes allows to split the burst into 256 chunks of 31
