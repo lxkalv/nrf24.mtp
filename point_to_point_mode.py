@@ -8,7 +8,7 @@ os.system("cls" if os.name == "nt" else "clear")
 from radio import (
     Role,
 
-    radio
+    radio,
 )
 
 from tx_flow import FULL_TX_MODE
