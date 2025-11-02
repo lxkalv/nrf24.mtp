@@ -232,8 +232,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
 def TX_TRANSPORT_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
     
-    for PageID in STREAM:
-        tx.
+    # for PageID in STREAM:
+    #     tx.
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
