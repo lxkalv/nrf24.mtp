@@ -232,8 +232,26 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
 def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
     
-    # for PageID in STREAM:
-    #     tx.
+    for idx, PageID in enumerate(STREAM):
+        # NOTE: everytime we start a page, we send a PAGE_INFO_MESSAGE containing the
+        # PageID, the ammount of bytes in the page (page_width) and the number of bursts
+        # in the page (page length). The PAGE_INFO_MESSAGE payload has the following
+        # structure:
+        #
+        # | PageID (1B) | PageWidth (3B) | PageLength (3B) |
+        # 
+        # PageID:     The identifier of the page           [0..255]
+        # PageWidth:  The number of bytes inside the page  [0..16_777_215]
+        # PageLength: The number of bursts inside the page [0..16_777_215]
+        page_info_message  = bytes()
+        page_info_message += idx.to_bytes(1) # NOTE: The variable "PageID" contains the string "PAGE#", so it is easier to use the index "idx", but the idea is the same
+        page_info_message += (len(b"".join(STREAM[PageID][BurstID][ChunkID] for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID]))).to_bytes(3)
+        page_info_message += (len(STREAM[PageID])).to_bytes(3)
+
+        print(f"{PageID}: {page_info_message}")
+        
+        tx.reset_packages_lost()
+        tx.send(page_info_message)
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
