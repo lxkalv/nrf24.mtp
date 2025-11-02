@@ -1,7 +1,7 @@
 # :::: IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 from pathlib import Path
 from math import ceil
-import struct
+import hashlib
 import zlib
 
 
@@ -93,7 +93,7 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
 
 
 
-def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, bytes]]]:
+def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str, bytes]]], dict[str, dict[str, str]]]:
     """
     This layer is responsible for the following things:
     - Splitting the compressed pages into bursts of 7936 Bytes. This is done so that
@@ -102,6 +102,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, byte
     of the data after sending it
     - Providing a unified structure containing the bytes to be transmitted in an
     ordered and hierarchical way
+    - Providing a unified structure containing the checksums of each burst ordered by
+    PageID and BurstID
     """
 
     # Generate the unified structure where we are goint to store the bytes categorized
@@ -136,6 +138,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, byte
     #     ...
     #     BURST N:
     #         ...
+    # ...
     # PAGE L:
     #     BURST 0:
     #         ...
@@ -145,9 +148,35 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, byte
     #     BURST N:
     #         ...
     #
-    #            PageID    BurstID   ChunkID
-    #            ↓         ↓         ↓
-    STREAM: dict[str, dict[str, dict[str, bytes]]] = dict()
+    #            PageID    BurstID   ChunkID    Payload(ChunkID + Data)
+    #            ↓         ↓         ↓          ↓
+    STREAM: dict[str, dict[str, dict[str,       bytes]]] = dict()
+
+    # NOTE: We provide a STREAM-like structure that contains the checksums of each
+    # burst for every page. The structure looks like this
+    #
+    # PAGE 0:
+    #     BURST 0: str[ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb]
+    #     BURST 1: str[ea325d761f98c6b73320e442b67f2a3574d9924716d788ddc0dbbdcaca853fe7]
+    #     BURST 2: str[d26cd84ddae9829c5a1053fce8e1c1d969086940e58c56d65d27989b6b46bba2]
+    #     ...
+    #     BURST N: str[1694f1a2500bf2aa881c461c92655b3621cae5bbf70b4177d02a2aa92c1aa903]
+    # PAGE 1:
+    #     BURST 0: ...
+    #     BURST 1: ...
+    #     ...
+    #     BURST N: ...
+    # ...
+    # PAGE L:
+    #     BURST 0: ...
+    #     BURST 1: ..
+    #     ...
+    #     BURST N: ...
+    #
+    # NOTE: As of now, the checksum is computed INCLUDING the ChunkID
+    #               PageID    BurstID    checksum
+    #               ↓         ↓          ↓
+    CHECKSUMS: dict[str, dict[str,       str]] = dict()
 
     # Split each compressed page into bursts of 7936 Bytes
     # NOTE: The width of 7936 Bytes allows to split the burst into 256 chunks of 31
@@ -157,7 +186,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, byte
     CHUNK_WIDTH = 31
     for idx_page, page in enumerate(pages):
 
-        STREAM[f"PAGE{idx_page}"] = dict()
+        STREAM[f"PAGE{idx_page}"]    = dict()
+        CHECKSUMS[f"PAGE{idx_page}"] = dict()
 
         page_len = len(page)
         
@@ -169,7 +199,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, byte
 
         for idx_burst, burst in enumerate(bursts):
 
-            STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"] = dict()
+            STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"]    = dict()
+            CHECKSUMS[f"PAGE{idx_page}"][f"BURST{idx_burst}"] = ""
             
             burst_len = len(burst)
 
@@ -179,13 +210,18 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, byte
                 for i in range(0, burst_len, CHUNK_WIDTH)
             ]
 
+            burst_hasher = hashlib.sha256()
             for idx_chunk, chunk in enumerate(chunks):
 
                 STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"]  = bytes()
                 STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"] += idx_chunk.to_bytes(1)
                 STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"] += chunk
+                
+                burst_hasher.update(STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"])
 
-    return STREAM
+            CHECKSUMS[f"PAGE{idx_page}"][f"BURST{idx_burst}"] = burst_hasher.hexdigest()
+
+    return (STREAM, CHECKSUMS)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -200,7 +236,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> dict[str, dict[str, dict[str, byte
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def FULL_TX_MODE() -> None:
     compressed_pages = TX_PRESENTATION_LAYER()
-    STREAM = TX_TRANSPORT_LAYER(compressed_pages)
+    STREAM, CHECKSUMS = TX_TRANSPORT_LAYER(compressed_pages)
 
     for page in STREAM:
         for burst in STREAM[page]:
@@ -210,5 +246,8 @@ def FULL_TX_MODE() -> None:
     import json
     with open("STREAM.json", "w") as f:
         json.dump(STREAM, f, indent = 4)
+
+    with open("CHECKSUMS.json", "w") as f:
+        json.dump(CHECKSUMS, f, indent = 4)
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
