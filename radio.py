@@ -16,6 +16,7 @@ from utils import (
     YELLOW,
 
     ERROR,
+    WARN,
     INFO,
 )
 
@@ -93,7 +94,7 @@ class CustomNRF24(NRF24):
         return
     
 
-
+# :::: CLASS METHODS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
     def choose_node_role(self: "CustomNRF24") -> None:
         """
         Function to choose the role of the current node
@@ -145,6 +146,20 @@ class CustomNRF24(NRF24):
 
         return
     
+    def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes) -> None:
+        while True:
+            self.reset_packages_lost()
+            self.send(INFO_MESSAGE)
+            try:
+                self.wait_until_sent()
+                if not self.get_packages_lost():
+                    return
+                else:
+                    WARN("Packet lost")
+                    continue
+            except TimeoutError:
+                ERROR("Timeout while sending information message")
+                continue
 
     # NOTE: I trust that someday my wonderful team will either develop or discard
     # this function
@@ -158,5 +173,6 @@ class CustomNRF24(NRF24):
     # 
     #     
     #     return
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 radio = CustomNRF24()
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::

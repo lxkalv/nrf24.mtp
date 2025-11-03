@@ -266,15 +266,16 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     )
     TX_INFO += total_bytes.to_bytes(4, 'big')
 
-    while True:
-            ptx.reset_packages_lost()
-            ptx.send(TX_INFO)
-            try:
-                ptx.wait_until_sent()
-                SUCC(f"Sent TX_INFO message: TxLength = {int.from_bytes(TX_INFO[0:4], 'big')} | TxWidth = {int.from_bytes(TX_INFO[4:8], 'big')}")
-                break
-            except TimeoutError:
-                WARN(f"Timeout while sending TX_INFO message")
+    ptx.send_INFO_message(TX_INFO)
+    # while True:
+    #         ptx.reset_packages_lost()
+    #         ptx.send(TX_INFO)
+    #         try:
+    #             ptx.wait_until_sent()
+    #             SUCC(f"Sent TX_INFO message: TxLength = {int.from_bytes(TX_INFO[0:4], 'big')} | TxWidth = {int.from_bytes(TX_INFO[4:8], 'big')}")
+    #             break
+    #         except TimeoutError:
+    #             WARN(f"Timeout while sending TX_INFO message")
 
     for idx_page in range(len(STREAM)):
         page = STREAM[f"PAGE{idx_page}"]
@@ -297,8 +298,11 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
             ptx.send(PAGE_INFO)
             try:
                 ptx.wait_until_sent()
-                SUCC(f"Sent PAGE_INFO message: PageID = {PAGE_INFO[0]} | PageLength = {int.from_bytes(PAGE_INFO[1:4])}")
-                break
+                if not ptx.get_packages_lost():
+                    SUCC(f"Sent PAGE_INFO message: PageID = {PAGE_INFO[0]} | PageLength = {int.from_bytes(PAGE_INFO[1:4])}")
+                    break
+                else:
+                    WARN(f"Timeout while sending PAGE_INFO message for PageID = {PAGE_INFO[0]}")
             except TimeoutError:
                 WARN(f"Timeout while sending PAGE_INFO message for PageID = {PAGE_INFO[0]}")
 
