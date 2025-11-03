@@ -256,7 +256,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     # TxWidth:  The total number of bytes that will be sent in the communication [0..4_294_967_295]
     TX_INFO  = bytes()
     TX_INFO += len(STREAM).to_bytes(4)
-    TX_INFO += sum([len(STREAM[PageID][BurstID][ChunkID] for PageID in STREAM for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID])]).to_bytes(4)
+    TX_INFO += sum([len(STREAM[PageID][BurstID][ChunkID]) for PageID in STREAM for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID]]).to_bytes(4)
 
     while True:
             ptx.reset_packages_lost()
