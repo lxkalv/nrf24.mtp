@@ -258,7 +258,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     # TxLength: The number of pages that will be sent in the communication       [0..4_294_967_295]
     # TxWidth:  The total number of bytes that will be sent in the communication [0..4_294_967_295]
     TX_INFO  = bytes()
-    TX_INFO += len(STREAM).to_bytes(4)
+    TX_INFO += (len(STREAM) - 1).to_bytes(4)
     TX_INFO += sum(len(STREAM[PageID][BurstID][ChunkID]) for PageID in STREAM for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID]).to_bytes(4)
     ptx.send_INFO_message(TX_INFO, "TX_INFO")
 
@@ -277,7 +277,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
         # PageWidth:  The number of bytes inside the page  [0..4_294_967_295]
         PAGE_INFO  = bytes()
         PAGE_INFO += idx_page.to_bytes(1)
-        PAGE_INFO += len(PAGE).to_bytes(3)
+        PAGE_INFO += (len(PAGE) - 1).to_bytes(3)
         PAGE_INFO += sum(len(PAGE[BurstID][ChunkID]) for BurstID in PAGE for ChunkID in PAGE[BurstID]).to_bytes(4)
         ptx.send_INFO_message(PAGE_INFO, "PAGE_INFO")
 
@@ -295,8 +295,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
             # BurstWidth:  The number of bytes in the burst  [0..65_535]
             BURST_INFO  = bytes()
             BURST_INFO += idx_burst.to_bytes(4)
-            print(len(BURST))
-            BURST_INFO += len(BURST).to_bytes(1)
+            BURST_INFO += (len(BURST) - 1).to_bytes(1)
             BURST_INFO += sum(len(BURST[ChunkID]) for ChunkID in BURST).to_bytes(2)
             ptx.send_INFO_message(BURST_INFO, "BURST_INFO")
 

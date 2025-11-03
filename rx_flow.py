@@ -89,7 +89,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         pass
 
     TX_INFO  = prx.get_payload()
-    TxLength = int.from_bytes(TX_INFO[0:4])
+    TxLength = int.from_bytes(TX_INFO[0:4]) + 1
     TxWidth  = int.from_bytes(TX_INFO[4:8])
     SUCC(f"Received TX_INFO message: TxLength = {TxLength} | TxWidth = {TxWidth}")
 
@@ -113,7 +113,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
 
         PAGE_INFO  = prx.get_payload()
         PageID     = PAGE_INFO[0]
-        PageLength = int.from_bytes(PAGE_INFO[1:4])
+        PageLength = int.from_bytes(PAGE_INFO[1:4]) + 1
         PageWidth  = int.from_bytes(PAGE_INFO[4:8])
         SUCC(f"Received PAGE_INFO message: PageID = {PageID} | PageLength = {PageLength} | PageWidth = {PageWidth}")
 
@@ -138,7 +138,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
 
             BURST_INFO  = prx.get_payload()
             BurstID     = int.from_bytes(BURST_INFO[0:4])
-            BurstLength = BURST_INFO[4]
+            BurstLength = BURST_INFO[4] + 1
             BurstWidth  = int.from_bytes(BURST_INFO[5:7])
             SUCC(f"Received BURST_INFO message: BurstID = {BurstID} | BurstLength = {BurstLength} | BurstWidth = {BurstWidth}")
 
