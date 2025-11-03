@@ -81,7 +81,7 @@ def reset_line() -> None:
     
     return
 
-def progress_bar(active_msg: str, finished_msg: str, current_status: int, max_status: int) -> None:
+def progress_bar(pending_msg: str, finished_msg: str, current_status: int, finished_status: int) -> None:
     """
     Create a progress bar that gets updated everytime this function is called
     """
@@ -89,23 +89,47 @@ def progress_bar(active_msg: str, finished_msg: str, current_status: int, max_st
     terminal_width  = shutil.get_terminal_size().columns
     IDX_SPINNER[0] += 1
     spin            = SPINNER[IDX_SPINNER[0] % len(SPINNER)]
-    progress        = f"({current_status}/{max_status}) {spin}"
+    progress        = f"({current_status}/{finished_status}) {spin}"
 
-    if current_status < max_status:
-        progress = f"({current_status}/{max_status}) {spin}"
+    if current_status < finished_status:
+        progress = f"({current_status}/{finished_status}) {spin}"
 
         reset_line()
-        INFO(f"{active_msg} {progress.rjust(terminal_width - 8 - len(active_msg) - 2)}", end = "")
+        INFO(f"{pending_msg} {progress.rjust(terminal_width - 8 - len(pending_msg) - 2)}", end = "")
         sys.stdout.flush()
         
     
     else:
-        progress = f"({current_status}/{max_status}) █"
+        progress = f"({current_status}/{finished_status}) █"
 
         reset_line()
         SUCC(f"{finished_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 2)}")
     
     return
+
+def status_bar(pending_msg: str, finished_msg: str, finished: bool) -> None:
+    """
+    Similar to progress bar but with max_status = 1
+    """
+
+    terminal_width  = shutil.get_terminal_size().columns
+    IDX_SPINNER[0] += 1
+    spin            = SPINNER[IDX_SPINNER[0] % len(SPINNER)]
+
+    if not finished:
+        progress = spin
+
+        reset_line()
+        INFO(f"{pending_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 2)}", end = "")
+    else:
+        progress = "█"
+
+        reset_line()
+        SUCC(f"{finished_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 2)}")
+    
+    return
+
+
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
