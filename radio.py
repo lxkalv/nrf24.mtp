@@ -18,6 +18,8 @@ from utils import (
     ERROR,
     WARN,
     INFO,
+
+    status_bar,
 )
 
 from enum import Enum
@@ -146,13 +148,23 @@ class CustomNRF24(NRF24):
 
         return
     
-    def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes) -> None:
+    def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name:str) -> None:
         while True:
+            status_bar(
+                pending_msg = f"Sending {message_name} message",
+                finished    = f"Sent {message_name} succesfully",
+                finised     = False,
+            )
             self.reset_packages_lost()
             self.send(INFO_MESSAGE)
             try:
                 self.wait_until_sent()
                 if not self.get_packages_lost():
+                    status_bar(
+                        pending_msg = f"Sending {message_name} message",
+                        finished    = f"Sent {message_name} succesfully",
+                        finised     = True,
+                    )
                     return
                 else:
                     continue
