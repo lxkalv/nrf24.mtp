@@ -295,6 +295,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
             # BurstWidth:  The number of bytes in the burst  [0..65_535]
             BURST_INFO  = bytes()
             BURST_INFO += idx_burst.to_bytes(4)
+            print(len(BURST))
             BURST_INFO += len(BURST).to_bytes(1)
             BURST_INFO += sum(len(BURST[ChunkID]) for ChunkID in BURST).to_bytes(2)
             ptx.send_INFO_message(BURST_INFO, "BURST_INFO")
