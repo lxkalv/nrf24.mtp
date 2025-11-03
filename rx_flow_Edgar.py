@@ -77,6 +77,28 @@ def RX_PRESENTATION_LAYER(compressed_pages: list[bytes]) -> None:
     else:
         INFO(f"Selected file candidate: {file_path}")
 
+def RX_TRANSPORT_LAYER(Chunks: dict[str, bytes], Checksum) -> bool:
+    """
+    This layer is responsible for the following things:
+    - Compute the checksum of a received burst
+    - Verify the computed checksum of the burst is equalto
+    the received chekcsum by the transmitter
+    - Identify if the received bursts are corrupted.
+    - Decides if any frame needs retransmision.
+    """
+    burst_hasher = hashlib.sha256()
+
+    for chunk_ID in Chunks:
+        burst_hasher.update(Chunks[chunk_ID])
+    computed_checksum = burst_hasher.hexdigest()
+    
+    if computed_checksum == Checksum:
+        return True
+    else:
+        return False
+
+
+
 
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     """
