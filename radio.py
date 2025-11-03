@@ -159,7 +159,7 @@ class CustomNRF24(NRF24):
                 )
             self.reset_packages_lost()
             self.send(INFO_MESSAGE)
-            idx_bar += 0
+            idx_bar += 1
             try:
                 self.wait_until_sent()
                 if not self.get_packages_lost():
