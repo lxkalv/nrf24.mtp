@@ -278,9 +278,9 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
 
     for idx_page in range(len(STREAM)):
         page = STREAM[f"PAGE{idx_page}"]
-        # NOTE: everytime we start a page, we send a PAGE_INFO_MESSAGE containing the
+        # NOTE: everytime we start a page, we send a PAGE_INFO message containing the
         # PageID, the ammount of bytes in the page (page_width) and the number of bursts
-        # in the page (page length). The PAGE_INFO_MESSAGE payload has the following
+        # in the page (page length). The PAGE_INFO message payload has the following
         # structure:
         #
         # | PageID (1B) | PageLength (3B) | = 4 Bytes

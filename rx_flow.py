@@ -28,7 +28,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     - Compute and send the checksum at the end of the burst
     """
     
-    # Waint for a TX_INFO message
+    # Wait for a TX_INFO message
     # NOTE: As of now, the TX_INFO message only contains the number of pages that will
     # be sent in the communication and the total ammount of bytes that are expected to
     # be transfered, but it can be changed to include more information
@@ -45,6 +45,29 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     TxLength = int.from_bytes(TX_INFO[0:4])
     TxWidth  = int.from_bytes(TX_INFO[4:8])
     SUCC(f"Received TX_INFO message: TxLength = {TxLength} | TxWidth = {TxWidth}")
+
+    # Iterate over all the pages of the communication
+    PageID = 0
+    while PageID < TxLength:
+        # Wait of a PAGE_INFO message
+        # NOTE: everytime we start a page, we send a PAGE_INFO message containing the
+        # PageID, the ammount of bytes in the page (page_width) and the number of bursts
+        # in the page (page length). The PAGE_INFO message payload has the following
+        # structure:
+        #
+        # | PageID (1B) | PageLength (3B) | = 4 Bytes
+        # 
+        # PageID:     The identifier of the page           [0..255]
+        # PageLength: The number of bursts inside the page [0..16_777_215]
+        INFO("Waiting for PAGE_INFO message")
+        while not prx.data_ready():
+            pass
+
+        PAGE_INFO  = prx.get_payload()
+        PageID     = PAGE_INFO[0]
+        PageLength = int.from_bytes(PAGE_INFO[1:4])
+        SUCC(f"Received PAGE_INFO message: PageID = {PageID} | PageLength = {PageLength}")
+
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
