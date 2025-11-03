@@ -84,7 +84,7 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
         compressed_len = sum(len(compressed_page) for compressed_page in compressed_pages) / content_len
         progress_bar(
             active_msg     = "Compressing pages...",
-            finished_msg   = f"Pages compressed successfully, | Compression ratio: ~{(compressed_page / content_len) * 100:.2f}% | {content_len} B -> {compressed_len}",
+            finished_msg   = f"Pages compressed successfully, | Compression ratio: ~{(compressed_len / content_len) * 100:.2f}% | {content_len} B -> {compressed_len}",
             current_status = idx,
             max_status     = len(pages)
         )
