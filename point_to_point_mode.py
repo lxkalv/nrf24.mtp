@@ -86,7 +86,7 @@ def BEGIN_RECEIVER_MODE() -> None:
     there is no mounted USB then the file is stored in memory
     """
 
-    INFO(f"Starting reception: {RECEIVER_TIMEOUT_S} seconds time-out")
+    INFO(f"Starting reception)
 
     try:
         # list that will contain all the received chunks

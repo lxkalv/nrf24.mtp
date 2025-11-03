@@ -231,9 +231,11 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
 
 
-def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
+def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
     """
-    This layer is responsible of the following things:
+    This layer is responsible for the following things:
+    - Generating and sending a TX_INFO message containing the number of pages to
+    expect in the transmission, and possibly some other things
     - Generating a PAGE_INFO message at the start of each page containing the PageID
     and the PageLength
     - Generating a BURST_INFO message at the start of each burst containing the
@@ -242,6 +244,29 @@ def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]
     - Validating the checksum received by the PRX in order to decide wether to resend
     the burst or move on to the next
     """
+
+    # Generate and send the TX_INFO message
+    # NOTE: As of now, the TX_INFO message only contains the number of pages that will
+    # be sent in the communication and the total ammount of bytes that are expected to
+    # be transfered, but it can be changed to include more information
+    #
+    # | TxLength (4B) | TxWidth (4B) | = 8 Bytes
+    #
+    # TxLength: The number of pages that will be sent in the communication       [0..4_294_967_295]
+    # TxWidth:  The total number of bytes that will be sent in the communication [0..4_294_967_295]
+    TX_INFO  = bytes()
+    TX_INFO += len(STREAM).to_bytes(4)
+    TX_INFO += sum(len(STREAM[PageID][BurstID][ChunkID] for PageID in STREAM for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID])).to_bytes(4)
+
+    while True:
+            ptx.reset_packages_lost()
+            ptx.send(TX_INFO)
+            try:
+                ptx.wait_until_sent()
+                SUCC(f"Sent TX_INFO message: TxLength = {int.from_bytes(TX_INFO[0:4])} | TxWidth = {int.from_bytes(TX_INFO[4:8])}")
+                break
+            except TimeoutError:
+                WARN(f"Timeout while sending TX_INFO message")
 
     for idx_page in range(len(STREAM)):
         page = STREAM[f"PAGE{idx_page}"]
@@ -260,10 +285,10 @@ def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]
         
         # send the PAGE_INFO message
         while True:
-            tx.reset_packages_lost()
-            tx.send(PAGE_INFO)
+            ptx.reset_packages_lost()
+            ptx.send(PAGE_INFO)
             try:
-                tx.wait_until_sent()
+                ptx.wait_until_sent()
                 SUCC(f"Sent PAGE_INFO message: PageID = {PAGE_INFO[0]} | PageLength = {int.from_bytes(PAGE_INFO[1:4])}")
                 break
             except TimeoutError:
@@ -282,10 +307,10 @@ def TX_LINK_LAYER(tx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]
 
 
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def FULL_TX_MODE(tx: CustomNRF24) -> None:
+def FULL_TX_MODE(ptx: CustomNRF24) -> None:
     compressed_pages  = TX_PRESENTATION_LAYER()
     STREAM, CHECKSUMS = TX_TRANSPORT_LAYER(compressed_pages)
-    TX_LINK_LAYER(tx, STREAM, CHECKSUMS)
+    TX_LINK_LAYER(ptx, STREAM, CHECKSUMS)
 
     for page in STREAM:
         for burst in STREAM[page]:
