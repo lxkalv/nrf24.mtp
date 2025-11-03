@@ -98,7 +98,6 @@ def progress_bar(pending_msg: str, finished_msg: str, current_status: int, finis
         INFO(f"{pending_msg} {progress.rjust(terminal_width - 8 - len(pending_msg) - 2)}", end = "")
         sys.stdout.flush()
         
-    
     else:
         progress = f"({current_status}/{finished_status}) █"
 
@@ -121,6 +120,8 @@ def status_bar(pending_msg: str, finished_msg: str, finished: bool) -> None:
 
         reset_line()
         INFO(f"{pending_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 2)}", end = "")
+        sys.stdout.flush()
+
     else:
         progress = "█"
 
