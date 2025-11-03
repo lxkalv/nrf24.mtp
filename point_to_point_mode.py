@@ -12,6 +12,7 @@ from radio import (
 )
 
 from tx_flow import FULL_TX_MODE
+from rx_flow import FULL_RX_MODE
 
 from utils import (
     ERROR,
@@ -86,102 +87,17 @@ def BEGIN_RECEIVER_MODE() -> None:
     there is no mounted USB then the file is stored in memory
     """
 
-    INFO(f"Starting reception)
+    INFO(f"Starting reception")
 
     try:
-        # list that will contain all the received chunks
-        chunks:list[str] = []
+        FULL_RX_MODE(radio)
 
-
-        # wait for the first frame of the communication containing the expected number
-        # of frames and extract its contents
-        INFO("Waiting for header packet...")
-        while not nrf.data_ready():
-            pass
-
-        header_packet = nrf.get_payload()
-        total_chunks  = struct.unpack("i", header_packet[:4])[0] # NOTE: the default size of an int is 4 bytes
-        SUCC(f"Header received: expecting {total_chunks} chunks")
-
-
-        # start listening for frames
-        received_chunks   = 0 # NOTE: not the ID
-        timer_has_started = False
-
-        tic = time.monotonic()
-        tac = time.monotonic()
-        while received_chunks < total_chunks and (tac - tic) < RECEIVER_TIMEOUT_S:
-            tac = time.monotonic()
-
-            # check if there are frames
-            while nrf.data_ready():
-
-                if not timer_has_started:
-                    throughput_tic = time.monotonic()
-                    timer_has_started = True
-
-                packet = nrf.get_payload()
-
-                chunk = struct.unpack(f"<{len(packet)}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
-                chunks.append(chunk)
-                
-
-                # display the progress of the transmission
-                received_chunks += 1
-
-                if received_chunks % 100 == 0 or received_chunks == total_chunks:
-                    progress_bar(
-                        active_msg     = f"Receiving chunks",
-                        finished_msg   = f"All chunks received",
-                        current_status = received_chunks,
-                        max_status     = total_chunks,
-                    )
-            
-                tic = time.monotonic()
-            
-        throughput_tac = time.monotonic()
-        chunks_len     = len(chunks)
-
-
-        if received_chunks != total_chunks:
-            total_time = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
-            WARN("Connection timed-out")
-        
-        else:
-            total_time = throughput_tac - throughput_tic
-        
-
-        if chunks_len == 0:
-            ERROR("Did not receive anything")
-            return
-        
-        
-        # check if there is a mounted USB. If not, store the file in memory
-        usb_mount_point = None # find_usb_mount_point()
-
-        if usb_mount_point:
-            file_path = usb_mount_point / "received_file.txt"
-        else:
-            file_path = "received_file.txt"
-        
-
-        # store the file
-        content = b"".join(chunks)
-        with open(file_path, "wb") as f:
-            f.write(content)
-        content_len = len(content)
-        INFO(f"Saved {content_len} bytes to: {file_path}")
-        
-
-        # show a last information message with the througput
-        INFO(f"Process finished in {total_time:.2f} seconds | Computed throughput: {((content_len / 1024) / total_time):.2f} KBps")
-    
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
 
     finally:
-        nrf.power_down()
-        pi.stop()
+        radio.power_down()
+        radio.pi_custom.stop()
 
     return
 
