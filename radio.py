@@ -151,7 +151,7 @@ class CustomNRF24(NRF24):
     def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name:str) -> None:
         idx_bar = 0
         while True:
-            if idx_bar % 100 == 0:
+            if idx_bar % 1_000 == 0:
                 status_bar(
                     pending_msg  = f"Sending {message_name} message",
                     finished_msg = f"Sent {message_name} succesfully",
