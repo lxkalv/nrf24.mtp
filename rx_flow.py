@@ -48,7 +48,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
 
     # Iterate over all the pages of the communication
     PageID = 0
-    while PageID < TxLength:
+    while PageID < TxLength - 1:
         # Wait of a PAGE_INFO message
         # NOTE: everytime we start a page, we send a PAGE_INFO message containing the
         # PageID, the ammount of bytes in the page (page_width) and the number of bursts
