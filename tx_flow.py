@@ -256,26 +256,10 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     # TxLength: The number of pages that will be sent in the communication       [0..4_294_967_295]
     # TxWidth:  The total number of bytes that will be sent in the communication [0..4_294_967_295]
     TX_INFO  = bytes()
-    TX_INFO += len(STREAM).to_bytes(4, 'big')
-    
-    total_bytes = sum(
-        len(STREAM[PageID][BurstID][ChunkID])
-        for PageID in STREAM
-        for BurstID in STREAM[PageID]
-        for ChunkID in STREAM[PageID][BurstID]
-    )
-    TX_INFO += total_bytes.to_bytes(4, 'big')
-
+    TX_INFO += len(STREAM).to_bytes(4)
+    TX_INFO += sum(len(STREAM[PageID][BurstID][ChunkID]) for PageID in STREAM for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID]).to_bytes(4)
     ptx.send_INFO_message(TX_INFO)
-    # while True:
-    #         ptx.reset_packages_lost()
-    #         ptx.send(TX_INFO)
-    #         try:
-    #             ptx.wait_until_sent()
-    #             SUCC(f"Sent TX_INFO message: TxLength = {int.from_bytes(TX_INFO[0:4], 'big')} | TxWidth = {int.from_bytes(TX_INFO[4:8], 'big')}")
-    #             break
-    #         except TimeoutError:
-    #             WARN(f"Timeout while sending TX_INFO message")
+
 
     for idx_page in range(len(STREAM)):
         page = STREAM[f"PAGE{idx_page}"]

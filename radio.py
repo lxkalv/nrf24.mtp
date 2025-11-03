@@ -155,7 +155,6 @@ class CustomNRF24(NRF24):
                 if not self.get_packages_lost():
                     return
                 else:
-                    WARN("Packet lost")
                     continue
             except TimeoutError:
                 ERROR("Timeout while sending information message")
