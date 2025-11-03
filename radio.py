@@ -151,9 +151,9 @@ class CustomNRF24(NRF24):
     def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name:str) -> None:
         while True:
             status_bar(
-                pending_msg = f"Sending {message_name} message",
-                finished    = f"Sent {message_name} succesfully",
-                finised     = False,
+                pending_msg  = f"Sending {message_name} message",
+                finished_msg = f"Sent {message_name} succesfully",
+                finished     = False,
             )
             self.reset_packages_lost()
             self.send(INFO_MESSAGE)
@@ -161,9 +161,9 @@ class CustomNRF24(NRF24):
                 self.wait_until_sent()
                 if not self.get_packages_lost():
                     status_bar(
-                        pending_msg = f"Sending {message_name} message",
-                        finished    = f"Sent {message_name} succesfully",
-                        finised     = True,
+                        pending_msg  = f"Sending {message_name} message",
+                        finished_msg = f"Sent {message_name} succesfully",
+                        finished     = True,
                     )
                     return
                 else:
