@@ -259,7 +259,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     TX_INFO  = bytes()
     TX_INFO += len(STREAM).to_bytes(4)
     TX_INFO += sum(len(STREAM[PageID][BurstID][ChunkID]) for PageID in STREAM for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID]).to_bytes(4)
-    ptx.send_INFO_message(TX_INFO)
+    ptx.send_INFO_message(TX_INFO, "TX_INFO")
 
 
     for idx_page in range(len(STREAM)):
@@ -276,7 +276,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
         PAGE_INFO  = bytes()
         PAGE_INFO += idx_page.to_bytes(1)
         PAGE_INFO += (len(page)).to_bytes(3)
-        ptx.send_INFO_message(PAGE_INFO)
+        ptx.send_INFO_message(PAGE_INFO, "PAGE_INFO")
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
