@@ -12,6 +12,8 @@ from utils import (
     INFO,
 
     progress_bar,
+
+    get_usb_mount_path,
 )
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -47,6 +49,33 @@ def RX_PRESENTATION_LAYER(compressed_pages: list[bytes]) -> None:
             current_status  = idx,
             finished_status = len(compressed_pages)
         )
+    
+    #Join the raw bytes of all pages and generate the txt file
+    content = b"".join(decompressed_pages)
+
+    # Find a USB mount point. And create the txt file in its path
+    test_files_dir = Path("received_test_files")
+    usb_mount_path = get_usb_mount_path()
+    file_path      = None
+
+    if usb_mount_path:
+        file_path = usb_mount_path / "received_file.txt"
+        with open(file_path, "wb") as f:
+            f.write(content)
+        content_len = len(content)
+        INFO(f"Saved {content_len} bytes to: {file_path}")
+
+    if not file_path:
+        file_path = test_files_dir / "received_file.txt"  
+        WARN(f"File candidate not found, using fallback file: {file_path}")
+        file_path = usb_mount_path / "received_file.txt"
+        with open(file_path, "wb") as f:
+            f.write(content)
+        content_len = len(content)
+        INFO(f"Saved {content_len} bytes to: {file_path}")
+        
+    else:
+        INFO(f"Selected file candidate: {file_path}")
 
 
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:
@@ -114,3 +143,6 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
 def FULL_RX_MODE(prx: CustomNRF24) -> None:
     RX_LINK_LAYER(prx)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+
+
