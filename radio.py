@@ -159,7 +159,10 @@ class CustomNRF24(NRF24):
             except TimeoutError:
                 ERROR("Timeout while sending information message")
                 continue
-
+    
+    def read_INFO_message(self: "CustomNRF24") -> bytes:
+        return
+    
     # NOTE: I trust that someday my wonderful team will either develop or discard
     # this function
     # def send_three_frames_fast(self: "CustomNRF24", frame_1: list[bytes], frame_2: list[bytes] | None, frame_3: list[bytes] | None) -> None:

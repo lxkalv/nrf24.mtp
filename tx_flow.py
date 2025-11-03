@@ -275,20 +275,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
         PAGE_INFO  = bytes()
         PAGE_INFO += idx_page.to_bytes(1)
         PAGE_INFO += (len(page)).to_bytes(3)
-        
-        # send the PAGE_INFO message
-        while True:
-            ptx.reset_packages_lost()
-            ptx.send(PAGE_INFO)
-            try:
-                ptx.wait_until_sent()
-                if not ptx.get_packages_lost():
-                    SUCC(f"Sent PAGE_INFO message: PageID = {PAGE_INFO[0]} | PageLength = {int.from_bytes(PAGE_INFO[1:4])}")
-                    break
-                else:
-                    WARN(f"Timeout while sending PAGE_INFO message for PageID = {PAGE_INFO[0]}")
-            except TimeoutError:
-                WARN(f"Timeout while sending PAGE_INFO message for PageID = {PAGE_INFO[0]}")
+        ptx.send_INFO_message(PAGE_INFO)
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
