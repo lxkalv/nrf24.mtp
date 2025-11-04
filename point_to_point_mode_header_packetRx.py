@@ -19,6 +19,10 @@ import sys
 
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
+
+WINDOW_SIZE = 3  # number of chunks per packet
+PAYLOAD_SIZE = 32        # Number of data bytes per packet (matches transmitter)
+ID_BYTES = 1
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -191,16 +195,30 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
 
         # split the contents into chunks
-        chunks = [
-            content[i:i+nrf.get_payload_size()]
-            for i in range(0, content_len, nrf.get_payload_size())
-        ]
+        chunks = []
+        start = 0
+        i = 0
+
+        while start < content_len:
+            # tous les WINDOW_SIZE chunks, on retire ID_BYTES
+            if i % WINDOW_SIZE == 0:
+                size = nrf.get_payload_size() - ID_BYTES
+            else:
+                size = nrf.get_payload_size()
+
+            end = min(start + size, content_len)
+            chunks.append(content[start:end])
+
+            start = end
+            i += 1
+
+
         chunks_len = len(chunks)
         # INFO(f'Generated {chunks_len} chunks of {nrf.payload_size} bytes: {chunks}')
 
         # header packet encoded on 4 octets (total of chunks)
         # chuncks_len = chunk_ID + 1
-        header_packet = struct.pack('i',chunks_len)
+        header_packet = struct.pack('i',total_wind)
         INFO(f"Sending header (total chunks): {chunks_len}")
         INFO(f'Header packet: {header_packet}')
         nrf.send(header_packet)
@@ -261,9 +279,7 @@ def BEGIN_RECEIVER_MODE() -> None:
     """
 
     INFO('Starting reception')
-
-    WINDOW_SIZE = 3  # number of chunks per packet
-    DATA_BYTES = 31        # Number of data bytes per packet (matches transmitter)
+    
 
     try:
         # start the timers
