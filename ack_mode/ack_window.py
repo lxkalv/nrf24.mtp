@@ -7,6 +7,7 @@ from nrf24 import (
     RF24_RX_ADDR,
 )
 
+import math
 import pigpio
 import struct
 import time
@@ -257,7 +258,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 final_content = content[start_val:end_val]
 
             
-            chunks.append(final_conent)
+            chunks.append(final_content)
             start_val = end_val
             chunk_id += 1
         
@@ -305,7 +306,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
                 if got_ack: 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
-                    SUCC(f"[ACK win] chunks {i}..{i+len(window_chunks)-1} ok | app_retries={attempt-1} | rtt={ack_rtt_ms:.2f} ms")
+                    SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt-1} | rtt={ack_rtt_ms:.2f} ms")
                     sent_ok = True
                     break
                 else:
@@ -314,7 +315,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             
 
             if not sent_ok:
-                ERROR(f"Giving up packet #{idx} after {MAX_ATTEMPTS} attempts")
+                ERROR(f"Giving up window #{current_window} after {MAX_ATTEMPTS} attempts")
                 # break
             
             current_window += 1
@@ -346,9 +347,9 @@ def BEGIN_RECEIVER_MODE() -> None:
         timeout = 20
         INFO(f'Timeout set to {timeout} seconds')
 
-        chunks = []
         while (tac - tic) < timeout:
             tac = time.monotonic()
+
             INFO("Waiting for header packet...")
             while not nrf.data_ready():
                 pass
@@ -358,29 +359,63 @@ def BEGIN_RECEIVER_MODE() -> None:
             raw = header_packet[:ID_BYTES+1]
             total_wind, last_window_size = struct.unpack(f">{ID_BYTES}sB", raw)
             total_wind = int.from_bytes(total_wind, "big") #Check that we don't need to 0 for the index of the payload
-            # check if there are frames
-            while nrf.data_ready():
+            
+            _send_ack_packet()
+            tic = time.monotonic()
+            break
+        
+        current_window = 0
+        current_chunk_in_window=0
+        chunks = []
+        window_chunks=[]
 
-                payload_pipe = nrf.data_pipe()
+        # check if there are frames
+        while nrf.data_ready() and ((tac - tic) < timeout) and (current_window < total_wind):
+            tac = time.monotonic()
 
-                packet = nrf.get_payload()
+            payload_pipe = nrf.data_pipe()
 
-                chunk: bytes = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0]
-                chunks.append(chunk)
-                
-                SUCC(f"Received {len(chunk)} bytes on pipe {payload_pipe}: {packet} --> {chunk}")
+            packet = nrf.get_payload()
 
+            chunk: bytes = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0]
+
+            if current_chunk_in_window == 0 :
+                ... # get window ID (ident)
+                # check that ident == current_window + manage if transmitter didn't recive ACK
+                # get chunk part (chunk=chunkpart)
+
+            window_chunks.append(chunk)
+            current_chunk_in_window +=1
+            SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {current_window+1}")
+            
+            # if window completed
+            if (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
                 # --- SEND ACK --------------------------------
                 nrf.power_up_tx()                   
                 _send_ack_packet()                  
                 nrf.power_up_rx()                 
-                # -----------------------------------------------------------------
+                # ---------------------------------------------
+                current_window +=1
+                chunks.extend(window_chunks)
+                window_chunks.clear()
+                SUCC(f"ACK send for window {current_window} / {total_wind}")
+                current_chunk_in_window = 0
+            # last window completed
+            elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
+                # --- SEND ACK --------------------------------
+                nrf.power_up_tx()                   
+                _send_ack_packet()                  
+                nrf.power_up_rx()                 
+                # ---------------------------------------------
+                current_window +=1
+                chunks.extend(window_chunks)
+                SUCC(f"ACK send for last window ({current_window} / {total_wind})")
+                break
+            tic = time.monotonic()
 
-                tic = time.monotonic()
-            
-            time.sleep(.1)
+        # time.sleep(.1)
 
-        INFO('Connection timed-out')
+        INFO('Connection timed-out or all chunks recieved')
         
         
         INFO('Collected:')
