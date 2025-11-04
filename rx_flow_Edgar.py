@@ -76,29 +76,86 @@ def RX_PRESENTATION_LAYER(compressed_pages: list[bytes]) -> None:
         
     else:
         INFO(f"Selected file candidate: {file_path}")
-
-def RX_TRANSPORT_LAYER(Chunks: dict[str, bytes], Checksum) -> bool:
+    
+def RX_TRANSPORT_LAYER(BURSTS: dict[str, dict[str, bytes]], CHECKSUM: dict[str, str] , VERIFIED: dict[str, bool]) -> tuple[dict[str, bool], list[bytes]]:
     """
     This layer is responsible for the following things:
-    - Compute the checksum of a received burst
-    - Verify the computed checksum of the burst is equalto
-    the received chekcsum by the transmitter
+    - Compute the checksum of a received bursts
+    - Verify the computed checksum of the bursts is equal to
+    the received checksum by the transmitter
     - Identify if the received bursts are corrupted.
-    - Decides if any frame needs retransmision.
+    - Decides if any burst needs retransmision.
+    - In case that all the bursts were received correctly, it joins all the bursts in a page
+    - The layer will only ccompute the checksum of the indicated bursts
     """
-    burst_hasher = hashlib.sha256()
+    # NOTE:The BURST unified structure that will be introduced in the Transport Layer is
+    #
+    #     BURST 0:
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #         ...
+    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    #     BURST 1:
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #         ...
+    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    #     ...
+    #     BURST N:
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #         ...
+    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    #
+    # NOTE: The STREAM-like structure introduced in the Transport Layer
+    # that contains the checksums of each burst, is like this:
+    #
+    #     BURST 0: str[ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb]
+    #     BURST 1: str[ea325d761f98c6b73320e442b67f2a3574d9924716d788ddc0dbbdcaca853fe7]
+    #     BURST 2: str[d26cd84ddae9829c5a1053fce8e1c1d969086940e58c56d65d27989b6b46bba2]
+    #     ...
+    #     BURST N: str[1694f1a2500bf2aa881c461c92655b3621cae5bbf70b4177d02a2aa92c1aa903]
+    #
+    # Generate the unified structure where we are goint to store Burst ID and if the burst
+    # needs a retransmission because it has been corrupted
+    # NOTE: The structure is like this
+    #
+    #   BURST 0: False / True
+    #   BURST 1: False / True
+    #   BURST 2: False / True
+    #   ...
+    #   BURST N: False / True
+    CHECKED_BURSTS: dict[str, bool] = dict()
 
-    for chunk_ID in Chunks:
-        burst_hasher.update(Chunks[chunk_ID])
-    computed_checksum = burst_hasher.hexdigest()
-    
-    if computed_checksum == Checksum:
-        return True
+    # Generate the Page that will be sent to the Presentation Layer.
+    Page: list[bytes] = []
+
+    # For each burst compute its checksum and compares it to the received 
+    # checksum by the transmitter. If the checksum is correct the retransmision
+    # of that burst is not needed, otherwise it will be needed.
+    for idx_burst in BURSTS:
+        burst_hasher = hashlib.sha256()
+        if VERIFIED[f"BURST{idx_burst}"] == False:
+            CHECKED_BURSTS[f"BURST{idx_burst}"] = dict()
+            for idx_chunk in BURSTS[f"BURST{idx_burst}"]:
+                burst_hasher.update(BURSTS[f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"])
+
+            computed_checksum = burst_hasher.hexdigest()
+            Page.append(BURSTS[f"BURST{idx_burst}"])
+
+            if computed_checksum == CHECKSUM[f"BURST{idx_burst}"]:
+                CHECKED_BURSTS[f"BURST{idx_burst}"] = True
+            else:
+                CHECKED_BURSTS[f"BURST{idx_burst}"] = False
+                Retrasnmision_needed = True
+    # If retransmission needed do not create the page, otherwise create the page
+    if Retrasnmision_needed:
+        return (CHECKED_BURSTS, None)
     else:
-        return False
-
-
-
+        return (CHECKED_BURSTS, Page)
 
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     """
