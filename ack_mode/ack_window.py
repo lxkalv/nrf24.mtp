@@ -315,8 +315,8 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             
 
             if not sent_ok:
-                ERROR(f"Giving up window #{current_window} after {MAX_ATTEMPTS} attempts")
-                # break
+                ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
+                break
             
             current_window += 1
             current_chunk += WINDOW_SIZE
@@ -365,6 +365,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             break
         
         current_window = 0
+        extracted_window= 0
         current_chunk_in_window=0
         chunks = []
         window_chunks=[]
@@ -379,7 +380,11 @@ def BEGIN_RECEIVER_MODE() -> None:
 
             chunk: bytes = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0]
 
-            if current_chunk_in_window == 0 :
+            if current_chunk_in_window == 0:
+                extracted_window= chunk[0:ID_BYTES]
+                chunk = chunk[ID_BYTES:]  # remove window ID bytes
+                if extacted_window < current_window:
+                    current_window= extracted_window
                 ... # get window ID (ident)
                 # check that ident == current_window + manage if transmitter didn't recive ACK
                 # get chunk part (chunk=chunkpart)
@@ -395,6 +400,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 _send_ack_packet()                  
                 nrf.power_up_rx()                 
                 # ---------------------------------------------
+                previous_window= current_window
                 current_window +=1
                 chunks.extend(window_chunks)
                 window_chunks.clear()
