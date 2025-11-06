@@ -378,23 +378,26 @@ def BEGIN_RECEIVER_MODE() -> None:
             chunk: bytes = struct.unpack(f"<{nrf.get_payload_size()}s", packet)[0]
 
             if current_chunk_in_window == 0:
-                extracted_window= chunk[0:ID_BYTES]
+                extracted_window = chunk[0:ID_BYTES]
                 chunk = chunk[ID_BYTES:]  # remove window ID bytes
-                if extacted_window < current_window:
-                    current_window= extracted_window
-                else: 
-                    window_chunks.append(chunk)
-                ... # get window ID (ident)
-                # check that ident == current_window + manage if transmitter didn't recive ACK
-                # get chunk part (chunk=chunkpart)
-            else:
-                window_chunks.append(chunk)
 
+            window_chunks.append(chunk)
             current_chunk_in_window +=1
             SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {current_window+1}")
+
+            # if extracted window is not the one we are waiting for & if it is completed
+            if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
+                 # --- SEND ACK --------------------------------
+                nrf.power_up_tx()                   
+                _send_ack_packet()                  
+                nrf.power_up_rx()                 
+                # ---------------------------------------------
+                window_chunks.clear()
+                SUCC(f"ACK send for window {extracted_window} / {total_wind}")
+                current_chunk_in_window = 0
             
             # if window completed
-            if (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
+            elif (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
                 # --- SEND ACK --------------------------------
                 nrf.power_up_tx()                   
                 _send_ack_packet()                  
