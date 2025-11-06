@@ -138,7 +138,6 @@ nrf.set_crc_bytes(2)
 nrf.set_payload_size(0) # [1 - 32] Bytes, NOTE: 0 is dynamic
 payload:list[bytes] = []
 
-PAYLOAD_SIZE = nrf.get_payload_size()   # <<< local shortcut
 
 
 
@@ -169,7 +168,7 @@ while not address_is_valid:
             nrf.open_writing_pipe(possible_addreses[1])                    # pipe for TX
             # -------------------------------------------------------------------
 
-        if val == 1:
+        elif val == 1:
             INFO(f'Address set to {possible_addreses[1]}')
             address_is_valid = True
 
@@ -219,8 +218,6 @@ def _wait_for_ack(timeout_s: float) -> bool:
     while (time.monotonic() - t0) < timeout_s:      # poll until we hit the timeout
         if nrf.data_ready():                        # got something in RX FIFO
                 return True # ACK → success
-        else:
-            print("ERROR no data ready")
     return False                                     # timed out without a valid "ACK"
 
 
@@ -251,7 +248,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 size = PAYLOAD_SIZE - ID_BYTES
                 end_val = min(start_val + size, content_len)
                 ident = (chunk_id // WINDOW_SIZE).to_bytes(ID_BYTES, "big")  # exactly DATA_BYTES
-                final_content = ident + content[start:end_val]
+                final_content = ident + content[start_val:end_val]
             else:
                 size = PAYLOAD_SIZE
                 end_val = min(start_val + size, content_len)
@@ -294,7 +291,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             window_packet = packets[current_chunk:current_chunk+WINDOW_SIZE]
             while attempt <= MAX_ATTEMPTS:          # Manual attempts
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
-                for p_idx, pkt in window_packet: 
+                for p_idx, pkt in enumerate(window_packet): 
                     nrf.send(pkt)
                     try:
                         nrf.wait_until_sent()
@@ -385,11 +382,14 @@ def BEGIN_RECEIVER_MODE() -> None:
                 chunk = chunk[ID_BYTES:]  # remove window ID bytes
                 if extacted_window < current_window:
                     current_window= extracted_window
+                else: 
+                    window_chunks.append(chunk)
                 ... # get window ID (ident)
                 # check that ident == current_window + manage if transmitter didn't recive ACK
                 # get chunk part (chunk=chunkpart)
+            else:
+                window_chunks.append(chunk)
 
-            window_chunks.append(chunk)
             current_chunk_in_window +=1
             SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {current_window+1}")
             
