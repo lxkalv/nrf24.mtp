@@ -317,7 +317,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             except TimeoutError:
                 ERROR(f"Timeout while transmitting ID header packet")
 
-            time.sleep(0.005)
+            time.sleep(0.01)
 
             got_ack_id = _wait_for_ack(ACK_TIMEOUT_S)
 
