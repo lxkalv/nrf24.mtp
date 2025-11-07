@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 500e-6          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 0.05          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=2
@@ -317,7 +317,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             except TimeoutError:
                 ERROR(f"Timeout while transmitting ID header packet")
 
-            time.sleep(0.01)
 
             got_ack_id = _wait_for_ack(ACK_TIMEOUT_S)
 
