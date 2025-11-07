@@ -317,6 +317,8 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             except TimeoutError:
                 ERROR(f"Timeout while transmitting ID header packet")
 
+            time.sleep(0.005)
+
             got_ack_id = _wait_for_ack(ACK_TIMEOUT_S)
 
         
@@ -341,7 +343,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         nrf.wait_until_sent()
                     except TimeoutError:
                         ERROR(f"Timeout while transmitting packet in window at local index {current_chunk+p_idx}")
-        
+                
                 # Wait for the reception of the ACK. Cumulative ACK of the last seq_id
                 got_ack = _wait_for_ack(ACK_TIMEOUT_S)    # Listen to RX for ACK
 
@@ -450,11 +452,13 @@ def BEGIN_RECEIVER_MODE() -> None:
                         _send_ack_packet()                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
+                        SUCC(f"ACK send for window {current_window} / {total_wind}")
+
                         current_window +=1
                         chunks.extend(window_chunks)
                         window_chunks.clear()
 
-                        SUCC(f"ACK send for window {current_window} / {total_wind}")
+                        
                         current_chunk_in_window = 0
                     # last window completed
                     elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
