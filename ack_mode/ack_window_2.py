@@ -245,7 +245,7 @@ def _wait_for_ack(timeout_s: float) -> bool:
     return False                                     # timed out without a valid "ACK"
 
 # --- helpers arriba de BEGIN_RECEIVER_MODE ---
-def _decode_packet(pkt: bytes, current_window: int) -> tuple[int, int, bytes]:
+def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
 
     extracted_chunk = int.from_bytes(pkt[0:ID_CHUNK_BYTES], "big")
     if extracted_chunk == 0:
@@ -424,7 +424,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 packet = nrf.get_payload()
 
-                extracted_window, extracted_chunk, chunk = _decode_packet(packet, current_window)
+                extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
                 
                 if current_chunk_in_window == extracted_chunk:
                     window_chunks.append(chunk)
