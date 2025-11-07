@@ -5,7 +5,7 @@ os.system("cls" if os.name == "nt" else "clear")
 
 from radio import (
     Role,
-    
+
     radio,
 )
 
@@ -24,10 +24,12 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         while True:
             radio.reset_packages_lost()
             radio.send(payload)
+
             try:
                 radio.wait_until_sent()
             except TimeoutError:
                 ERROR("Time-out")
+                continue
 
             if radio.get_packages_lost() == 0:
                 ack = radio.get_payload()
@@ -56,8 +58,8 @@ def BEGIN_RECEIVER_MODE() -> None:
                 SUCC(f"Received {payload}")
                 idx += 1
 
-                if idx % 100 == 0:
-                    radio.ack_payload(idx.to_bytes(5))
+                # if idx % 100 == 0:
+                #     radio.ack_payload(idx.to_bytes(5))
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
@@ -80,9 +82,6 @@ def main():
     
     elif radio.role is Role.RECEIVER:
         BEGIN_RECEIVER_MODE()
-        
-    elif radio.role is Role.CARRIER:
-        BEGIN_CONSTANT_CARRIER_MODE()
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
