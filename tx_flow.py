@@ -253,11 +253,13 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     # be sent in the communication and the total ammount of bytes that are expected to
     # be transfered, but it can be changed to include more information
     #
-    # | TxLength (4B) | TxWidth (4B) | = 8 Bytes
+    # | MessageID (4B) | TxLength (4B) | TxWidth (4B) | = 12 Bytes
     #
+    # MessageID:  The identifier of the type of info message:                    [TXIM] (TX Info Message)
     # TxLength: The number of pages that will be sent in the communication       [0..4_294_967_295]
     # TxWidth:  The total number of bytes that will be sent in the communication [0..4_294_967_295]
     TX_INFO  = bytes()
+    TX_INFO += b"TXIM"
     TX_INFO += (len(STREAM) - 1).to_bytes(4)
     TX_INFO += sum(len(STREAM[PageID][BurstID][ChunkID]) for PageID in STREAM for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID]).to_bytes(4)
     ptx.send_INFO_message(TX_INFO, "TX_INFO")
@@ -270,12 +272,14 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
         # bytes in the page (PageWidth). The PAGE_INFO message payload has the following
         # structure:
         #
-        # | PageID (1B) | PageLength (3B) | PageWidth (4B) | = 8 Bytes
+        # | MessageID (4B) | PageID (1B) | PageLength (3B) | PageWidth (4B) | = 12 Bytes
         # 
-        # PageID:     The identifier of the page           [0..255]
-        # PageLength: The number of bursts inside the page [0..16_777_215]
-        # PageWidth:  The number of bytes inside the page  [0..4_294_967_295]
+        # MessageID:  The identifier of the type of info message: [PAIM] (PAge Info Message)
+        # PageID:     The identifier of the page                  [0..255]
+        # PageLength: The number of bursts inside the page        [0..16_777_215]
+        # PageWidth:  The number of bytes inside the page         [0..4_294_967_295]
         PAGE_INFO  = bytes()
+        PAGE_INFO += b"PAIM"
         PAGE_INFO += idx_page.to_bytes(1)
         PAGE_INFO += (len(PAGE) - 1).to_bytes(3)
         PAGE_INFO += sum(len(PAGE[BurstID][ChunkID]) for BurstID in PAGE for ChunkID in PAGE[BurstID]).to_bytes(4)
@@ -288,12 +292,14 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
             # of bytes in the burst (BurstWidth). The BURST_INFO message payload has the
             # following structure:
             #
-            # | BurstID (4B) | BurstLength (1B) | BurstWidth (2B) | = 7 Bytes
+            # | MessageID (4B) | BurstID (4B) | BurstLength (1B) | BurstWidth (2B) | = 11 Bytes
             #
+            # MessageID:   The identifier of the type of info message: [BUIM] (BUrst Info Message)
             # BurstID:     The identifier of the burst       [0..4_294_967_295]
             # BurstLenght: The number of chunks in the burst [0..255]
             # BurstWidth:  The number of bytes in the burst  [0..65_535]
             BURST_INFO  = bytes()
+            BURST_INFO += b"BUIM"
             BURST_INFO += idx_burst.to_bytes(4)
             BURST_INFO += (len(BURST) - 1).to_bytes(1)
             BURST_INFO += sum(len(BURST[ChunkID]) for ChunkID in BURST).to_bytes(2)

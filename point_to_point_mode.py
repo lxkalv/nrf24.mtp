@@ -1,6 +1,4 @@
 # :::: LIBRARY IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-import struct
-import time
 import os
 
 os.system("cls" if os.name == "nt" else "clear")
@@ -16,8 +14,6 @@ from rx_flow import FULL_RX_MODE
 
 from utils import (
     ERROR,
-    SUCC,
-    WARN,
     INFO,
 )
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::

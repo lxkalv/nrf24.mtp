@@ -80,18 +80,20 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     # be sent in the communication and the total ammount of bytes that are expected to
     # be transfered, but it can be changed to include more information
     #
-    # | TxLength (4B) | TxWidth (4B) | = 8 Bytes
+    # | MessageID (4B) | TxLength (4B) | TxWidth (4B) | = 12 Bytes
     #
+    # MessageID:  The identifier of the type of info message:                    [TXIM] (TX Info Message)
     # TxLength: The number of pages that will be sent in the communication       [0..4_294_967_295]
     # TxWidth:  The total number of bytes that will be sent in the communication [0..4_294_967_295]
     INFO("Waiting for TX_INFO message")
     while not prx.data_ready():
         pass
 
-    TX_INFO  = prx.get_payload()
-    TxLength = int.from_bytes(TX_INFO[0:4]) + 1
-    TxWidth  = int.from_bytes(TX_INFO[4:8])
-    SUCC(f"Received TX_INFO message: TxLength = {TxLength} | TxWidth = {TxWidth}")
+    TX_INFO: bytes = prx.get_payload()
+    MessageID      = TX_INFO[0:4].decode()
+    TxLength       = int.from_bytes(TX_INFO[4:8]) + 1
+    TxWidth        = int.from_bytes(TX_INFO[8:12])
+    SUCC(f"Received {MessageID} message: TxLength = {TxLength} | TxWidth = {TxWidth}")
 
     # Iterate over all the pages of the communication
     PageID = 0
@@ -111,11 +113,12 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         while not prx.data_ready():
             pass
 
-        PAGE_INFO  = prx.get_payload()
-        PageID     = PAGE_INFO[0]
-        PageLength = int.from_bytes(PAGE_INFO[1:4]) + 1
-        PageWidth  = int.from_bytes(PAGE_INFO[4:8])
-        SUCC(f"Received PAGE_INFO message: PageID = {PageID} | PageLength = {PageLength} | PageWidth = {PageWidth}")
+        PAGE_INFO: bytes = prx.get_payload()
+        MessageID        = PAGE_INFO[0:4]
+        PageID           = PAGE_INFO[4]
+        PageLength       = int.from_bytes(PAGE_INFO[5:9]) + 1
+        PageWidth        = int.from_bytes(PAGE_INFO[9:12])
+        SUCC(f"Received {MessageID.decode()} message: PageID = {PageID} | PageLength = {PageLength} | PageWidth = {PageWidth}")
 
         STREAM[f"PAGE{PageID}"] = dict()
 
