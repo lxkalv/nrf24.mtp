@@ -459,7 +459,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     elif (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
                         # --- SEND ACK --------------------------------
                         nrf.power_up_tx()                   
-                        _send_ack_packet()                  
+                        _send_ack_packet(extracted_chunk, extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
                         SUCC(f"ACK send for window {current_window} / {total_wind}")
@@ -474,7 +474,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
                         # --- SEND ACK --------------------------------
                         nrf.power_up_tx()                   
-                        _send_ack_packet()                  
+                        _send_ack_packet(extracted_chunk, extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
                         current_window +=1
