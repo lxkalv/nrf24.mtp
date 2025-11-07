@@ -236,7 +236,7 @@ def _send_ack_packet() -> None:
     try:
         nrf.wait_until_sent()
     except TimeoutError:
-        ERROR(f"Timeout while transmitting ID header packet")                          # block until TX done (radio goes back to RX)
+                ERROR(f"Timeout while transmitting ID header packet")                          # block until TX done (radio goes back to RX)
 
 
 
@@ -318,11 +318,11 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             try:
                 nrf.wait_until_sent()
             except TimeoutError:
-                ERROR(f"Timeout while transmitting ID header packet")
-
-
-            got_ack_id = _wait_for_ack(ACK_TIMEOUT_S)
-
+                ERROR(f"Timeout while transmitting ID header packet") 
+            
+        nrf.power_up_rx() 
+        got_ack_id = _wait_for_ack(ACK_TIMEOUT_S)
+        nrf.power_up_tx() 
         
         # store the encoded bytes
         packets = []
@@ -347,6 +347,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         ERROR(f"Timeout while transmitting packet in window at local index {current_chunk+p_idx}")
                 
                 # Wait for the reception of the ACK. Cumulative ACK of the last seq_id
+
                 got_ack = _wait_for_ack(ACK_TIMEOUT_S)    # Listen to RX for ACK
 
                 if got_ack: 
