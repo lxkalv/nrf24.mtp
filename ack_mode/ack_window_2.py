@@ -246,7 +246,7 @@ def _wait_for_ack(timeout_s: float, current_chunk: int, current_window: int) -> 
             payload_pipe = nrf.data_pipe()
             pkt = nrf.get_payload()
             extracted_chunk = int.from_bytes(pkt[0:ID_CHUNK_BYTES], "big")
-            extracted_chunk = int.from_bytes(pkt[ID_CHUNK_BYTES:ID_CHUNK_BYTES+ID_WIND_BYTES], "big")
+            extracted_window = int.from_bytes(pkt[ID_CHUNK_BYTES:ID_CHUNK_BYTES+ID_WIND_BYTES], "big")
             print(f"Received ACK for chunk {extracted_chunk} window {extracted_window}")
             if extracted_chunk == current_chunk and extracted_window == current_window:
                 print(f'Recieved the correct ACK')                        # got something in RX FIFO
