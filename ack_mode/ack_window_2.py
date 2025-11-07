@@ -447,6 +447,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     
                     if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
                         # --- SEND ACK --------------------------------
+                        sleep(0.1)  # small delay to avoid collision
                         nrf.power_up_tx()                   
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
@@ -457,6 +458,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     # if window completed
                     elif (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
                         # --- SEND ACK --------------------------------
+                        sleep(0.1)  # small delay to avoid collision
                         nrf.power_up_tx()                   
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
@@ -472,6 +474,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     # last window completed
                     elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
                         # --- SEND ACK --------------------------------
+                        sleep(0.1)  # small delay to avoid collision
                         nrf.power_up_tx()                   
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
