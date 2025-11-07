@@ -240,8 +240,11 @@ def _send_ack_packet() -> None:
 def _wait_for_ack(timeout_s: float) -> bool:
     t0 = time.monotonic()                           # start a small timeout window
     while (time.monotonic() - t0) < timeout_s:      # poll until we hit the timeout
-        if nrf.data_ready():                        # got something in RX FIFO
-                return True # ACK → success
+        if nrf.data_ready():
+            payload_pipe = nrf.data_pipe()
+            packet = nrf.get_payload()
+            print(f'Recieved {packet}')                        # got something in RX FIFO
+            return True # ACK → success
     return False                                     # timed out without a valid "ACK"
 
 # --- helpers arriba de BEGIN_RECEIVER_MODE ---
@@ -425,7 +428,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 packet = nrf.get_payload()
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
-                
+                print(f"Extracted window:{extracted_window} Extracted cunk: {extracted_chunk}")
                 if current_chunk_in_window == extracted_chunk:
                     window_chunks.append(chunk)
                     current_chunk_in_window +=1
