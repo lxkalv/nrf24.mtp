@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 10          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 1          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=2
