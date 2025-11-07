@@ -169,48 +169,15 @@ payload:list[bytes] = []
 
 
 
-
-
-
 # auto-retries
 # nrf.set_retransmission(1, 15) # Retransmitting (1+1)*250ms and just 15 times will try it. Automatic ACKs
 
 
 # Tx/Rx addresses
 nrf.set_address_bytes(4) # [2 - 5] Bytes
-possible_addreses = [b"TAN1", b"TAN2"] # Team A Node X 
-address = ""
 
 
-address_is_valid = False
-while not address_is_valid:
-    val = input("\033[33m[>>>>]:\033[0m Please choose a value for the address [0: TAN1, 1: TAN2]: ")
-    try:
-        val = int(val)
 
-        if val == 0:
-            INFO(f'Address set to {possible_addreses[0]}')
-            address_is_valid = True
-
-            # --- Open both sides to enable the ACK --------------------
-            nrf.open_reading_pipe(RF24_RX_ADDR.P1, possible_addreses[0])   # pipe for RX
-            nrf.open_writing_pipe(possible_addreses[1])                    # pipe for TX
-            # -------------------------------------------------------------------
-
-        elif val == 1:
-            INFO(f'Address set to {possible_addreses[1]}')
-            address_is_valid = True
-
-            # --- Open both sides to enable the ACK --------------------
-            nrf.open_reading_pipe(RF24_RX_ADDR.P1, possible_addreses[1])   # pipe for Rx
-            nrf.open_writing_pipe(possible_addreses[0])                    # pipe for TX
-            # -------------------------------------------------------------------
-        
-        else:
-            continue
-
-    except:
-        continue
 
 
 # === DISABLE HARDWARE AUTO-ACK (EN_AA=0) TO MAKE MANUAL ACKs =========
