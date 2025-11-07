@@ -314,17 +314,19 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
         
         got_ack_id = False
-
+        
         while not got_ack_id:
             nrf.send(struct.pack(f"<{len(header)}s", header))
             try:
-                nrf.wait_until_sent()
+                nrf.power_up_rx() 
+                got_ack_id = _wait_for_ack(ACK_TIMEOUT_S)
+                nrf.power_up_tx() 
             except TimeoutError:
                 ERROR(f"Timeout while transmitting ID header packet") 
             
-        #nrf.power_up_rx() 
-        got_ack_id = _wait_for_ack(ACK_TIMEOUT_S)
-        #nrf.power_up_tx() 
+        
+        
+        
         
         # store the encoded bytes
         packets = []
