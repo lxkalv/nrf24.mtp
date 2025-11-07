@@ -241,9 +241,10 @@ def _send_ack_packet() -> None:
 
 
 def _wait_for_ack(timeout_s: float) -> bool:
-    t0 = time.monotonic()                           # start a small timeout window
+    t0 = time.monotonic() 
+    print(f"{t0}")                          # start a small timeout window
     while (time.monotonic() - t0) < timeout_s:      # poll until we hit the timeout
-        print(self.RX_DR)
+        print(f"{self.RX_DR}")
         if nrf.data_ready():
             payload_pipe = nrf.data_pipe()
             packet = nrf.get_payload()
