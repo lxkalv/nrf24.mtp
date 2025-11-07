@@ -33,7 +33,7 @@ CE_PIN  = 22
 ACK_TIMEOUT_S = 500e-6          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
-ID_WIND_BYTES=1
+ID_WIND_BYTES=2
 ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
 WINDOW_SIZE = 3
@@ -286,6 +286,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 size = PAYLOAD_SIZE - ID_CHUNK_BYTES - ID_WIND_BYTES
                 end_val = min(start_val + size, content_len)
                 ident_wind = (chunk_id // WINDOW_SIZE).to_bytes(ID_WIND_BYTES, "big")  # exactly DATA_BYTES
+                print(f"Window ID bytes: {ident_wind} for window {(chunk_id // WINDOW_SIZE)}")
                 ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")  # exactly DATA_BYTES
                 final_content = ident_chunk + ident_wind + content[start_val:end_val]
             else:
