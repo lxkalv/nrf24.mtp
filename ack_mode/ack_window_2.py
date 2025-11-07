@@ -40,7 +40,35 @@ WINDOW_SIZE = 3
 SEQ_START   = 1        # first packet ID
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+def RED(message: str) -> str:
+    """
+    Returns a copy of the string wrapped in ANSI scape sequences to make it red
+    """
+    return f"\033[31m{message}\033[0m"
 
+
+
+def GREEN(message: str) -> str:
+    """
+    Returns a copy of the string wrapped in ANSI scape sequences to make it green
+    """
+    return f"\033[32m{message}\033[0m"
+
+
+
+def YELLOW(message: str) -> str:
+    """
+    Returns a copy of the string wrapped in ANSI scape sequences to make it yellow
+    """
+    return f"\033[33m{message}\033[0m"
+
+
+
+def BLUE(message: str) -> str:
+    """
+    Returns a copy of the string wrapped in ANSI scape sequences to make it blue
+    """
+    return f"\033[34m{message}\033[0m"
 
 
 
