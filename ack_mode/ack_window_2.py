@@ -348,8 +348,9 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 
                 # Wait for the reception of the ACK. Cumulative ACK of the last seq_id
 
+                nrf.power_up_rx() 
                 got_ack = _wait_for_ack(ACK_TIMEOUT_S)    # Listen to RX for ACK
-
+                nrf.power_up_tx() 
                 if got_ack: 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt-1} | rtt={ack_rtt_ms:.2f} ms")
