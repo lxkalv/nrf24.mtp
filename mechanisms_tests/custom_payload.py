@@ -3,14 +3,7 @@ import os
 
 os.system("cls" if os.name == "nt" else "clear")
 
-from radio import (
-    Role,
-
-    radio,
-)
-
-from tx_flow import FULL_TX_MODE
-from rx_flow import FULL_RX_MODE
+from radio import radio
 
 from utils import (
     ERROR,
