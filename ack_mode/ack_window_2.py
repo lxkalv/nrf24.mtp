@@ -322,9 +322,9 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             except TimeoutError:
                 ERROR(f"Timeout while transmitting ID header packet") 
             
-        nrf.power_up_rx() 
+        #nrf.power_up_rx() 
         got_ack_id = _wait_for_ack(ACK_TIMEOUT_S)
-        nrf.power_up_tx() 
+        #nrf.power_up_tx() 
         
         # store the encoded bytes
         packets = []
