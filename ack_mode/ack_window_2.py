@@ -350,7 +350,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 
                 try:
                     nrf.power_up_rx() 
-                    got_ack = _wait_for_ack(ACK_TIMEOUT_S,current_chunk % current_window, current_window)    # Listen to RX for ACK
+                    got_ack = _wait_for_ack(ACK_TIMEOUT_S,current_chunk % WINDOW_SIZE, current_window)    # Listen to RX for ACK
                     nrf.power_up_tx() 
                 except TimeoutError:
                     ERROR(f"Timeout while transmitting packet in window at local index {current_chunk+p_idx}")
