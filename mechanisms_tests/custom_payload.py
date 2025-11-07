@@ -3,7 +3,11 @@ import os
 
 os.system("cls" if os.name == "nt" else "clear")
 
-from radio import radio
+from radio import (
+    Role,
+    
+    radio,
+)
 
 from utils import (
     ERROR,
@@ -63,3 +67,29 @@ def BEGIN_RECEIVER_MODE() -> None:
         radio.pi_custom.stop()
 
     return
+
+# :::: MAIN :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+def main():
+    """
+    Main flow of the application
+    """
+
+
+    if radio.role is Role.TRANSMITTER:
+        BEGIN_TRANSMITTER_MODE()
+    
+    elif radio.role is Role.RECEIVER:
+        BEGIN_RECEIVER_MODE()
+        
+    elif radio.role is Role.CARRIER:
+        BEGIN_CONSTANT_CARRIER_MODE()
+
+    return
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+
+
+
+
+if __name__ == "__main__":
+    main()
