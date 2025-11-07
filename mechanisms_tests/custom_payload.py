@@ -21,6 +21,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
     try:
         payload = b"HOLA"
+        idx = 0
         while True:
             radio.reset_packages_lost()
             radio.send(payload)
@@ -33,7 +34,8 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
             if radio.get_packages_lost() == 0:
                 ack = radio.get_payload()
-                SUCC(f"Received {ack}")
+                SUCC(f"{idx} Received {ack}")
+                idx += 1
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
@@ -55,11 +57,11 @@ def BEGIN_RECEIVER_MODE() -> None:
         while True:
             while radio.data_ready():
                 payload = radio.get_payload()
-                SUCC(f"Received {payload}")
+                SUCC(f"{idx} Received {payload}")
                 idx += 1
 
-                # if idx % 100 == 0:
-                #     radio.ack_payload(idx.to_bytes(5))
+                if idx % 100 == 0:
+                    radio.ack_payload(idx.to_bytes(5))
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
