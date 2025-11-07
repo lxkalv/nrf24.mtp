@@ -263,7 +263,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 end_val = min(start_val + size, content_len)
                 ident_wind = (chunk_id // WINDOW_SIZE).to_bytes(ID_WIND_BYTES, "big")  # exactly DATA_BYTES
                 ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")  # exactly DATA_BYTES
-                final_content = ident_wind + ident_chunk + content[start_val:end_val]
+                final_content = ident_chunk + ident_wind + content[start_val:end_val]
             else:
                 size = PAYLOAD_SIZE - ID_CHUNK_BYTES
                 end_val = min(start_val + size, content_len)
