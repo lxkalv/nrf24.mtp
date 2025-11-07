@@ -62,45 +62,65 @@ def ERROR(message: str) -> None:
 
 
 
-# :::: ROLE CONFIG  :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-role = ""
 
-option_is_valid = False
-while not option_is_valid:
-    val = input("\033[33m[>>>>]:\033[0m Please choose a role for this device [T]ransmitter, [R]eceiver, [C]arrier, [Q]uit: ")
-    try:
-        val = val.upper()
+# :::: NODE CONFIG  :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+class Role(Enum):
+    TRANSMITTER = "TRANSMITTER"
+    RECEIVER    = "RECEIVER"
+    CARRIER     = "CARRIER"
+    QUIT        = "QUIT"
 
-        if val == "T":
-            INFO('Device set to TRANSMITTER role')
-            role = "T"
-            option_is_valid = True
-        
-        elif val == "R":
-            INFO('Device set to RECEIVER role')
-            role = "R"
-            option_is_valid = True
+    def __str__(self: "Role") -> str:
+        return self.value
+def choose_node_role() -> Role:
+    """
+    Function to choose the role of the current node
+    """
 
-        elif val == "C":
-            INFO('Device set to CONSTANT CARRIER role')
-            role = "C"
-            option_is_valid = True
+    while True:
+        val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver, [C]arrier, [Q]uit: ")
         
-        elif val == "Q":
-            INFO('Quitting program...')
-            role = "Q"
-            option_is_valid = True
-        
-        else:
+        try:
+            val = val.upper()
+        except:
             continue
 
-    except:
-        continue
+        if val == "T":
+            INFO(f"Device set to {Role.TRANSMITTER} role")
+            return Role.TRANSMITTER
+            
+        elif val == "R":
+            INFO(f"Device set to {Role.RECEIVER} role")
+            return Role.RECEIVER
+
+        elif val == "C":
+            INFO(f"Device set to {Role.CARRIER} role")
+            return Role.CARRIER
+        
+        elif val == "Q":
+            INFO("Quitting program...")
+            return Role.QUIT
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
 
+def choose_address_based_on_role(role: Role, nrf: NRF24) -> None:
+    """
+    Choose the address of the current node based on the role that it has been
+    assigned
+    """
+    
+    if role is Role.TRANSMITTER:
+        nrf.open_writing_pipe(b"TAN1")
+        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN0")
+        INFO("Writing @: TAN1 | Reading @; TAN0")
+    
+    elif role is Role.RECEIVER:
+        nrf.open_writing_pipe(b"TAN0")
+        nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN1")
+        INFO("Writing @: TAN0 | Reading @; TAN1")
 
+    return
 
 # :::: RADIO CONFIG :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -491,22 +511,22 @@ def BEGIN_CONSTANT_CARRIER_MODE() -> None:
 
 # :::: MAIN :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def main():
-    match role:
-        case "T":
-            BEGIN_TRANSMITTER_MODE()
-            return
+    """
+    Main flow of the application
+    """
+
+    role = choose_node_role()
+    choose_address_based_on_role(role, nrf)
+
+    if role is Role.TRANSMITTER:
+        BEGIN_TRANSMITTER_MODE()
+    
+    elif role is Role.RECEIVER:
+        BEGIN_RECEIVER_MODE()
         
-        case "R":
-            BEGIN_RECEIVER_MODE()
-            return
-        
-        case "C":
-            BEGIN_CONSTANT_CARRIER_MODE()
-            return
-        
-        case "Q":
-            return
-        
+    elif role is Role.CARRIER:
+        BEGIN_CONSTANT_CARRIER_MODE()
+
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
