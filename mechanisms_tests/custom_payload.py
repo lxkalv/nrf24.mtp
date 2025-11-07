@@ -1,4 +1,5 @@
 # :::: LIBRARY IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+import time
 import os
 
 os.system("cls" if os.name == "nt" else "clear")
@@ -38,6 +39,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 ack = radio.get_payload()
                 SUCC(f"{idx} Received {ack}")
                 idx += 1
+            time.sleep(.2)
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
@@ -63,7 +65,9 @@ def BEGIN_RECEIVER_MODE() -> None:
                 idx += 1
 
                 if idx % 100 == 0:
+                    INFO(f"Changing ack payload to {idx.to_bytes(5)}")
                     radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(5))
+                time.sleep(.2)
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
