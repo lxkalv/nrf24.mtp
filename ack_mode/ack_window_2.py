@@ -229,8 +229,8 @@ nrf.show_registers()
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def _send_ack_packet(extracted_chunk: int, extracted_window: int) -> None:
-    ack = (extracted_chunk).to_bytes(ID_CHUNK_BYTES, "big") + (extracted_window).to_bytes(ID_WIND_BYTES, "big")                                    # build 32B: "ACK" 
+def _send_ack_packet(extracted_window: int) -> None:
+    ack = (extracted_window).to_bytes(ID_WIND_BYTES, "big")                                    # build 32B: "ACK" 
     nrf.unset_ce()                                  # disable CE during config
     nrf.send(struct.pack(f"<{len(ack)}s", ack))
     try:
@@ -239,20 +239,19 @@ def _send_ack_packet(extracted_chunk: int, extracted_window: int) -> None:
                 ERROR(f"Timeout while transmitting ID header packet")                          # block until TX done (radio goes back to RX)
 
 
-def _wait_for_ack(timeout_s: float, current_chunk: int, current_window: int) -> bool:
+def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
     t0 = time.monotonic()                         # start a small timeout window
     while (time.monotonic() - t0) < timeout_s:      # poll until we hit the timeout
         if nrf.data_ready():
             payload_pipe = nrf.data_pipe()
             pkt = nrf.get_payload()
-            extracted_chunk = int.from_bytes(pkt[0:ID_CHUNK_BYTES], "big")
-            extracted_window = int.from_bytes(pkt[ID_CHUNK_BYTES:ID_CHUNK_BYTES+ID_WIND_BYTES], "big")
-            print(f"Received ACK for chunk {extracted_chunk} window {extracted_window}")
-            if extracted_chunk == current_chunk and extracted_window == current_window:
+            extracted_window = int.from_bytes(pkt[0:ID_WIND_BYTES], "big")
+            print(f"Received ACK for window {extracted_window}")
+            if extracted_window == current_window:
                 print(f'Recieved the correct ACK')                        # got something in RX FIFO
                 return True
             else: 
-                print(f'Expected ACK for chunk {current_chunk} window {current_window}, but got chunk {extracted_chunk} window {extracted_window}')
+                print(f'Expected ACK for window {current_window}, but got  window {extracted_window}')
                 return False
     return False                                     # timed out without a valid "ACK"
 
@@ -414,7 +413,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             
             print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
 
-            _send_ack_packet(0,0)
+            _send_ack_packet(0)
 
             print(f"ACK sent for header packet")
             tic = time.monotonic()
@@ -449,7 +448,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
                         # --- SEND ACK --------------------------------
                         nrf.power_up_tx()                   
-                        _send_ack_packet(extracted_chunk, extracted_window)                  
+                        _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
                         window_chunks.clear()
@@ -459,7 +458,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     elif (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
                         # --- SEND ACK --------------------------------
                         nrf.power_up_tx()                   
-                        _send_ack_packet(extracted_chunk, extracted_window)                  
+                        _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
                         SUCC(f"ACK send for window {current_window} / {total_wind}")
@@ -474,7 +473,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
                         # --- SEND ACK --------------------------------
                         nrf.power_up_tx()                   
-                        _send_ack_packet(extracted_chunk, extracted_window)                  
+                        _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
                         current_window +=1
