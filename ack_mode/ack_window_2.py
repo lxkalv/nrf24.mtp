@@ -393,12 +393,15 @@ def BEGIN_RECEIVER_MODE() -> None:
                 pass
 
             header_packet = nrf.get_payload()
-
             raw = header_packet[:ID_WIND_BYTES+1]
             total_wind, last_window_size = struct.unpack(f">{ID_WIND_BYTES}sB", raw)
             total_wind = int.from_bytes(total_wind, "big") #Check that we don't need to 0 for the index of the payload
             
+            print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
+
             _send_ack_packet()
+
+            print(f"ACK sent for header packet")
             tic = time.monotonic()
             break
         
@@ -407,61 +410,65 @@ def BEGIN_RECEIVER_MODE() -> None:
         current_chunk_in_window=0
         chunks = []
         window_chunks=[]
+        timer_has_started = False
 
         # check if there are frames
-        while nrf.data_ready() and ((tac - tic) < timeout) and (current_window < total_wind):
-            tac = time.monotonic()
-
-            payload_pipe = nrf.data_pipe()
-
-            packet = nrf.get_payload()
-
-            extracted_window, extracted_chunk, chunk = _decode_packet(packet, current_window)
+        while ((tac - tic) < timeout) and (current_window < total_wind):
             
-            if current_chunk_in_window == extracted_chunk:
-                window_chunks.append(chunk)
-                current_chunk_in_window +=1
-                SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {current_window+1}")
+            tac = time.monotonic()
+            while nrf.data_ready():
+                if not timer_has_started:
+                    throughput_tic = time.monotonic()
+                    timer_has_started = True
+                payload_pipe = nrf.data_pipe()
+
+                packet = nrf.get_payload()
+
+                extracted_window, extracted_chunk, chunk = _decode_packet(packet, current_window)
                 
-                if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
-                    # --- SEND ACK --------------------------------
-                    nrf.power_up_tx()                   
-                    _send_ack_packet()                  
-                    nrf.power_up_rx()                 
-                    # ---------------------------------------------
-                    window_chunks.clear()
-                    SUCC(f"ACK send for window {extracted_window} / {total_wind}")
-                    current_chunk_in_window = 0
-                # if window completed
-                elif (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
-                    # --- SEND ACK --------------------------------
-                    nrf.power_up_tx()                   
-                    _send_ack_packet()                  
-                    nrf.power_up_rx()                 
-                    # ---------------------------------------------
-                    current_window +=1
-                    chunks.extend(window_chunks)
-                    window_chunks.clear()
+                if current_chunk_in_window == extracted_chunk:
+                    window_chunks.append(chunk)
+                    current_chunk_in_window +=1
+                    SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {current_window+1}")
+                    
+                    if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
+                        # --- SEND ACK --------------------------------
+                        nrf.power_up_tx()                   
+                        _send_ack_packet()                  
+                        nrf.power_up_rx()                 
+                        # ---------------------------------------------
+                        window_chunks.clear()
+                        SUCC(f"ACK send for window {extracted_window} / {total_wind}")
+                        current_chunk_in_window = 0
+                    # if window completed
+                    elif (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
+                        # --- SEND ACK --------------------------------
+                        nrf.power_up_tx()                   
+                        _send_ack_packet()                  
+                        nrf.power_up_rx()                 
+                        # ---------------------------------------------
+                        current_window +=1
+                        chunks.extend(window_chunks)
+                        window_chunks.clear()
 
-                    SUCC(f"ACK send for window {current_window} / {total_wind}")
-                    current_chunk_in_window = 0
-                # last window completed
-                elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
-                    # --- SEND ACK --------------------------------
-                    nrf.power_up_tx()                   
-                    _send_ack_packet()                  
-                    nrf.power_up_rx()                 
-                    # ---------------------------------------------
-                    current_window +=1
-                    chunks.extend(window_chunks)
-                    SUCC(f"ACK send for last window ({current_window} / {total_wind})")
-                    break
-                tic = time.monotonic()
-            else:
-                ERROR(f"Received out-of-order chunk (expected {current_chunk_in_window}, got {extracted_chunk}), discarding")
-                # Optional: could implement NACK or request retransmission here
-                tic = time.monotonic()
-
+                        SUCC(f"ACK send for window {current_window} / {total_wind}")
+                        current_chunk_in_window = 0
+                    # last window completed
+                    elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
+                        # --- SEND ACK --------------------------------
+                        nrf.power_up_tx()                   
+                        _send_ack_packet()                  
+                        nrf.power_up_rx()                 
+                        # ---------------------------------------------
+                        current_window +=1
+                        chunks.extend(window_chunks)
+                        SUCC(f"ACK send for last window ({current_window} / {total_wind})")
+                        break
+                    tic = time.monotonic()
+                else:
+                    ERROR(f"Received out-of-order chunk (expected {current_chunk_in_window}, got {extracted_chunk}), discarding")
+                    # Optional: could implement NACK or request retransmission here
+                    tic = time.monotonic()
         INFO('Connection timed-out or all chunks recieved')
         
         
