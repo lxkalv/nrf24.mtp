@@ -428,11 +428,11 @@ def BEGIN_RECEIVER_MODE() -> None:
                 packet = nrf.get_payload()
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
-                print(f"Extracted window:{extracted_window} Extracted cunk: {extracted_chunk}")
+                print(f"Extracted window:{extracted_window} Extracted cunck: {extracted_chunk}")
                 if current_chunk_in_window == extracted_chunk:
                     window_chunks.append(chunk)
                     current_chunk_in_window +=1
-                    SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {extracted_window}")
+                    SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {current_window}")
                     
                     if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
                         # --- SEND ACK --------------------------------
