@@ -233,7 +233,10 @@ def _send_ack_packet() -> None:
     ack = b"ACK"                                    # build 32B: "ACK" 
     nrf.unset_ce()                                  # disable CE during config
     nrf.send(ack)                                   # send (this flips radio to TX)
-    nrf.wait_until_sent()                           # block until TX done (radio goes back to RX)
+    try:
+        nrf.wait_until_sent()
+    except TimeoutError:
+        ERROR(f"Timeout while transmitting ID header packet")                          # block until TX done (radio goes back to RX)
 
 
 
