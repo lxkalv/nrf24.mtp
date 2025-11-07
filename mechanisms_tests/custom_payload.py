@@ -20,7 +20,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     INFO("Starting transmission")
 
     try:
-        payload = bytes()
+        payload = b"HOLA"
         while True:
             radio.reset_packages_lost()
             radio.send(payload)
