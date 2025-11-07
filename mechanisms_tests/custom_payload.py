@@ -3,6 +3,8 @@ import os
 
 os.system("cls" if os.name == "nt" else "clear")
 
+from nrf24 import RF24_RX_ADDR
+
 from radio import (
     Role,
 
@@ -61,7 +63,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 idx += 1
 
                 if idx % 100 == 0:
-                    radio.ack_payload(radio.data_pipe(), idx.to_bytes(5))
+                    radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(5))
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
