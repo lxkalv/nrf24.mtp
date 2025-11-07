@@ -61,7 +61,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 idx += 1
 
                 if idx % 100 == 0:
-                    radio.ack_payload(idx.to_bytes(5))
+                    radio.ack_payload(radio.data_pipe(), idx.to_bytes(5))
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
