@@ -22,7 +22,7 @@ import sys
 CE_PIN  = 22
 
 ACK_TIMEOUT_S = 500e-6          # <<< max time waiting for manual ACK (500 µs)
-MAX_ATTEMPTS  = 3               # <<< per-packet retries (you can adjust)
+MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=1
 ID_CHUNK_BYTES=1
