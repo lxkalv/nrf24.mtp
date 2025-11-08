@@ -289,7 +289,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
         TR_INFO += len(STREAM[PageID]).to_bytes(1)
         TR_INFO += len(STREAM[PageID][-1]).to_bytes(1)
         TR_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
-    INFO(f"Generated TR_INFO message of {len(TR_INFO)} B")
+    INFO(f"Generated TR_INFO message of {len(TR_INFO)} B: {TR_INFO}")
     ptx.send_INFO_message(TR_INFO, "TR_INFO")
 
     return
