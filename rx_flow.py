@@ -163,24 +163,26 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # NOTE: INFO message
         if frame[0] & 0xF0:
 
-           # NOTE: TR_INFO
-            if not frame[0] & 0x0F:
+           # NOTE: TR_INFO (11110000)
+            if frame[0] == 0xF0:
                 if STREAM_HAS_BEEN_GENERATED:
                     continue
 
                 generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
                 STREAM_HAS_BEEN_GENERATED = True
+            
+            # NOTE: TR_FINISH (11111010)
+            elif frame[0] == 0xFA:
+                TRANSFER_HAS_ENDED = True
 
         
-        # NOTE: DATA message
+        # NOTE: DATA message (0000XXXX)
         else:
             PageID  = frame[0]
             BurstID = frame[1]
             ChunkID = frame[2]
             INFO(f"Received DATA: PageID = {PageID} | BurstID = {BurstID} | ChunkID = {ChunkID}")
             STREAM[PageID][BurstID][ChunkID] = frame
-                
-
 
     return
 

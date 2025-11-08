@@ -274,7 +274,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     # Chunk of the last Burst. This allows the PRX to infer the total ammount of data
     # expected, the length of each Page and the length of each Burst
     #
-    # NOTE: The structure of our DATA payload looks like this (for now):
+    # NOTE: The structure of our TR_INFO payload looks like this (for now):
     #
     # ┌────────────────────┬───────────────┬────────────────────┬────────────────────┬─────┬────────────────┬─────────────────────┬─────────────────────┐
     # │ MessageID + InfoID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │
@@ -314,6 +314,23 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                     if ptx.get_packages_lost() == 0:
                         break
 
+    # Generate and send a Transfer Finish message (TR_FINISH)
+    # NOTE: As of now the TR_FINISH message does not contain any data, only the header
+    #
+    # NOTE: The structure of our TR_FINISH payload looks like this (for now):
+    #
+    # ┌────────────────────┐
+    # │ MessageID + InfoID │
+    # └────────────────────┘
+    #   ↑           ↑
+    #   │           │
+    #   │           │
+    #   │           │
+    #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for TR_INFO is set to 1010
+    #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
+    TR_FINISH  = bytes()
+    TR_FINISH += 0xFA.to_bytes(1) # NOTE: Translates to 11111010
+    ptx.send_INFO_message(TR_FINISH, "TR_FINISH")
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
