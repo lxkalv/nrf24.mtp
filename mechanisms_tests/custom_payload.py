@@ -37,7 +37,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
             if radio.get_packages_lost() == 0:
                 ack = radio.get_payload()
-                SUCC(f"{idx} Received {ack}")
+                SUCC(f"{idx} Received {int.from_bytes(ack)}")
                 idx += 1
             time.sleep(.2)
 
@@ -64,9 +64,9 @@ def BEGIN_RECEIVER_MODE() -> None:
                 SUCC(f"{idx} Received {payload}")
                 idx += 1
 
-                if idx % 100 == 0:
-                    INFO(f"Changing ack payload to {idx.to_bytes(5)}")
-                    radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(5))
+                if idx % 10 == 0:
+                    INFO(f"Changing ack payload to {idx.to_bytes(32)}")
+                    radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(32))
                 time.sleep(.2)
 
     except KeyboardInterrupt:
