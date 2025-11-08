@@ -296,8 +296,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
 
     for PageID in range(len(STREAM)):
         for BurstID in range(len(STREAM[PageID])):
-            for ChunkID in range(len(STREAM[BurstID])):
-
+            for ChunkID in range(len(STREAM[PageID][BurstID])):
                 while True:
                     status_bar(
                         pending_msg  = f"Sending frame ({PageID}/{BurstID}/{ChunkID})",
