@@ -198,12 +198,12 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
     #               ↓         ↓          ↓
     CHECKSUMS: dict[int, dict[int,       str]] = dict()
 
-    # Split each compressed Page into Bursts of 7936B
-    # NOTE: The width of 7936B allows to split the Burst into 256 Chunks of 29
+    # Split each compressed Page into Bursts of 7424B
+    # NOTE: The width of 7424B allows to split the Burst into 256 Chunks of 29
     # Bytes of width, this allows to limit the size of the ChunkID to 1B, summing up
     # to a total payload of 32B (after adding the PageID and the BurstID). The ChunkID
     # is set to 0 at the start of each Burst
-    BURST_WIDTH = 7936
+    BURST_WIDTH = 7424
     CHUNK_WIDTH = 29
     for idx_page, page in enumerate(pages):
 
