@@ -240,20 +240,29 @@ def _send_ack_packet(extracted_window: int) -> None:
 
 
 def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
-    t0 = time.monotonic()                         # start a small timeout window
-    while (time.monotonic() - t0) < timeout_s:      # poll until we hit the timeout
+    t0 = time.monotonic() 
+    while (time.monotonic() - t0) < timeout_s: 
         if nrf.data_ready():
-            payload_pipe = nrf.data_pipe()
             pkt = nrf.get_payload()
-            extracted_window = int.from_bytes(pkt[0:ID_WIND_BYTES], "big")
+
+            try:
+                extracted_window = int.from_bytes(pkt[0:ID_WIND_BYTES], "big")
+
+            except Exception as e:
+                ERROR(f"ACK corrupto o inválido: {e}. Descartando.")
+                continue 
+
             print(f"Received ACK for window {extracted_window}")
+
             if extracted_window == current_window:
-                print(f'Recieved the correct ACK')                        # got something in RX FIFO
+                print(f'Recieved the correct ACK') 
                 return True
+            
             else: 
-                print(f'Expected ACK for window {current_window}, but got  window {extracted_window}')
-                
-    return False                                     # timed out without a valid "ACK"
+                print(f'Expected ACK for {current_window}, got {extracted_window}. Discarding.')
+        else:
+            time.sleep(0.0001) 
+    return False
 
 # --- helpers arriba de BEGIN_RECEIVER_MODE ---
 def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
