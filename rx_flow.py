@@ -37,7 +37,7 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: l
     #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for TR_INFO is set to 0000
     #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
     MESSAGE           = TR_INFO[1:]
-    number_of_pages   = len(MESSAGE) % 3
+    number_of_pages   = len(MESSAGE) / 3
     burst_in_page     = [byte for byte in MESSAGE[0:-1:3]]
     length_last_burst = [byte for byte in MESSAGE[1:-1:3]]
     length_last_chunk = [byte for byte in MESSAGE[2:-1:3]]
