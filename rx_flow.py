@@ -176,6 +176,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             PageID  = frame[0]
             BurstID = frame[1]
             ChunkID = frame[2]
+            INFO(f"Received DATA: PageID = {PageID} | BurstID = {BurstID} | ChunkID = {ChunkID}")
             STREAM[PageID][BurstID][ChunkID] = frame
                 
 
