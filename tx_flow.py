@@ -373,9 +373,9 @@ def FULL_TX_MODE(ptx: CustomNRF24) -> None:
     STREAM, CHECKSUMS = TX_TRANSPORT_LAYER(compressed_pages)
     TX_LINK_LAYER(ptx, STREAM, CHECKSUMS)
 
-    for page in STREAM:
-        for burst in STREAM[page]:
-            for chunk in STREAM[page][burst]:
+    for page in range(len(STREAM)):
+        for burst in range(len(STREAM[page])):
+            for chunk in range(len(STREAM[page][burst])):
                 STREAM[page][burst][chunk] = STREAM[page][burst][chunk].hex()
 
     import json
