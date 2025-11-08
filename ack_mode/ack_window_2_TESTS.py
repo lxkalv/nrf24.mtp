@@ -216,7 +216,7 @@ def _disable_auto_ack(nrf_obj):
 
     nrf_obj.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
 
-_disable_auto_ack(nrf) 
+
 # =================================================================================
 
 
@@ -559,6 +559,9 @@ def main():
 
     role = choose_node_role()
     choose_address_based_on_role(role, nrf)
+    _disable_auto_ack(nrf)
+    INFO("EN_AA after disabling again:")
+    nrf.show_registers()  # opcional, para comprobar que EN_AA=0
 
     if role is Role.TRANSMITTER:
         BEGIN_TRANSMITTER_MODE()
