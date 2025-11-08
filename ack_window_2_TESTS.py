@@ -171,7 +171,7 @@ if not pi.connected:
     sys.exit(1)
 
 # radio object
-nrf = NRF24(pi, ce = CE_PIN)
+nrf = NRF24(pi, ce = CE_PIN, spi_speed =10e6)
 
 
 # radio channel
@@ -320,6 +320,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         
         while not got_ack_id:
             nrf.send(struct.pack(f"<{len(header)}s", header))
+            nrf.wait_until_sent()
             try:
                 nrf.power_up_rx() 
                 got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
