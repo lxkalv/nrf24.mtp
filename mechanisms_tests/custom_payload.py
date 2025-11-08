@@ -65,8 +65,8 @@ def BEGIN_RECEIVER_MODE() -> None:
                 idx += 1
 
                 if idx % 10 == 0:
-                    INFO(f"Changing ack payload to {idx.to_bytes(32)}")
-                    radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(32))
+                    INFO(f"Changing ack payload to {idx.to_bytes(min(idx + 1, 32))}")
+                    radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(min(idx + 1, 32)))
                 time.sleep(.2)
 
     except KeyboardInterrupt:
