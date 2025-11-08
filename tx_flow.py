@@ -21,7 +21,9 @@ from utils import (
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
+# :::: CONSTANTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
 
@@ -98,7 +100,7 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
 
 
 
-def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str, bytes]]], list[str, list[str, str]]]:
+def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[list[list[bytes]]], list[list[str]]]:
     """
     This layer is responsible for the following things:
     - Splitting the compressed pages into bursts of 7936 Bytes. This is done so that
@@ -168,9 +170,9 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
     #     BURST N:
     #         ...
     #
-    #            PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
-    #            ↓         ↓         ↓          ↓
-    STREAM: list[int, list[int, list[int,       bytes]]] = list()
+    #       PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
+    #       ↓         ↓         ↓          ↓
+    STREAM: list[     list[     list[      bytes]]] = list()
 
     # NOTE: We provide a STREAM-like structure that contains the checksums of each
     # burst for every page. The structure looks like this
@@ -193,10 +195,10 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
     #     ...
     #     BURST N: ...
     #
-    # NOTE: As of now, the checksum is computed INCLUDING the ChunkID
-    #               PageID    BurstID    CHECKSUM
-    #               ↓         ↓          ↓
-    CHECKSUMS: list[int, list[int,       str]] = list()
+    # NOTE: As of now, the checksum is computed INCLUDING all the headers
+    #          PageID    BurstID    CHECKSUM
+    #          ↓         ↓          ↓
+    CHECKSUMS: list[     list[      str]] = list()
 
     # Split each compressed Page into Bursts of 7424B
     # NOTE: The width of 7424B allows to split the Burst into 256 Chunks of 29
@@ -252,7 +254,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
 
 
 
-def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]]], CHECKSUMS: dict[str, dict[str, str]]) -> None:
+def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: list[list[str]]) -> None:
     """
     This layer is responsible for the following things:
     - Generating and sending a TX_INFO message containing the number of pages to
@@ -292,69 +294,27 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     INFO(f"Generated TR_INFO message of {len(TR_INFO)} B: {TR_INFO}")
     ptx.send_INFO_message(TR_INFO, "TR_INFO")
 
-    return
-    for idx_page in range(len(STREAM)):
-        PAGE = STREAM[f"PAGE{idx_page}"]
-        # NOTE: everytime we start a page, we send a PAGE_INFO message containing the
-        # PageID, the number of bursts in the page (PageLength) and the total ammount of
-        # bytes in the page (PageWidth). The PAGE_INFO message payload has the following
-        # structure:
-        #
-        # | MessageID (4B) | PageID (1B) | PageLength (3B) | PageWidth (4B) | = 12 Bytes
-        # 
-        # MessageID:  The identifier of the type of info message: [PAIM] (PAge Info Message)
-        # PageID:     The identifier of the page                  [0..255]
-        # PageLength: The number of bursts inside the page        [0..16_777_215]
-        # PageWidth:  The number of bytes inside the page         [0..4_294_967_295]
-        PAGE_INFO  = bytes()
-        PAGE_INFO += b"PAIM"
-        PAGE_INFO += idx_page.to_bytes(1)
-        PAGE_INFO += (len(PAGE) - 1).to_bytes(3)
-        PAGE_INFO += sum(len(PAGE[BurstID][ChunkID]) for BurstID in PAGE for ChunkID in PAGE[BurstID]).to_bytes(4)
-        ptx.send_INFO_message(PAGE_INFO, "PAGE_INFO")
-
-        for idx_burst in range(len(PAGE)):
-            BURST = PAGE[f"BURST{idx_burst}"]
-            # NOTE: everytime we start a burst, we send a BURST_INFO message containing the
-            # BurstID, the number of chunks in the burst (BurstLength) and the total ammount
-            # of bytes in the burst (BurstWidth). The BURST_INFO message payload has the
-            # following structure:
-            #
-            # | MessageID (4B) | BurstID (4B) | BurstLength (1B) | BurstWidth (2B) | = 11 Bytes
-            #
-            # MessageID:   The identifier of the type of info message: [BUIM] (BUrst Info Message)
-            # BurstID:     The identifier of the burst       [0..4_294_967_295]
-            # BurstLenght: The number of chunks in the burst [0..255]
-            # BurstWidth:  The number of bytes in the burst  [0..65_535]
-            BURST_INFO  = bytes()
-            BURST_INFO += b"BUIM"
-            BURST_INFO += idx_burst.to_bytes(4)
-            BURST_INFO += (len(BURST) - 1).to_bytes(1)
-            BURST_INFO += sum(len(BURST[ChunkID]) for ChunkID in BURST).to_bytes(2)
-            ptx.send_INFO_message(BURST_INFO, "BURST_INFO")
-
-            for idx_chunk in range(len(BURST)):
-                CHUNK = BURST[f"CHUNK{idx_chunk}"]
+    for PageID in range(len(STREAM)):
+        for BurstID in range(len(STREAM[BurstID])):
+            for ChunkID in range(len(STREAM[ChunkID])):
 
                 while True:
-                    if idx_chunk % 100 == 0 or idx_chunk == len(BURST) - 1:
-                        progress_bar(
-                            pending_msg     = f"Sending burst {idx_burst}",
-                            finished_msg    = "Burst sent successfully",
-                            current_status  = idx_chunk + 1,
-                            finished_status = len(BURST)
-                        )
-                    
-                    ptx.reset_packages_lost()
-                    ptx.send(CHUNK)
+                    status_bar(
+                        pending_msg  = f"Sending frame ({PageID}/{BurstID}/{ChunkID})",
+                        finished_msg = f"Burst {BurstID} completed",
+                        finished     = False
+                    )
+
                     try:
+                        ptx.reset_packages_lost()
+                        ptx.send(STREAM[PageID][BurstID][ChunkID])
                         ptx.wait_until_sent()
-                        if not ptx.get_packages_lost():
-                            break
-                        else:
-                            continue
                     except TimeoutError:
-                        ERROR(f"Time-out while sending chunk {idx_burst} in burst {idx_burst} in page {idx_page}")
+                        ERROR("Timeout while transmitting")
+
+                    if ptx.get_packages_lost() == 0:
+                        break
+
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
