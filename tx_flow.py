@@ -378,13 +378,22 @@ def FULL_TX_MODE(ptx: CustomNRF24) -> None:
             for chunk in range(len(STREAM[page][burst])):
                 STREAM[page][burst][chunk] = STREAM[page][burst][chunk].hex()
 
-    import json
-    with open("STREAM.json", "w") as f:
-        json.dump(STREAM, f, indent = 4)
+    with open("STREAM.txt", "w") as f:
+        for PageID, page in enumerate(STREAM):
+            f.write(f"PAGE {PageID}:\n")
+            for BurstID, burst in enumerate(page):
+                f.write(f"    BURST {BurstID}:\n")
+                for ChunkID, chunk in enumerate(burst):
+                    f.write(f"        CHUNK {ChunkID}: {chunk}\n")
+            f.write("\n")
 
-    with open("CHECKSUMS.json", "w") as f:
-        json.dump(CHECKSUMS, f, indent = 4)
 
-    
+    with open("CHECKSUMS.txt", "w") as f:
+        for PageID, page in enumerate(CHECKSUMS):
+            f.write(f"PAGE {PageID}:\n")
+            for BurstID, checksum in enumerate(page):
+                f.write(f"    BURST {BurstID}: {checksum}\n")
+            f.write("\n")
+
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
