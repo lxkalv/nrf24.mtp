@@ -39,6 +39,12 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: l
     burst_in_page     = MESSAGE[0:3:-1]
     length_last_burst = MESSAGE[1:3:-1]
     length_last_chunk = MESSAGE[2:3:-1]
+
+    INFO(f"Number of Pages to be received: {number_of_pages}")
+    INFO(f"Page Widths: {burst_in_page}")
+    INFO(f"Last Burst Widths: {length_last_burst}")
+    INFO(f"Last Chunk Widths: {length_last_chunk}")
+
     for PageID, PageWidth, LastBurstWidth, LastChunkWidth in zip(range(number_of_pages), burst_in_page, length_last_burst, length_last_chunk):
         STREAM.append(list())
         for BurstID in range(PageWidth):
