@@ -98,7 +98,7 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
 
 
 
-def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str, bytes]]], dict[str, dict[str, str]]]:
+def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str, bytes]]], list[str, list[str, str]]]:
     """
     This layer is responsible for the following things:
     - Splitting the compressed pages into bursts of 7936 Bytes. This is done so that
@@ -170,7 +170,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
     #
     #            PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
     #            ↓         ↓         ↓          ↓
-    STREAM: dict[int, dict[int, dict[int,       bytes]]] = dict()
+    STREAM: list[int, dict[int, dict[int,       bytes]]] = list()
 
     # NOTE: We provide a STREAM-like structure that contains the checksums of each
     # burst for every page. The structure looks like this
@@ -196,7 +196,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
     # NOTE: As of now, the checksum is computed INCLUDING the ChunkID
     #               PageID    BurstID    CHECKSUM
     #               ↓         ↓          ↓
-    CHECKSUMS: dict[int, dict[int,       str]] = dict()
+    CHECKSUMS: list[int, list[int,       str]] = list()
 
     # Split each compressed Page into Bursts of 7424B
     # NOTE: The width of 7424B allows to split the Burst into 256 Chunks of 29
@@ -207,8 +207,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
     CHUNK_WIDTH = 29
     for idx_page, page in enumerate(pages):
 
-        STREAM[idx_page]    = dict()
-        CHECKSUMS[idx_page] = dict()
+        STREAM[idx_page]    = list()
+        CHECKSUMS[idx_page] = list()
 
         page_len = len(page)
         
@@ -220,7 +220,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
         for idx_burst, burst in enumerate(bursts):
 
-            STREAM[idx_page][idx_burst]    = dict()
+            STREAM[idx_page][idx_burst]    = list()
             CHECKSUMS[idx_page][idx_burst] = ""
             
             burst_len = len(burst)
