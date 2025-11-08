@@ -294,9 +294,12 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     INFO(f"Generated TR_INFO message of {len(TR_INFO)} B: {TR_INFO}")
     ptx.send_INFO_message(TR_INFO, "TR_INFO")
 
-    for PageID in range(len(STREAM)):
-        for BurstID in range(len(STREAM[PageID])):
-            for ChunkID in range(len(STREAM[PageID][BurstID])):
+    PageID  = 0
+    BurstID = 0
+    ChunkID = 0
+    while PageID < len(STREAM):
+        while BurstID < len(STREAM[PageID]):
+            while ChunkID < len(STREAM[PageID][BurstID]):
                 while True:
                     status_bar(
                         pending_msg  = f"Sending frame ({PageID}/{BurstID}/{ChunkID})",
@@ -312,7 +315,57 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                         ERROR("Timeout while transmitting")
 
                     if ptx.get_packages_lost() == 0:
+                        ChunkID += 1
                         break
+            # NOTE: After we have completed sending a Burst, we send empty frames until we
+            # receive a checksum in the auto-ACK of the PRX
+            while True:
+                status_bar(
+                    pending_msg  = f"Waiting for checksum of Burst {BurstID}",
+                    finished_msg = f"...",
+                    finished     = False
+                )
+
+                # Generate and send an Empty Frame message (EMPTY)
+                # NOTE: the EMPTY message only contains the MessageID + InfoID
+                #
+                # NOTE: The structure of our EMPTY payload looks like this (for now):
+                #
+                # ┌────────────────────┐
+                # │ MessageID + InfoID │
+                # └────────────────────┘
+                #   ↑           ↑
+                #   │           │
+                #   │           │
+                #   │           │
+                #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for EMPTY is set to 0011
+                #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
+                EMPTY  = bytes()
+                EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
+                ptx.send_INFO_message(EMPTY, "EMPTY")
+                ACK = ptx.get_payload()
+                
+                if len(ACK) < 32:
+                    continue
+                else:
+                    if ACK == bytes.fromhex(CHECKSUMS[PageID][BurstID]):
+                        SUCC(f"Received valid checksum for Burst {BurstID}: {ACK.hex()}")
+                        BurstID += 1
+                        status_bar(
+                            pending_msg  = f"...",
+                            finished_msg = f"Checksum validated, sending next Burst",
+                            finished     = True,
+                        )
+                    else:
+                        status_bar(
+                            pending_msg  = f"...",
+                            finished_msg = f"Invalid checksum received for Burst {BurstID}, resending Burst",
+                            finished     = True,
+                        )
+                    ChunkID = 0
+                    break
+                    
+
 
     # Generate and send a Transfer Finish message (TR_FINISH)
     # NOTE: As of now the TR_FINISH message does not contain any data, only the header

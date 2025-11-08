@@ -1,10 +1,15 @@
 # :::: IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+import hashlib
+
 from radio import CustomNRF24
 
 from utils import (
     SUCC,
-    WARN,
     INFO,
+)
+
+from nrf24 import (
+    RF24_RX_ADDR
 )
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -143,6 +148,11 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     # we evaluate if the transmission has ended or not
     TRANSFER_HAS_ENDED        = False
     STREAM_HAS_BEEN_GENERATED = False
+    LAST_PAGEID               = 0
+    LAST_BURSTID              = 0
+    LAST_CHUNKID              = 0
+    CURRENT_CHECKSUM          = ""
+    burst_hasher              = hashlib.sha256()
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
         while not prx.data_ready():
@@ -160,7 +170,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # first 3 Bytes correspond to the PageID, BurstID and ChunkID
         frame = prx.get_payload()
 
-        # NOTE: INFO message
+        # NOTE: INFO message (1111XXXX)
         if frame[0] & 0xF0:
 
            # NOTE: TR_INFO (11110000)
@@ -171,18 +181,41 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
                 STREAM_HAS_BEEN_GENERATED = True
             
+            elif frame[0] == 0xF3:
+                INFO("Received EMPTY INFO message")
+                prx.ack_payload(RF24_RX_ADDR.P0, bytes(burst_hasher.hexdigest()))
+            
             # NOTE: TR_FINISH (11111010)
             elif frame[0] == 0xFA:
                 TRANSFER_HAS_ENDED = True
+                SUCC(f"Transfer has finished successfully")
 
         
         # NOTE: DATA message (0000XXXX)
         else:
+            prx.ack_payload(RF24_RX_ADDR.P0, b"")
+            
             PageID  = frame[0]
             BurstID = frame[1]
             ChunkID = frame[2]
+
+            if (
+                PageID  == LAST_PAGEID
+            and BurstID == LAST_BURSTID
+            and ChunkID == LAST_CHUNKID    
+            ):
+                continue
+            
+            if (
+                PageID  != LAST_PAGEID
+            or  BurstID != LAST_BURSTID
+            ):
+                burst_hasher = hashlib.sha256()
+
+            
             INFO(f"Received DATA: PageID = {PageID} | BurstID = {BurstID} | ChunkID = {ChunkID}")
             STREAM[PageID][BurstID][ChunkID] = frame
+            burst_hasher.update(frame)
 
     return
 
