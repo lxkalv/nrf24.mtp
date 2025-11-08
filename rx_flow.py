@@ -159,11 +159,12 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
                 INFO("Generated STREAM structure")
                 # help me visualize the size of the structure
-                INFO(f"Total Pages: {len(STREAM)}")
-                for PageID in STREAM:
-                    INFO(f"  Page {PageID}: Total Bursts: {len(STREAM[PageID])}")
-                    for BurstID in STREAM[PageID]:
-                        INFO(f"    Burst {BurstID}: Total Chunks: {len(STREAM[PageID][BurstID])}")
+                print(STREAM)
+                # INFO(f"Total Pages: {len(STREAM)}")
+                # for PageID in enumerate(len(STREAM)):
+                #     INFO(f"  Page {PageID}: Total Bursts: {len(STREAM[PageID])}")
+                #     for BurstID in STREAM[PageID]:
+                #         INFO(f"    Burst {BurstID}: Total Chunks: {len(STREAM[PageID][BurstID])}")
 
         
         # NOTE: DATA message
