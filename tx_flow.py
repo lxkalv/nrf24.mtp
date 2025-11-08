@@ -285,7 +285,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
     TR_INFO  = bytes()
     TR_INFO += 0xF0.to_bytes(1) # NOTE: Translates to 11110000
-    for PageID in STREAM:
+    for PageID in range(len(STREAM)):
         TR_INFO += len(STREAM[PageID]).to_bytes(1)
         TR_INFO += len(STREAM[PageID][-1]).to_bytes(1)
         TR_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
