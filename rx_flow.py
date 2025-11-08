@@ -155,6 +155,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         while not prx.data_ready():
             continue
 
+        prx.ack_payload(RF24_RX_ADDR.P0, b"A")
         # If we have received something we pull it from the FIFO and analyze the first
         # Byte to check what type of message we have received
         #
@@ -190,8 +191,6 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         
         # NOTE: DATA message (0000XXXX)
         else:
-            prx.ack_payload(RF24_RX_ADDR.P0, b"")
-            
             PageID  = frame[0]
             BurstID = frame[1]
             ChunkID = frame[2]
