@@ -207,8 +207,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
     CHUNK_WIDTH = 29
     for idx_page, page in enumerate(pages):
 
-        STREAM[idx_page]    = list()
-        CHECKSUMS[idx_page] = list()
+        STREAM[idx_page].append(list())
+        CHECKSUMS[idx_page].append(list())
 
         page_len = len(page)
         
@@ -220,8 +220,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
 
         for idx_burst, burst in enumerate(bursts):
 
-            STREAM[idx_page][idx_burst]    = list()
-            CHECKSUMS[idx_page][idx_burst] = ""
+            STREAM[idx_page][idx_burst].append(list())
+            CHECKSUMS[idx_page][idx_burst].append("")
             
             burst_len = len(burst)
 
