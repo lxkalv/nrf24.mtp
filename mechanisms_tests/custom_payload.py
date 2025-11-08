@@ -37,7 +37,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
             if radio.get_packages_lost() == 0:
                 ack = radio.get_payload()
-                SUCC(f"{idx} Received {int.from_bytes(ack)}")
+                SUCC(f"{idx}: Received ({len(ack)} B) {ack} -> {int.from_bytes(ack)}")
                 idx += 1
             time.sleep(.2)
 
@@ -61,7 +61,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         while True:
             while radio.data_ready():
                 payload = radio.get_payload()
-                SUCC(f"{idx} Received {payload}")
+                SUCC(f"{idx}: Received {payload}")
                 idx += 1
 
                 if idx % 10 == 0:
