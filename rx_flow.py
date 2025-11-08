@@ -46,20 +46,28 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: l
     INFO(f"Last Burst Widths: {length_last_burst}")
     INFO(f"Last Chunk Widths: {length_last_chunk}")
 
-    for PageID, PageWidth, LastBurstWidth, LastChunkWidth in zip(range(number_of_pages), burst_in_page, length_last_burst, length_last_chunk):
-        STREAM.append(list())
-        for BurstID in range(PageWidth):
-            STREAM[PageID].append(list())
-            if BurstID < PageWidth - 1:
-                for ChunkID in range(256):
-                    STREAM[PageID][BurstID].append(bytes(32))
-            else:
-                for ChunkID in range(LastBurstWidth):
-                    if ChunkID < LastBurstWidth - 1:
-                        STREAM[PageID][BurstID][ChunkID] = bytes(32)
-                    else:
-                        STREAM[PageID][BurstID][ChunkID] = bytes(LastChunkWidth)
+    # Build STREAM as list[pages] -> list[bursts] -> list[chunks]
+    # Use the parsed arrays: burst_in_page, length_last_burst, length_last_chunk
+    pages_count = len(burst_in_page)
 
+    for page_idx in range(pages_count):
+        bursts_count = int(burst_in_page[page_idx])
+        page = []
+        for burst_idx in range(bursts_count):
+            # For all bursts except the last one assume full 256 chunk slots (0..255).
+            # For the last burst use the provided last-burst chunk count.
+            if burst_idx == bursts_count - 1:
+                chunks_count = int(length_last_burst[page_idx])
+            else:
+                chunks_count = 256
+
+            # Initialize each chunk slot with an empty bytes object to be filled later.
+            burst = [b"" for _ in range(chunks_count)]
+            page.append(burst)
+
+        STREAM.append(page)
+
+    INFO(f"Allocated STREAM: {len(STREAM)} pages")
     return
 
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:
