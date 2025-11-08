@@ -65,8 +65,6 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: l
 
             for ChunkID in range(chunks_count):
                 STREAM[PageID][BurstID].append(bytes())
-
-    print(STREAM)
     return
 
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:

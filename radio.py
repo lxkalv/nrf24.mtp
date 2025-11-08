@@ -58,7 +58,7 @@ RETRANSMISSION_DELAY = 1                           # NOTE: Select one from [1..1
 ADDRESS_BYTE_LENGTH  = 3                           # NOTE: Select one from [3..5]
 
 
-
+# TODO: kill pigpiod correctly
 class CustomNRF24(NRF24):
     """
     Custom NRF24 class that allows for extending the NRF24 base class without
