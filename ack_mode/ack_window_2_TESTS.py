@@ -521,6 +521,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             f.write(content)
         content_len = len(content)
         SUCC(f'Saved {content_len} bytes to: file_received.txt')
+        INFO(f"Computed throughput: {((content_len / 1024)*8 / total_time):.2f} KBps")
 
     finally:
         nrf.power_down()
