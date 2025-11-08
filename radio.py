@@ -169,7 +169,7 @@ class CustomNRF24(NRF24):
             idx_bar += 1
             try:
                 self.wait_until_sent()
-                if not self.get_packages_lost():
+                if self.get_packages_lost() == 0:
                     status_bar(
                         pending_msg  = f"Sending {message_name} message",
                         finished_msg = f"Sent {message_name} succesfully",
