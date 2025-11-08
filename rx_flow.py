@@ -149,7 +149,6 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     LAST_PAGEID               = 0
     LAST_BURSTID              = 0
     LAST_CHUNKID              = 0
-    CURRENT_CHECKSUM          = ""
     burst_hasher              = hashlib.sha256()
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
@@ -207,6 +206,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             if (
                 PageID  != LAST_PAGEID
             or  BurstID != LAST_BURSTID
+            or  ChunkID < LAST_CHUNKID
             ):
                 burst_hasher = hashlib.sha256()
 
@@ -214,6 +214,10 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             INFO(f"Received DATA: PageID = {PageID} | BurstID = {BurstID} | ChunkID = {ChunkID}")
             STREAM[PageID][BurstID][ChunkID] = frame
             burst_hasher.update(frame)
+
+            LAST_PAGEID  = PageID
+            LAST_BURSTID = BurstID
+            LAST_CHUNKID = ChunkID
 
     return
 
