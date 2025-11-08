@@ -207,8 +207,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
     CHUNK_WIDTH = 29
     for idx_page, page in enumerate(pages):
 
-        STREAM[idx_page].append(list())
-        CHECKSUMS[idx_page].append(list())
+        STREAM.append(list())
+        CHECKSUMS.append(list())
 
         page_len = len(page)
         
@@ -220,8 +220,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
 
         for idx_burst, burst in enumerate(bursts):
 
-            STREAM[idx_page][idx_burst].append(list())
-            CHECKSUMS[idx_page][idx_burst].append("")
+            STREAM[idx_page].append(list())
+            CHECKSUMS[idx_page].append("")
             
             burst_len = len(burst)
 
@@ -234,7 +234,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
             burst_hasher = hashlib.sha256()
             for idx_chunk, chunk in enumerate(chunks):
 
-                STREAM[idx_page][idx_burst][idx_chunk]  = bytes()
+                STREAM[idx_page][idx_burst].append(bytes())
                 STREAM[idx_page][idx_burst][idx_chunk] += idx_page.to_bytes(1) # NOTE: as there are 10 pages, converting the PageID to bytes directly is correct because the first 4 bits will be set to 0
                 STREAM[idx_page][idx_burst][idx_chunk] += idx_burst.to_bytes(1)
                 STREAM[idx_page][idx_burst][idx_chunk] += idx_chunk.to_bytes(1)
