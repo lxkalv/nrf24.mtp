@@ -33,7 +33,7 @@ CE_PIN  = 22
 ACK_TIMEOUT_S = 0.01          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
-ID_WIND_BYTES=2
+ID_WIND_BYTES=3
 ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
 WINDOW_SIZE = 3
@@ -486,8 +486,11 @@ def BEGIN_RECEIVER_MODE() -> None:
                     ERROR(f"Received out-of-order chunk (expected {current_chunk_in_window}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
                     tic = time.monotonic()
+
+            
         INFO('Connection timed-out or all chunks recieved')
-        
+        throughput_tac = time.monotonic()
+        total_time     = throughput_tac - throughput_tic
         
         INFO('Collected:')
         for chunk in chunks:
