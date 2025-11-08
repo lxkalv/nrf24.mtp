@@ -295,8 +295,8 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     ptx.send_INFO_message(TR_INFO, "TR_INFO")
 
     for PageID in range(len(STREAM)):
-        for BurstID in range(len(STREAM[BurstID])):
-            for ChunkID in range(len(STREAM[ChunkID])):
+        for BurstID in range(len(STREAM[PageID])):
+            for ChunkID in range(len(STREAM[BurstID])):
 
                 while True:
                     status_bar(
