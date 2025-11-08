@@ -112,8 +112,23 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
     """
 
     # Generate the unified structure where we are goint to store the bytes categorized
-    # by page, burst and chunk.
-    # NOTE: The structure looks like this:
+    # by Page, Burst and Chunk.
+    #
+    # NOTE: The structure of our DATA payload looks like this (for now):
+    #
+    # ┌────────────────────┬─────────┬─────────┬──────┐
+    # │ MessageID + PageID │ BurstID │ ChunkID │ DATA │
+    # └────────────────────┴─────────┴─────────┴──────┘
+    #   ↑           ↑        ↑         ↑         ↑
+    #   │           │        │         │         29B: The data to be sent, either if it is part of a file or data from an info message
+    #   │           │        │         1B: Identifies a chunk inside a burst, starts from 0 at every Burst: [0 - 255]
+    #   │           │        1B: Identifies a Burst inside a Page, starts from 0 at every Page: [0 - 255]
+    #   │           4b: Identifies a Page inside a Transfer: [0 - 15]
+    #   4b: Identifies the kind of message that we are sending, for DATA payload is set to 0000
+    #
+    # NOTE: The unified structure of the Transfer looks like this:
+    # NOTE: N ≤ 255
+    # NOTE: L ≤ 15
     #
     # PAGE 0:
     #     BURST 0:
@@ -153,9 +168,9 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
     #     BURST N:
     #         ...
     #
-    #            PageID    BurstID   ChunkID    Payload(ChunkID + Data)
+    #            PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
     #            ↓         ↓         ↓          ↓
-    STREAM: dict[str, dict[str, dict[str,       bytes]]] = dict()
+    STREAM: dict[int, dict[int, dict[int,       bytes]]] = dict()
 
     # NOTE: We provide a STREAM-like structure that contains the checksums of each
     # burst for every page. The structure looks like this
@@ -174,29 +189,30 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
     # ...
     # PAGE L:
     #     BURST 0: ...
-    #     BURST 1: ..
+    #     BURST 1: ...
     #     ...
     #     BURST N: ...
     #
     # NOTE: As of now, the checksum is computed INCLUDING the ChunkID
-    #               PageID    BurstID    checksum
+    #               PageID    BurstID    CHECKSUM
     #               ↓         ↓          ↓
-    CHECKSUMS: dict[str, dict[str,       str]] = dict()
+    CHECKSUMS: dict[int, dict[int,       str]] = dict()
 
-    # Split each compressed page into bursts of 7936 Bytes
-    # NOTE: The width of 7936 Bytes allows to split the burst into 256 chunks of 31
-    # Bytes of width, this allows to limit the size of the IDc to 1 Byte, summing up
-    # to a total payload of 32 Bytes. The IDc is resetted to 0 at each burst
+    # Split each compressed Page into Bursts of 7936B
+    # NOTE: The width of 7936B allows to split the Burst into 256 Chunks of 29
+    # Bytes of width, this allows to limit the size of the ChunkID to 1B, summing up
+    # to a total payload of 32B (after adding the PageID and the BurstID). The ChunkID
+    # is set to 0 at the start of each Burst
     BURST_WIDTH = 7936
-    CHUNK_WIDTH = 31
+    CHUNK_WIDTH = 29
     for idx_page, page in enumerate(pages):
 
-        STREAM[f"PAGE{idx_page}"]    = dict()
-        CHECKSUMS[f"PAGE{idx_page}"] = dict()
+        STREAM[idx_page]    = dict()
+        CHECKSUMS[idx_page] = dict()
 
         page_len = len(page)
         
-        # split the page into bursts
+        # split the Page into Bursts
         bursts = [
             page[i : i + BURST_WIDTH]
             for i in range(0, page_len, BURST_WIDTH)
@@ -204,12 +220,12 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
 
         for idx_burst, burst in enumerate(bursts):
 
-            STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"]    = dict()
-            CHECKSUMS[f"PAGE{idx_page}"][f"BURST{idx_burst}"] = ""
+            STREAM[idx_page][idx_burst]    = dict()
+            CHECKSUMS[idx_page][idx_burst] = ""
             
             burst_len = len(burst)
 
-            # split the burst into chunks
+            # split the Burst into Chunks
             chunks = [
                 burst[i : i + CHUNK_WIDTH]
                 for i in range(0, burst_len, CHUNK_WIDTH)
@@ -218,13 +234,15 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[dict[str, dict[str, dict[str
             burst_hasher = hashlib.sha256()
             for idx_chunk, chunk in enumerate(chunks):
 
-                STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"]  = bytes()
-                STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"] += idx_chunk.to_bytes(1)
-                STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"] += chunk
+                STREAM[idx_page][idx_burst][idx_chunk]  = bytes()
+                STREAM[idx_page][idx_burst][idx_chunk] += idx_page.to_bytes(1) # NOTE: as there are 10 pages, converting the PageID to bytes directly is correct because the first 4 bits will be set to 0
+                STREAM[idx_page][idx_burst][idx_chunk] += idx_burst.to_bytes(1)
+                STREAM[idx_page][idx_burst][idx_chunk] += idx_chunk.to_bytes(1)
+                STREAM[idx_page][idx_burst][idx_chunk] += chunk
                 
-                burst_hasher.update(STREAM[f"PAGE{idx_page}"][f"BURST{idx_burst}"][f"CHUNK{idx_chunk}"])
+                burst_hasher.update(STREAM[idx_page][idx_burst][idx_chunk])
 
-            CHECKSUMS[f"PAGE{idx_page}"][f"BURST{idx_burst}"] = burst_hasher.hexdigest()
+            CHECKSUMS[idx_page][idx_burst] = burst_hasher.hexdigest()
 
     # TODO: probably some information prints would be useful but I cannot come up with
     # something clean right now
@@ -248,23 +266,33 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: dict[str, dict[str, dict[str, bytes]
     the burst or move on to the next
     """
 
-    # Generate and send the TX_INFO message
-    # NOTE: As of now, the TX_INFO message only contains the number of pages that will
-    # be sent in the communication and the total ammount of bytes that are expected to
-    # be transfered, but it can be changed to include more information
+    # Generate and send the Transfer Info message (TR_INFO)
+    # NOTE: As of now the TR_INFO message contains, for every page, the number of
+    # Bursts of that page, the length of the last Burst and the length of the last
+    # Chunk of the last Burst. This allows the PRX to infer the total ammount of data
+    # expected, the length of each Page and the length of each Burst
     #
-    # | MessageID (4B) | TxLength (4B) | TxWidth (4B) | = 12 Bytes
+    # NOTE: The structure of our DATA payload looks like this (for now):
     #
-    # MessageID:  The identifier of the type of info message:                    [TXIM] (TX Info Message)
-    # TxLength: The number of pages that will be sent in the communication       [0..4_294_967_295]
-    # TxWidth:  The total number of bytes that will be sent in the communication [0..4_294_967_295]
-    TX_INFO  = bytes()
-    TX_INFO += b"TXIM"
-    TX_INFO += (len(STREAM) - 1).to_bytes(4)
-    TX_INFO += sum(len(STREAM[PageID][BurstID][ChunkID]) for PageID in STREAM for BurstID in STREAM[PageID] for ChunkID in STREAM[PageID][BurstID]).to_bytes(4)
-    ptx.send_INFO_message(TX_INFO, "TX_INFO")
+    # ┌────────────────────┬───────────────┬────────────────────┬────────────────────┬─────┬────────────────┬─────────────────────┬─────────────────────┐
+    # │ MessageID + InfoID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │
+    # └────────────────────┴───────────────┴────────────────────┴────────────────────┴─────┴────────────────┴─────────────────────┴─────────────────────┘
+    #   ↑           ↑        ↑               ↑                    ↑
+    #   │           │        │               │                    1B: The length of the last Chunk of the last Burst: [0 - 255]
+    #   │           │        │               1B: The number of Chunks in the last Burst: [0 - 255]
+    #   │           │        1B: The number of Bursts in the page: [0 - 255]
+    #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for TR_INFO is set to 0000
+    #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
+    TR_INFO  = bytes()
+    TR_INFO += 0xF0.to_bytes(1) # NOTE: Translates to 11110000
+    for PageID in STREAM:
+        TR_INFO += len(STREAM[PageID]).to_bytes(1)
+        TR_INFO += len(STREAM[PageID][-1]).to_bytes(1)
+        TR_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
+    INFO(f"Generated TR_INFO message of {len(TR_INFO)} B")
+    ptx.send_INFO_message(TR_INFO, "TR_INFO")
 
-
+    return
     for idx_page in range(len(STREAM)):
         PAGE = STREAM[f"PAGE{idx_page}"]
         # NOTE: everytime we start a page, we send a PAGE_INFO message containing the

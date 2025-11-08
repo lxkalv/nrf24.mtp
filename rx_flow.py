@@ -18,6 +18,43 @@ from utils import (
 
 
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: dict[int, dict[int, dict[int, bytes]]]) -> None:
+    """
+    Allocate all the slots of the STREAM structure to fill them up later with DATA
+    messages. We use the information contained in the TR_INFO message to do so
+    """
+    # NOTE: The structure of our DATA payload looks like this (for now):
+    #
+    # ┌────────────────────┬───────────────┬────────────────────┬────────────────────┬─────┬────────────────┬─────────────────────┬─────────────────────┐
+    # │ MessageID + InfoID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │
+    # └────────────────────┴───────────────┴────────────────────┴────────────────────┴─────┴────────────────┴─────────────────────┴─────────────────────┘
+    #   ↑           ↑        ↑               ↑                    ↑
+    #   │           │        │               │                    1B: The length of the last Chunk of the last Burst: [0 - 255]
+    #   │           │        │               1B: The number of Chunks in the last Burst: [0 - 255]
+    #   │           │        1B: The number of Bursts in the page: [0 - 255]
+    #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for TR_INFO is set to 0000
+    #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
+    MESSAGE           = TR_INFO[1:]
+    number_of_pages   = len(MESSAGE) % 3
+    burst_in_page     = MESSAGE[0:3:-1]
+    length_last_burst = MESSAGE[1:3:-1]
+    length_last_chunk = MESSAGE[2:3:-1]
+    for PageID, PageWidth, LastBurstWidth, LastChunkWidth in zip(range(number_of_pages), burst_in_page, length_last_burst, length_last_chunk):
+        STREAM[PageID] = dict()
+        for BurstID in range(PageWidth):
+            STREAM[PageID][BurstID] = dict()
+            if BurstID < PageWidth - 1:
+                for ChunkID in range(256):
+                    STREAM[PageID][BurstID][ChunkID] = bytes(32)
+            else:
+                for ChunkID in range(LastBurstWidth):
+                    if ChunkID < LastBurstWidth - 1:
+                        STREAM[PageID][BurstID][ChunkID] = bytes(32)
+                    else:
+                        STREAM[PageID][BurstID][ChunkID] = bytes(LastChunkWidth)
+
+    return
+
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     """
     This layer is responsible for the following things:
@@ -30,8 +67,23 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     - Compute and send the checksum at the end of the burst
     """
     # Generate the unified structure where we are goint to store the bytes categorized
-    # by page, burst and chunk.
-    # NOTE: The structure looks like this:
+    # by Page, Burst and Chunk.
+    #
+    # NOTE: The structure of our DATA payload looks like this (for now):
+    #
+    # ┌────────────────────┬─────────┬─────────┬──────┐
+    # │ MessageID + PageID │ BurstID │ ChunkID │ DATA │
+    # └────────────────────┴─────────┴─────────┴──────┘
+    #   ↑           ↑        ↑         ↑         ↑
+    #   │           │        │         │         29B: The data to be sent, either if it is part of a file or data from an info message
+    #   │           │        │         1B: Identifies a chunk inside a burst, starts from 0 at every Burst: [0 - 255]
+    #   │           │        1B: Identifies a Burst inside a Page, starts from 0 at every Page: [0 - 255]
+    #   │           4b: Identifies a Page inside a Transfer: [0 - 15]
+    #   4b: Identifies the kind of message that we are sending, for DATA payload is set to 0000
+    #
+    # NOTE: The unified structure of the Transfer looks like this:
+    # NOTE: N ≤ 255
+    # NOTE: L ≤ 15
     #
     # PAGE 0:
     #     BURST 0:
@@ -71,10 +123,59 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     #     BURST N:
     #         ...
     #
-    #            PageID    BurstID   ChunkID    Payload(ChunkID + Data)
+    #            PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
     #            ↓         ↓         ↓          ↓
-    STREAM: dict[str, dict[str, dict[str,       bytes]]] = dict()
+    STREAM: dict[int, dict[int, dict[int,       bytes]]] = dict()
 
+    # NOTE: The flow of the PRX is as follows, we keep receiving frames until the
+    # transmission has finished. We do not care about the order of the frames as we
+    # assume that the PTX will take care of that. We treat each frame differently
+    # depending on the information inside the frame itself. After each received frame,
+    # we evaluate if the transmission has ended or not
+    TRANSFER_HAS_ENDED        = False
+    STREAM_HAS_BEEN_GENERATED = False
+    while not TRANSFER_HAS_ENDED:
+        # If we have not received anything we do nothing
+        while not prx.data_ready():
+            continue
+
+        # If we have received something we pull it from the FIFO and analyze the first
+        # Byte to check what type of message we have received
+        #
+        # NOTE: If the byte has the format 1111XXXX then it is an INFO message and we need
+        # to read the next 4 bits to identify the type of INFO message:
+        # 11110000: Corresponds to TR_INFO
+        # 11110001: Corresponds to EMPTY
+        #
+        # NOTE: If the byte has the format 0000XXXX then it is a DATA message and the
+        # first 3 Bytes correspond to the PageID, BurstID and ChunkID
+        frame = prx.get_payload()
+
+        # NOTE: INFO message
+        if frame[0] & 0xF0:
+
+           # NOTE: TR_INFO
+            if not frame[0] & 0x0F:
+                generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
+                INFO("Generated STREAM structure")
+                # help me visualize the size of the structure
+                INFO(f"Total Pages: {len(STREAM)}")
+                for PageID in STREAM:
+                    INFO(f"  Page {PageID}: Total Bursts: {len(STREAM[PageID])}")
+                    for BurstID in STREAM[PageID]:
+                        INFO(f"    Burst {BurstID}: Total Chunks: {len(STREAM[PageID][BurstID])}")
+
+        
+        # NOTE: DATA message
+        else:
+            PageID  = frame[0]
+            BurstID = frame[1]
+            ChunkID = frame[2]
+            STREAM[PageID][BurstID][ChunkID] = frame
+                
+
+
+    return
     # Wait for a TX_INFO message
     # NOTE: As of now, the TX_INFO message only contains the number of pages that will
     # be sent in the communication and the total ammount of bytes that are expected to
