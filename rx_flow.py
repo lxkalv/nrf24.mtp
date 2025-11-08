@@ -18,7 +18,7 @@ from utils import (
 
 
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: dict[int, dict[int, dict[int, bytes]]]) -> None:
+def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: list[list[list[bytes]]]) -> None:
     """
     Allocate all the slots of the STREAM structure to fill them up later with DATA
     messages. We use the information contained in the TR_INFO message to do so
@@ -40,12 +40,12 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: d
     length_last_burst = MESSAGE[1:3:-1]
     length_last_chunk = MESSAGE[2:3:-1]
     for PageID, PageWidth, LastBurstWidth, LastChunkWidth in zip(range(number_of_pages), burst_in_page, length_last_burst, length_last_chunk):
-        STREAM[PageID] = dict()
+        STREAM.append(list())
         for BurstID in range(PageWidth):
-            STREAM[PageID][BurstID] = dict()
+            STREAM[PageID].append(list())
             if BurstID < PageWidth - 1:
                 for ChunkID in range(256):
-                    STREAM[PageID][BurstID][ChunkID] = bytes(32)
+                    STREAM[PageID][BurstID].append(bytes(32))
             else:
                 for ChunkID in range(LastBurstWidth):
                     if ChunkID < LastBurstWidth - 1:
@@ -123,9 +123,9 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     #     BURST N:
     #         ...
     #
-    #            PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
-    #            ↓         ↓         ↓          ↓
-    STREAM: dict[int, dict[int, dict[int,       bytes]]] = dict()
+    #       PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
+    #       ↓         ↓         ↓          ↓
+    STREAM: list[     list[     list[      bytes]]] = list()
 
     # NOTE: The flow of the PRX is as follows, we keep receiving frames until the
     # transmission has finished. We do not care about the order of the frames as we
