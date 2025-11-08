@@ -170,7 +170,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
     #
     #            PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
     #            ↓         ↓         ↓          ↓
-    STREAM: list[int, dict[int, dict[int,       bytes]]] = list()
+    STREAM: list[int, list[int, list[int,       bytes]]] = list()
 
     # NOTE: We provide a STREAM-like structure that contains the checksums of each
     # burst for every page. The structure looks like this
@@ -205,7 +205,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
     # is set to 0 at the start of each Burst
     BURST_WIDTH = 7424
     CHUNK_WIDTH = 29
-    for idx_page, page in enumerate(pages):
+    for PageID, page in enumerate(pages):
 
         STREAM.append(list())
         CHECKSUMS.append(list())
@@ -218,10 +218,10 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
             for i in range(0, page_len, BURST_WIDTH)
         ]
 
-        for idx_burst, burst in enumerate(bursts):
+        for BurstID, burst in enumerate(bursts):
 
-            STREAM[idx_page].append(list())
-            CHECKSUMS[idx_page].append("")
+            STREAM[PageID].append(list())
+            CHECKSUMS[PageID].append("")
             
             burst_len = len(burst)
 
@@ -232,17 +232,17 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[str, list[str, list[str
             ]
 
             burst_hasher = hashlib.sha256()
-            for idx_chunk, chunk in enumerate(chunks):
+            for ChunkID, chunk in enumerate(chunks):
 
-                STREAM[idx_page][idx_burst].append(bytes())
-                STREAM[idx_page][idx_burst][idx_chunk] += idx_page.to_bytes(1) # NOTE: as there are 10 pages, converting the PageID to bytes directly is correct because the first 4 bits will be set to 0
-                STREAM[idx_page][idx_burst][idx_chunk] += idx_burst.to_bytes(1)
-                STREAM[idx_page][idx_burst][idx_chunk] += idx_chunk.to_bytes(1)
-                STREAM[idx_page][idx_burst][idx_chunk] += chunk
+                STREAM[PageID][BurstID].append(bytes())
+                STREAM[PageID][BurstID][ChunkID] += PageID.to_bytes(1) # NOTE: as there are 10 pages, converting the PageID to bytes directly is correct because the first 4 bits will be set to 0
+                STREAM[PageID][BurstID][ChunkID] += BurstID.to_bytes(1)
+                STREAM[PageID][BurstID][ChunkID] += ChunkID.to_bytes(1)
+                STREAM[PageID][BurstID][ChunkID] += chunk
                 
-                burst_hasher.update(STREAM[idx_page][idx_burst][idx_chunk])
+                burst_hasher.update(STREAM[PageID][BurstID][ChunkID])
 
-            CHECKSUMS[idx_page][idx_burst] = burst_hasher.hexdigest()
+            CHECKSUMS[PageID][BurstID] = burst_hasher.hexdigest()
 
     # TODO: probably some information prints would be useful but I cannot come up with
     # something clean right now
