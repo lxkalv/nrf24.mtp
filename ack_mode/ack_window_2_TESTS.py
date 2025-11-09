@@ -9,7 +9,6 @@ from nrf24 import (
     RF24_CRC
 )
 
-from radio import radio
 from enum import Enum
 from typing import Any
 from pathlib import Path
