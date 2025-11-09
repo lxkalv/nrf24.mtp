@@ -278,7 +278,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     # NOTE: The structure of our TR_INFO payload looks like this (for now):
     #
     # ┌────────────────────┬───────────────┬────────────────────┬────────────────────┬─────┬────────────────┬─────────────────────┬─────────────────────┐
-    # │ MessageID + InfoID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │
+    # │ MessageID + InfoID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │ = 1B + (N Pages * 3B)
     # └────────────────────┴───────────────┴────────────────────┴────────────────────┴─────┴────────────────┴─────────────────────┴─────────────────────┘
     #   ↑           ↑        ↑               ↑                    ↑
     #   │           │        │               │                    1B: The length of the last Chunk of the last Burst: [0 - 255]
@@ -328,39 +328,49 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             while True:
                 status_bar(f"Waiting for checksum of Burst {BurstID}, expecting {CHECKSUMS[PageID][BurstID].hex()}", "INFO")
 
-                # Generate and send an Empty Frame message (EMPTY)
-                # NOTE: the EMPTY message only contains the MessageID + InfoID
+                # Generate a LOAD_CHECKSUM message to signal the PRX to load the checksum into
+                # the auto-ACK payload
                 #
-                # NOTE: The structure of our EMPTY payload looks like this (for now):
-                #
-                # ┌────────────────────┐
-                # │ MessageID + InfoID │
-                # └────────────────────┘
+                # NOTE: The structure of our LOAD_CHECKSUM payload looks like this:
+                # ┌────────────────────┬────┬────┬─────┬────┐
+                # │ MessageID + InfoID │ F2 │ F2 │ ... │ F2 │ = 1B + 31B = 32B
+                # └────────────────────┴────┴────┴─────┴────┘
                 #   ↑           ↑
-                #   │           │
-                #   │           │
-                #   │           │
-                #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for EMPTY is set to 0011
-                #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
+                #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for LOAD_CHECKSUM it is set to 0010
+                #   4b: Identifies the kind of message that we are sending, for CONTROL payload it is set to 1111
+                LOAD_CHECKSUM  = bytes()
+                for _ in range(32):
+                    LOAD_CHECKSUM += 0xF2.to_bytes(1) # NOTE: Translates to 11110010
+                ptx.send_INFO_message(LOAD_CHECKSUM, "LOAD_CHECKSUM", progress = False)
+
+                # Generate and send an EMPTY_FRAME message to trigger the auto-ACK with the
+                # checksum
+                #
+                # NOTE: The structure of our EMPTY payload looks like this:
+                # ┌────────────────────┬────┬────┬─────┬────┐
+                # │ MessageID + InfoID │ F3 │ F3 │ ... │ F3 │ = 1B + 31B = 32B
+                # └────────────────────┴────┴────┴─────┴────┘
+                #   ↑           ↑
+                #   │           4b: Identifies the type of CONTROL message that we are sending: [0 - 15], for EMPTY it is set to 0011
+                #   4b: Identifies the kind of message that we are sending, for CONTROL payload is set to 1111
                 EMPTY  = bytes()
-                EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
+                for _ in range(32):
+                    EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
                 ptx.send_INFO_message(EMPTY, "EMPTY", progress = False)
                 
                 ACK = ptx.get_payload()
                 
-                if len(ACK) < 32:
-                    continue
+                if len(ACK) < 32: continue
+
+                if ACK == CHECKSUMS[PageID][BurstID]:
+                    status_bar(f"Received   VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
+
+                    BurstID += 1
 
                 else:
-                    if ACK == CHECKSUMS[PageID][BurstID]:
-                        status_bar(f"Received   VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
+                    status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
 
-                        BurstID += 1
-
-                    else:
-                        status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
-
-                    break
+                break
         
         PageID += 1
                     
@@ -371,17 +381,15 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     #
     # NOTE: The structure of our TR_FINISH payload looks like this (for now):
     #
-    # ┌────────────────────┐
-    # │ MessageID + InfoID │
-    # └────────────────────┘
+    # ┌────────────────────┬────┬────┬─────┬────┐
+    # │ MessageID + InfoID │ FA │ FA │ ... │ FA │ = 1B + 31B = 32B
+    # └────────────────────┴────┴────┴─────┴────┘
     #   ↑           ↑
-    #   │           │
-    #   │           │
-    #   │           │
-    #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for TR_INFO is set to 1010
+    #   │           4b: Identifies the type of CONTROL message that we are sending: [0 - 15], for TR_INFO it is set to 1010
     #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
     TR_FINISH  = bytes()
-    TR_FINISH += 0xFA.to_bytes(1) # NOTE: Translates to 11111010
+    for _ in range(32):
+        TR_FINISH += 0xFA.to_bytes(1) # NOTE: Translates to 11111010
     ptx.send_INFO_message(TR_FINISH, "TR_FINISH")
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
