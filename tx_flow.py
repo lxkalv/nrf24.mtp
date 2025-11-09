@@ -406,12 +406,8 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
 def FULL_TX_MODE(ptx: CustomNRF24) -> None:
     compressed_pages  = TX_PRESENTATION_LAYER()
     STREAM, CHECKSUMS = TX_TRANSPORT_LAYER(compressed_pages)
-    TX_LINK_LAYER(ptx, STREAM, CHECKSUMS)
+    # TX_LINK_LAYER(ptx, STREAM, CHECKSUMS)
 
-    for page in range(len(STREAM)):
-        for burst in range(len(STREAM[page])):
-            for chunk in range(len(STREAM[page][burst])):
-                STREAM[page][burst][chunk] = STREAM[page][burst][chunk].hex()
 
     with open("STREAM.txt", "w") as f:
         for PageID, page in enumerate(STREAM):
@@ -419,7 +415,7 @@ def FULL_TX_MODE(ptx: CustomNRF24) -> None:
             for BurstID, burst in enumerate(page):
                 f.write(f"    BURST {BurstID}:\n")
                 for ChunkID, chunk in enumerate(burst):
-                    f.write(f"        CHUNK {ChunkID}: {chunk}\n")
+                    f.write(f"        CHUNK {ChunkID}: {chunk.hex()}\n")
             f.write("\n")
 
 
@@ -427,7 +423,7 @@ def FULL_TX_MODE(ptx: CustomNRF24) -> None:
         for PageID, page in enumerate(CHECKSUMS):
             f.write(f"PAGE {PageID}:\n")
             for BurstID, checksum in enumerate(page):
-                f.write(f"    BURST {BurstID}: {checksum}\n")
+                f.write(f"    BURST {BurstID}: {checksum.hex()}\n")
             f.write("\n")
 
     return
