@@ -51,12 +51,11 @@ def generate_STREAM_based_on_TRANSFER_INFO(TRANSFER_INFO: bytes, STREAM: list[li
     #   │           │           1B: The number of Bursts in the page: [0 - 255]
     #   │           4b: Identifies the type of CONTROL message that we are sending: "0000" for TRANSFER_INFO
     #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
-    INFO              = TRANSFER_INFO[1:]
-    number_of_pages   = len(INFO) // 3
-    burst_in_page     = [byte for byte in INFO[0::3]]
-    length_last_burst = [byte for byte in INFO[1::3]]
-    length_last_chunk = [byte for byte in INFO[2::3]]
-
+    CONTENT           = TRANSFER_INFO[1:]
+    number_of_pages   = len(CONTENT) // 3
+    burst_in_page     = [byte for byte in CONTENT[0::3]]
+    length_last_burst = [byte for byte in CONTENT[1::3]]
+    length_last_chunk = [byte for byte in CONTENT[2::3]]
     for PageID in range(number_of_pages):
         INFO(f"PAGE {PageID}: {burst_in_page[PageID]} BURSTS | {length_last_burst[PageID]} CLB | {length_last_chunk[PageID]} BLC")
 
