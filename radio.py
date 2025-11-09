@@ -208,7 +208,7 @@ class CustomNRF24(NRF24):
         packets_lost          = 0
 
         while not message_has_been_sent:
-            status_bar(f"Sending DATA message: {PageID:d02}|{BurstID:d03}|{ChunkID:d03}|{packets_lost}", "INFO")
+            status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
             
