@@ -225,7 +225,7 @@ class CustomNRF24(NRF24):
                 expected_ack = bytes([PageID, BurstID, ChunkID])
                 ack = self.get_payload()
                 INFO(f"Received ACK: {ack.hex()} | Expected ACK: {expected_ack.hex()}")
-                if ack == expected_ack:
+                if ack.hex() == expected_ack.hex():
                     message_has_been_sent = True
                 else:
                     packets_lost += 1
