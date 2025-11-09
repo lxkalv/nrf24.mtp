@@ -211,12 +211,10 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 BURST_HASHER = hashlib.sha256()
                 INFO(f"Resetting BURST_HASHER for new BURST")
 
-            
             status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
             STREAM[PageID][BurstID][ChunkID] = frame
 
             BURST_HASHER.update(frame)
-            INFO(f"Updated BURST_HASHER with chunk ({PageID}/{BurstID}/{ChunkID})")
 
             LAST_PAGEID  = PageID
             LAST_BURSTID = BurstID
