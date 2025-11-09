@@ -360,12 +360,12 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
 
                 else:
                     if ACK == CHECKSUMS[PageID][BurstID]:
-                        status_bar(f"Received   VALID checksum for {BurstID}: {ACK.hex()}", "SUCC")
+                        status_bar(f"Received   VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
 
                         BurstID += 1
 
                     else:
-                        status_bar(f"Received INVALID checksum for {BurstID}: {ACK.hex()}", "ERROR")
+                        status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
 
                     break
         
