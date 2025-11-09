@@ -31,7 +31,7 @@ from nrf24 import (
 
 
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: list[list[list[bytes]]]) -> None:
+def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: list[list[list[bytes]]]) -> tuple[list[int], list[int], list[int]]:
     """
     Allocate all the slots of the STREAM structure to fill them up later with DATA
     messages. We use the information contained in the TR_INFO message to do so
@@ -67,7 +67,7 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: l
 
             for ChunkID in range(chunks_count):
                 STREAM[PageID][BurstID].append(bytes())
-    return
+    return (burst_in_page, length_last_burst, length_last_chunk)
 
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     """
@@ -148,9 +148,15 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     # we evaluate if the transmission has ended or not
     TRANSFER_HAS_ENDED        = False
     STREAM_HAS_BEEN_GENERATED = False
+    
     LAST_PAGEID               = 0
     LAST_BURSTID              = 0
     LAST_CHUNKID              = 0
+
+    BURSTS_PER_PAGE           = []
+    LAST_BURST_WIDTH_PER_PAGE = []
+    LAST_CHUNK_WIDTH_PER_PAGE = []
+
     CHECKSUM                  = 0
     burst_hasher              = hashlib.sha256()
     while not TRANSFER_HAS_ENDED:
@@ -179,7 +185,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 if STREAM_HAS_BEEN_GENERATED:
                     continue
 
-                generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
+                BURSTS_PER_PAGE, LAST_BURST_WIDTH_PER_PAGE, LAST_CHUNK_WIDTH_PER_PAGE = generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
                 STREAM_HAS_BEEN_GENERATED = True
             
             elif frame[0] == 0xF3:
@@ -203,6 +209,15 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 PageID  == LAST_PAGEID
             and BurstID == LAST_BURSTID
             and ChunkID == LAST_CHUNKID    
+            ):
+                continue
+
+            if (
+                (PageID > 10 - 1)
+            or  (BurstID > 256 - 1)
+            or  (BurstID > BURSTS_PER_PAGE[PageID] - 1)
+            or  (ChunkID > 256 - 1)
+            or  (ChunkID > LAST_CHUNK_WIDTH_PER_PAGE[PageID] - 1) and (BurstID == BURSTS_PER_PAGE[PageID] - 1)
             ):
                 continue
             
