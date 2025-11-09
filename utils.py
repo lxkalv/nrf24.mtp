@@ -119,13 +119,13 @@ def status_bar(message: str, status: str) -> None:
     if status == "INFO":
         progress = spin
 
-        INFO(f"{message} {progress.rjust(terminal_width - 8 - len(message) - 1)}", end = "")
+        INFO(f"{message} {progress.rjust(terminal_width - 8 - len(message) - 2)}", end = "")
         sys.stdout.flush()
 
     elif status == "WARN":
         progress = spin
 
-        WARN(f"{message} {progress.rjust(terminal_width - 8 - len(message) - 1)}", end = "")
+        WARN(f"{message} {progress.rjust(terminal_width - 8 - len(message) - 2)}", end = "")
         sys.stdout.flush()
 
     elif status == "SUCC":
