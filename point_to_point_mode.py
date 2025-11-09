@@ -55,8 +55,8 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         ERROR("Process interrupted by user")
 
     finally:
-        radio._pi.stop()
         radio.power_down()
+        radio._pi.stop()
     
     return
 
@@ -92,8 +92,8 @@ def BEGIN_RECEIVER_MODE() -> None:
         ERROR("Process interrupted by user")
 
     finally:
-        radio._pi.stop()
         radio.power_down()
+        radio._pi.stop()
 
     return
 
