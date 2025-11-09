@@ -52,7 +52,7 @@ CHANNEL              = 76                          # NOTE: Select one from [0..1
 DATA_RATE            = RF24_DATA_RATE.RATE_2MBPS   # NOTE: Select one from {250KBPS, 1MBPS, 2MBPS}
 PA_LEVEL             = RF24_PA.MIN                 # NOTE: Select one from {MIN (-18dBm), LOW (-12dBm), HIGH (-6dBm), MAX (0dBm)}
 CRC_BYTES            = RF24_CRC.BYTES_2            # NOTE: Select one from {DISABLED, BYTES_1, BYTES_2}
-PAYLOAD_SIZE         = RF24_PAYLOAD.ACK            # NOTE: Select one from {ACK, DYNAMIC, MIN (1), MAX (32), [1..32]}
+PAYLOAD_SIZE         = RF24_PAYLOAD.DYNAMIC        # NOTE: Select one from {ACK, DYNAMIC, MIN (1), MAX (32), [1..32]}
 RETRANSMISSION_TRIES = 15                          # NOTE: Select one from [1..15]
 RETRANSMISSION_DELAY = 1                           # NOTE: Select one from [1..15], Delay is computed as 250us + (250 * RETRANSMISSION_DELAY)us
 ADDRESS_BYTE_LENGTH  = 3                           # NOTE: Select one from [3..5]
@@ -177,7 +177,7 @@ class CustomNRF24(NRF24):
             WARN(f"Packages lost: {self.get_packages_lost()}")
             self.reset_packages_lost()
             WARN(f"Packages lost: {self.get_packages_lost()}")
-            
+
             self.send(INFO_MESSAGE)
             
             try:
