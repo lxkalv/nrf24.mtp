@@ -3,6 +3,7 @@ from pathlib import Path
 from math import ceil
 import hashlib
 import zlib
+import time
 
 from radio import CustomNRF24
 
@@ -354,6 +355,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
                 ptx.send_INFO_message(EMPTY, "EMPTY", progress = False, delay = 1e-3)
                 ACK = ptx.get_payload()
+                time.sleep(1e-3)
                 
                 if len(ACK) < 32:
                     continue

@@ -204,53 +204,7 @@ class CustomNRF24(NRF24):
                 status  = "SUCC",
             )
 
-        return
-    
-    def receive_INFO_message(self: "CustomNRF24") -> None | tuple[int, int] | tuple[int, int, int]:
-        """
-        Function to receive and confirm an INFO message without ambiguiti or possible error
-        """
-        idx_bar = 0
-        while not self.data_ready():
-            if idx_bar % 100 == 0:
-                status_bar(
-                    message  = "Waiting for INFO message",
-                    finished_msg = "...",
-                    status     = False,
-                )
-                idx_bar += 1
-        
-        try:
-            INFO_MESSAGE: bytes = self.get_payload()
-            MessageID           = INFO_MESSAGE[0:4].decode()
-
-        except:
-            ERROR(f"Invalid MessageID: {INFO_MESSAGE[0:4]}")
-            return None 
-        
-        if MessageID == self.TXIM:
-            TxLength = int.from_bytes(INFO_MESSAGE[4:8]) + 1
-            TxWidth  = int.from_bytes(INFO_MESSAGE[8:12])
-            status_bar(
-                message  = "...",
-                finished_msg = f"Received {self.TXIM} message: TxLength -> {TxLength} | TxWidth -> {TxWidth}",
-                status     = True,
-            )
-            return (TxLength, TxWidth)
-        
-        elif MessageID == self.PAIM:
-            PageID     = INFO_MESSAGE[4]
-            PageLength = int.from_bytes(INFO_MESSAGE[5:8]) + 1
-            PageWidth  = int.from_bytes(INFO_MESSAGE[8:12])
-            status_bar(
-                message  = "...",
-                finished_msg = f"Received {self.PAIM} message: PageID -> {PageID} | PageLength -> {PageLength} | PageWidth -> {PageWidth}",
-                status     = True,
-            )
-            return (PageID, PageLength, PageWidth)
-    
-        # elif MessageID == self.BUIM:
-            
+        return        
 
     
     # NOTE: I trust that someday my wonderful team will either develop or discard
