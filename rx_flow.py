@@ -147,13 +147,14 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     LAST_PAGEID               = 0
     LAST_BURSTID              = 0
     LAST_CHUNKID              = 0
+    CHECKSUM                  = 0
     burst_hasher              = hashlib.sha256()
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
         while not prx.data_ready():
             continue
 
-        # prx.ack_payload(RF24_RX_ADDR.P1, b"")
+        prx.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
         # If we have received something we pull it from the FIFO and analyze the first
         # Byte to check what type of message we have received
         #
@@ -216,8 +217,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             LAST_PAGEID  = PageID
             LAST_BURSTID = BurstID
             LAST_CHUNKID = ChunkID
-
-            prx.ack_payload(RF24_RX_ADDR.P1, burst_hasher.digest())
+            CHECKSUM     = burst_hasher.digest()
 
     return
 
