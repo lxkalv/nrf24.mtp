@@ -177,7 +177,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             
             elif frame[0] == 0xF3:
                 INFO("Received EMPTY INFO message")
-                prx.ack_payload(RF24_RX_ADDR.P1, bytes(burst_hasher.hexdigest()))
+                prx.ack_payload(RF24_RX_ADDR.P1, burst_hasher.digest())
             
             # NOTE: TR_FINISH (11111010)
             elif frame[0] == 0xFA:
