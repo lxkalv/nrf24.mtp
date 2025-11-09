@@ -158,7 +158,6 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     CHECKSUM     = 0
     BURST_HASHER = hashlib.sha256()
     
-    prx.ack_payload(RF24_RX_ADDR.P1, b"0")
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
         while not prx.data_ready(): continue
@@ -172,6 +171,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # message. We only generate the structure once, meaning we discard any other
         # TR_INFO that we may get by error
         if frame[0] == 0xF0:
+            prx.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
             if STREAM_HAS_BEEN_GENERATED: continue
 
             generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
@@ -187,7 +187,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # by the CRC
         elif not frame[0] & 0xF0:
             # NOTE: We set the ACK payload to be empty to maximize throughput
-            prx.ack_payload(RF24_RX_ADDR.P1, b"0")
+            prx.ack_payload(RF24_RX_ADDR.P1, b"")
 
             PageID  = frame[0]
             BurstID = frame[1]

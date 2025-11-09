@@ -93,7 +93,7 @@ class CustomNRF24(NRF24):
         self.set_retransmission(RETRANSMISSION_DELAY, RETRANSMISSION_TRIES)
         self.set_address_bytes(ADDRESS_BYTE_LENGTH)
 
-        self.ack_payload(RF24_RX_ADDR.P1, b"0")
+        self.ack_payload(RF24_RX_ADDR.P1, b"")
 
         self.choose_node_role()
         self.choose_address_based_on_role()
@@ -146,7 +146,7 @@ class CustomNRF24(NRF24):
 
         return
     
-    def send_CONTROL_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name: str, progress: bool = True, delay: float = 0) -> None:
+    def send_CONTROL_message(self: "CustomNRF24", CONTROL_MESSAGE: bytes, message_name: str, progress: bool = True, delay: float = 0) -> None:
         """
         Continuously send a given information message until we receive an ACK. The
         progress is shown with a status bar
@@ -169,7 +169,7 @@ class CustomNRF24(NRF24):
                 t += 1
 
             self.reset_packages_lost()
-            self.send(INFO_MESSAGE)
+            self.send(CONTROL_MESSAGE)
             
             try:
                 self.wait_until_sent()
@@ -183,7 +183,7 @@ class CustomNRF24(NRF24):
                 continue
 
 
-            if self.get_packages_lost() == 0:
+            if self.get_packages_lost() == 0 and self.get_payload() == message_name.encode():
                 message_has_been_sent = True
 
             time.sleep(delay)
