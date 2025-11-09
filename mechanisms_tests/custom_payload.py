@@ -39,7 +39,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 ack = radio.get_payload()
                 SUCC(f"{idx}: Received ({len(ack)} B) {ack} -> {int.from_bytes(ack)}")
                 idx += 1
-            time.sleep(1)
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
@@ -66,9 +65,9 @@ def BEGIN_RECEIVER_MODE() -> None:
             idx    += 1
 
             SUCC(f"{idx}: Received {payload} | Changing ack payload to {idx.to_bytes(min(idx, 32))}")
-            # radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(min(idx, 32)))
+            radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(min(idx, 32)))
             radio.ack_payload(RF24_RX_ADDR.P1, b"")
-            time.sleep(1)
+            
 
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
