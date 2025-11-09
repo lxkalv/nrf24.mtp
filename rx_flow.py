@@ -142,7 +142,6 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     THROUGHPUT_TIC = 0
     THROUGHPUT_TAC = 0
 
-    CHECKSUM     = 0
     BURST_HASHER = hashlib.sha256()
     
     while not TRANSFER_HAS_ENDED:
@@ -195,7 +194,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             or  BurstID >= len(STREAM[PageID])
             or  ChunkID >= len(STREAM[PageID][BurstID])
             ):
-                WARN(f"Invalid header information received: ({PageID}/{BurstID}/{ChunkID})")
+                WARN(f"Invalid header information received: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}")
                 continue
             
             prx.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
@@ -210,12 +209,14 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             # If this is the start of a new Burst, we reset the hasher
             if ChunkID == 0:
                 BURST_HASHER = hashlib.sha256()
+                INFO(f"Resetting BURST_HASHER for new BURST")
 
             
-            status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d})", "INFO")
+            status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
             STREAM[PageID][BurstID][ChunkID] = frame
 
             BURST_HASHER.update(frame)
+            INFO(f"Updated BURST_HASHER with chunk ({PageID}/{BurstID}/{ChunkID})")
 
             LAST_PAGEID  = PageID
             LAST_BURSTID = BurstID
