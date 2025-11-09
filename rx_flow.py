@@ -73,7 +73,7 @@ def generate_STREAM_based_on_TRANSFER_INFO(TRANSFER_INFO: bytes, STREAM: list[li
     
     return
 
-def RX_LINK_LAYER(prx: CustomNRF24) -> None:
+def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     """
     This layer is responsible for the following things:
     - Generate the STREAM structure containing all the DATA of the communication
@@ -135,21 +135,21 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     TRANSFER_HAS_ENDED        = False
     STREAM_HAS_BEEN_GENERATED = False
     
-    LAST_PAGEID  = 0
-    LAST_BURSTID = 0
-    LAST_CHUNKID = 0
+    LAST_PAGEID  = None
+    LAST_BURSTID = None
+    LAST_CHUNKID = None
 
     THROUGHPUT_TIC = 0
     THROUGHPUT_TAC = 0
 
     BURST_HASHER = hashlib.sha256()
-    prx.ack_payload(RF24_RX_ADDR.P1, b"\xFF" * 32)
+    PRX.ack_payload(RF24_RX_ADDR.P1, b"\xFF" * 32)
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
-        while not prx.data_ready(): continue
+        while not PRX.data_ready(): continue
 
         # Pull the received frame from the FIFO
-        frame = prx.get_payload()
+        frame = PRX.get_payload()
 
         # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
         # message. After we have received this type of message we generate the emtpy
@@ -157,7 +157,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # received DATA message. We only generate the structure once, meaning we discard
         # any other TRANSFER_INFO that we may get by error
         if frame[0] == 0xF0:
-            prx.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
+            PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
             if STREAM_HAS_BEEN_GENERATED: continue
 
             generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
@@ -197,7 +197,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 WARN(f"Invalid header information received: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}")
                 continue
             
-            prx.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
+            PRX.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
 
             # If it is a retransmission we ignore the frame
             if (
@@ -229,7 +229,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # which Burst to send after receiving the checksum
         elif frame == b"\xF3" * 32:
             CHECKSUM = BURST_HASHER.digest()
-            prx.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
+            PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
         
         # NOTE: If the first Byte has the format 11111010 then it is a TR_FINISH message.
