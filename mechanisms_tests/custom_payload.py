@@ -66,7 +66,6 @@ def BEGIN_RECEIVER_MODE() -> None:
 
             SUCC(f"{idx}: Received {payload} | Changing ack payload to {idx.to_bytes(min(idx, 32))}")
             radio.ack_payload(RF24_RX_ADDR.P1, idx.to_bytes(min(idx, 32)))
-            radio.ack_payload(RF24_RX_ADDR.P1, b"")
             
 
     except KeyboardInterrupt:
