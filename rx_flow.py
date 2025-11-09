@@ -187,7 +187,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # by the CRC
         elif not frame[0] & 0xF0:
             # NOTE: We set the ACK payload to be empty to maximize throughput
-            prx.ack_payload(RF24_RX_ADDR.P1, b"")
+            prx.ack_payload(RF24_RX_ADDR.P1, b"0")
 
             PageID  = frame[0]
             BurstID = frame[1]
