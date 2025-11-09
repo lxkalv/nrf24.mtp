@@ -165,7 +165,7 @@ class CustomNRF24(NRF24):
         message_has_been_sent = False
         
         while not message_has_been_sent:
-            WARN(f"Packages lost: {self.get_packages_lost()}")
+            
             if t % 10 == 0:
                 status_bar(
                     message = f"Sending {message_name} message",
@@ -174,7 +174,10 @@ class CustomNRF24(NRF24):
 
             t += 1
 
+            WARN(f"Packages lost: {self.get_packages_lost()}")
             self.reset_packages_lost()
+            WARN(f"Packages lost: {self.get_packages_lost()}")
+            
             self.send(INFO_MESSAGE)
             
             try:
