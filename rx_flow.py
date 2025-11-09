@@ -238,7 +238,16 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # will be sent.
         elif frame[0] == 0xFA:
             TRANSFER_HAS_ENDED = True
-            SUCC(f"Transfer has finished successfully")            
+            SUCC(f"Transfer has finished successfully")
+
+            with open("STREAM.txt", "w") as f:
+                for PageID, page in enumerate(STREAM):
+                    f.write(f"PAGE {PageID}:\n")
+                    for BurstID, burst in enumerate(page):
+                        f.write(f"    BURST {BurstID}:\n")
+                        for ChunkID, chunk in enumerate(burst):
+                            f.write(f"        CHUNK {ChunkID}: {chunk.hex()}\n")
+                    f.write("\n")     
 
     return STREAM
 
