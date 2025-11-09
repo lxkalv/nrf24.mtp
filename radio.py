@@ -71,14 +71,14 @@ class CustomNRF24(NRF24):
         self.hostname = "localhost"
         self.port     = 8888
 
-        self.pi_custom = pigpio.pi(self.hostname, self.port)
-        if not self.pi_custom.connected:
+        pi = pigpio.pi(self.hostname, self.port)
+        if not pi:
             ERROR("Not connected to Raspberry Pi, exiting")
             sys.exit(1)
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
         # :::: INITIALIZE RADIO DEVICE ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-        super().__init__(pi = self.pi_custom, ce = CE_PIN, spi_speed = spi_speed)
+        super().__init__(pi = pi, ce = CE_PIN, spi_speed = spi_speed)
         self.role = Role.UNSET
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 

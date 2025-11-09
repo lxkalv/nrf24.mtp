@@ -1,12 +1,18 @@
 # :::: IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+from pathlib import Path
 import hashlib
+import zlib
 
 from radio import CustomNRF24
 
 from utils import (
+    get_usb_mount_path,
+
     status_bar,
+    progress_bar,
 
     SUCC,
+    WARN,
     INFO,
 )
 
@@ -15,9 +21,7 @@ from nrf24 import (
 )
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-# :::: IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
 
@@ -218,8 +222,79 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             LAST_BURSTID = BurstID
             LAST_CHUNKID = ChunkID
 
-    return
+    return STREAM
 
+
+
+
+
+def RX_TRANSPORT_LAYER(STREAM: list[list[list[bytes]]]) -> list[bytes]:
+    """
+    This layer is responsible for the following things:
+    - Receiving the unified STREAM structure and decompose it into compressed
+    pages
+    - Provice the compressed pages to the next layer
+    """
+
+    compressed_pages = []
+    for PageID in range(len(STREAM)):
+        compressed_page = []
+        for BurstID in range(len(STREAM[PageID])):
+            for ChunkID in range(len(STREAM[PageID][BurstID])):
+                compressed_page.extend(STREAM[PageID][BurstID][ChunkID][2:]) # NOTE: We ignore the first 3 Bytes as they are the headers
+        compressed_pages.append(compressed_page)
+    
+    return compressed_page
+
+
+
+def RX_PRESENTATION_LAYER(compressed_pages: list[bytes]) -> None:
+    """
+    This layer is responsible for the following things:
+    - Receive the compressed pages from the previous layer
+    - Uncompress each page
+    - Join all the pages into a unique txt file
+    - Store the file into a possible location
+    """
+
+    compressed_len = sum(len(compressed_page) for compressed_page in compressed_pages)
+
+    pages: list[bytes] = []
+    decompressor = zlib.decompressobj(level = 6)
+    for idx, compressed_page in enumerate(compressed_pages, 1):
+        page = decompressor.decompress(compressed_page)
+        pages.append(page)
+
+        uncompressed_len = sum(len(page) for page in pages)
+
+        progress_bar(
+            pending_msg     = "Decompressing pages...",
+            finished_msg    = f"Pages uncompressed successfully | Compression ratio: ~{compressed_len / uncompressed_len * 100:.2f}% | {compressed_len} B -> {uncompressed_len} B",
+            current_status  = idx,
+            finished_status = len(compressed_pages)
+        )
+
+    # Join all the content in the pages into a single structure
+    content = b"".join(pages)
+
+    # Find a valid path inside a USB to store the received file
+    # NOTE: If no USB mount point is found then the file is stored in memory
+    usb_mount_path = get_usb_mount_path()
+    file_path      = None
+
+    if usb_mount_path:
+        file_path = usb_mount_path / "received_file.txt"
+
+    if not file_path:
+        file_path = Path("received_file.txt")
+        WARN(f"File candidate not found, using fallback file: {file_path}")
+
+    else:
+        INFO(f"Stored received file in: {file_path}")
+
+    file_path.write_bytes(content)
+
+    return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -233,5 +308,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
 
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def FULL_RX_MODE(prx: CustomNRF24) -> None:
-    RX_LINK_LAYER(prx)
+    STREAM = RX_LINK_LAYER(prx)
+    compressed_pages = RX_TRANSPORT_LAYER(STREAM)
+    RX_PRESENTATION_LAYER(compressed_pages)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
