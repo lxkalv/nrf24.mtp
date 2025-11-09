@@ -83,6 +83,9 @@ class CustomNRF24(NRF24):
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
         # :::: CONFIGURE RADIO DEVICE :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+        self.choose_node_role()
+        self.choose_address_based_on_role()
+
         self.set_channel(CHANNEL)
         self.set_data_rate(DATA_RATE)
         self.set_pa_level(PA_LEVEL)
@@ -91,16 +94,8 @@ class CustomNRF24(NRF24):
         self.set_retransmission(RETRANSMISSION_DELAY, RETRANSMISSION_TRIES)
         self.set_address_bytes(ADDRESS_BYTE_LENGTH)
         self.show_registers()
-
-        self.choose_node_role()
-        self.choose_address_based_on_role()
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-        # :::: INTERNAL CONSTANTS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-        self.TXIM = "TXIM"
-        self.PAIM = "PAIM"
-        self.BUIM = "BUIM"
-        # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
         return
     
 
@@ -111,7 +106,7 @@ class CustomNRF24(NRF24):
         """
 
         while True:
-            val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver, [C]arrier, [Q]uit: ")
+            val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver")
             
             try:
                 val = val.upper()
@@ -126,16 +121,6 @@ class CustomNRF24(NRF24):
             elif val == "R":
                 INFO(f"Device set to {Role.RECEIVER} role")
                 self.role = Role.RECEIVER
-                return
-
-            elif val == "C":
-                INFO(f"Device set to {Role.CARRIER} role")
-                self.role = Role.CARRIER
-                return
-            
-            elif val == "Q":
-                INFO("Quitting program...")
-                self.role = Role.QUIT
                 return
 
     def choose_address_based_on_role(self: "CustomNRF24") -> None:
