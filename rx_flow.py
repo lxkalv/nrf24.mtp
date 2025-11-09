@@ -200,7 +200,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             ):
                 WARN(f"Invalid header information received: ({PageID}/{BurstID}/{ChunkID})")
                 continue
-            
+
             # If it is a retransmission we ignore the frame
             if (
                 PageID  == LAST_PAGEID
@@ -322,10 +322,10 @@ def RX_PRESENTATION_LAYER(compressed_pages: list[bytes]) -> None:
 
 
 
-
+# TODO: add new message PREPARE_CHECKSUM before sending EMTPY messages so that we do not send each burst two times :P
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def FULL_RX_MODE(prx: CustomNRF24) -> None:
     STREAM = RX_LINK_LAYER(prx)
-    # compressed_pages = RX_TRANSPORT_LAYER(STREAM)
-    # RX_PRESENTATION_LAYER(compressed_pages)
+    compressed_pages = RX_TRANSPORT_LAYER(STREAM)
+    RX_PRESENTATION_LAYER(compressed_pages)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
