@@ -176,7 +176,9 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 STREAM_HAS_BEEN_GENERATED = True
             
             elif frame[0] == 0xF3:
+                check = burst_hasher.digest()
                 INFO("Received EMPTY INFO message")
+                INFO(f"Sending checksum {check.hex()}")
                 prx.ack_payload(RF24_RX_ADDR.P1, burst_hasher.digest())
             
             # NOTE: TR_FINISH (11111010)
