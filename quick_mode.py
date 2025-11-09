@@ -512,18 +512,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         # merge all the received bytes
         INFO("Constructing file...")
-        content = bytes()
-        
-        for idx in range(chunks_len):
-            content += chunks[idx]
-
-            progress_bar(
-                active_msg     = "Contructing file",
-                finished_msg   = "File constructed successfully",
-                current_status = idx + 1,
-                max_status     = chunks_len
-            )
-        
+        content = b"".join(chunks)        
         
         # get the location where the file is going to be stored
         usb_mount_point = find_usb_mount_point()
