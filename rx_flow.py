@@ -67,6 +67,15 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: l
 
             for ChunkID in range(chunks_count):
                 STREAM[PageID][BurstID].append(bytes())
+
+    with open("STREAM_structure.txt", "w") as f:
+        for PageID, page in enumerate(STREAM):
+            f.write(f"PAGE {PageID}:\n")
+            for BurstID, burst in enumerate(page):
+                f.write(f"    BURST {BurstID}:\n")
+                for ChunkID, chunk in enumerate(burst):
+                    f.write(f"        CHUNK {ChunkID:03d}: EMPTY\n")
+    
     return (burst_in_page, length_last_burst, length_last_chunk)
 
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:
@@ -324,6 +333,6 @@ def RX_PRESENTATION_LAYER(compressed_pages: list[bytes]) -> None:
 # :::: MAIN FLOW ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def FULL_RX_MODE(prx: CustomNRF24) -> None:
     STREAM = RX_LINK_LAYER(prx)
-    compressed_pages = RX_TRANSPORT_LAYER(STREAM)
-    RX_PRESENTATION_LAYER(compressed_pages)
+    # compressed_pages = RX_TRANSPORT_LAYER(STREAM)
+    # RX_PRESENTATION_LAYER(compressed_pages)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
