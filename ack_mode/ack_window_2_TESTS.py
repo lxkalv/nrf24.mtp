@@ -183,7 +183,7 @@ nrf.set_data_rate(RF24_DATA_RATE.RATE_1MBPS)
 
 
 # Tx/Rx power
-nrf.set_pa_level(RF24_PA.HIGH)
+nrf.set_pa_level(RF24_PA.MIN)
 
 
 # CRC
