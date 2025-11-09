@@ -306,10 +306,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 packets_lost = 0
 
                 while True:
-                    status_bar(
-                        message = f"Sending frame ({PageID}/{BurstID}/{ChunkID})",
-                        status  = "INFO",
-                    )
+                    status_bar(f"Sending frame ({PageID}/{BurstID}/{ChunkID})", "INFO")
 
                     ptx.reset_packages_lost()
                     ptx.send(STREAM[PageID][BurstID][ChunkID])
@@ -317,25 +314,19 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                     try:
                         ptx.wait_until_sent()
                     except TimeoutError:
-                        ERROR("Timeout while transmitting")
+                        ERROR("Time-out while transmitting")
 
                     if ptx.get_packages_lost() == 0:
                         ChunkID += 1
                         break
                     else:
                         packets_lost += 1
-                        status_bar(
-                            message = f"Lost {packets_lost} packets for frame ({PageID}/{BurstID}/{ChunkID})",
-                            status  = "ERROR",
-                        )
+                        status_bar(f"Lost {packets_lost} packets for frame ({PageID}/{BurstID}/{ChunkID})", "ERROR")
 
             # NOTE: After we have completed sending a Burst, we send empty frames until we
             # receive a checksum in the auto-ACK of the PRX
             while True:
-                status_bar(
-                    message = f"Waiting for checksum of Burst {BurstID}, expecting {CHECKSUMS[PageID][BurstID].hex()}",
-                    status  = "INFO",
-                )
+                status_bar(f"Waiting for checksum of Burst {BurstID}, expecting {CHECKSUMS[PageID][BurstID].hex()}", "INFO")
 
                 # Generate and send an Empty Frame message (EMPTY)
                 # NOTE: the EMPTY message only contains the MessageID + InfoID
@@ -353,9 +344,13 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
                 EMPTY  = bytes()
                 EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
-                ptx.send_INFO_message(EMPTY, "EMPTY", progress = False, delay = 1e-3)
+                ptx.send_INFO_message(EMPTY, "EMPTY", progress = False)
+                
+                # We send two of them at least to avoid receiving stale data
+                EMPTY  = bytes()
+                EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
+                ptx.send_INFO_message(EMPTY, "EMPTY", progress = False)
                 ACK = ptx.get_payload()
-                time.sleep(1e-3)
                 
                 if len(ACK) < 32:
                     continue
