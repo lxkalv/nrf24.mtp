@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import zlib
+import time
 
 from radio import CustomNRF24
 
@@ -261,7 +262,7 @@ def RX_TRANSPORT_LAYER(STREAM: list[list[list[bytes]]]) -> list[bytes]:
                 compressed_page.extend(STREAM[PageID][BurstID][ChunkID][2:]) # NOTE: We ignore the first 3 Bytes as they are the headers
         compressed_pages.append(compressed_page)
     
-    return compressed_page
+    return compressed_pages
 
 
 
