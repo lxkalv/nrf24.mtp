@@ -208,7 +208,7 @@ class CustomNRF24(NRF24):
         packets_lost          = 0
 
         while not message_has_been_sent:
-            status_bar(f"Sending DATA message: {PageID} | {BurstID} | {ChunkID} | {packets_lost}", "INFO")
+            status_bar(f"Sending DATA message: {PageID:d02}|{BurstID:d03}|{ChunkID:d03}|{packets_lost}", "INFO")
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
             
@@ -222,9 +222,7 @@ class CustomNRF24(NRF24):
 
 
             if self.get_packages_lost() == 0:
-                expected_ack = bytes([PageID, BurstID, ChunkID])
-                ack = self.get_payload()
-                if ack.hex() == expected_ack.hex():
+                if self.get_payload() == bytes([PageID, BurstID, ChunkID]):
                     message_has_been_sent = True
                 else:
                     packets_lost += 1
