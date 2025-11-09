@@ -319,7 +319,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 if len(ACK) < 32: continue
 
                 if ACK == CHECKSUMS[PageID][BurstID]:
-                    status_bar(f"Received   VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
+                    status_bar(f"Received VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
 
                     BurstID += 1
 
