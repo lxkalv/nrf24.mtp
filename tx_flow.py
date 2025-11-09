@@ -346,6 +346,8 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   ↑           ↑
                 #   │           4b: Identifies the type of CONTROL message that we are sending: [0 - 15], for EMPTY it is set to 0011
                 #   4b: Identifies the kind of message that we are sending, for CONTROL payload is set to 1111
+                time.sleep(0.5)
+
                 EMPTY  = bytes()
                 for _ in range(32):
                     EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
