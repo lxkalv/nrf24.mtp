@@ -1,5 +1,6 @@
 # :::: IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 import pigpio
+import time
 import sys
 
 from nrf24 import (
@@ -155,16 +156,19 @@ class CustomNRF24(NRF24):
 
         return
     
-    def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name: str, progress: bool = True) -> None:
+    def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name: str, progress: bool = True, delay: float = 0) -> None:
         """
         Continuously send a given information message until we receive an ACK. The
         progress is shown with a status bar
         """
+
         if progress:
             t = 0
         message_has_been_sent = False
         
         while not message_has_been_sent:
+            time.sleep(delay)
+            
             if progress:
                 if t % 10 == 0:
                     status_bar(
