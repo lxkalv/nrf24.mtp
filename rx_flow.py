@@ -262,7 +262,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                             f.write(f"        CHUNK {ChunkID:03d}: {chunk.hex()}\n")
                     f.write("\n")     
 
-    INFO(f"Computed throughput: {tx_data * 8 / tx_time / 1024:.2f} Kb/s over {tx_time:.2f} seconds | {tx_data * 8 / 1024:.2f} Kb transferred")
+    INFO(f"Computed throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
     return STREAM
 
 
