@@ -155,7 +155,7 @@ class CustomNRF24(NRF24):
 
         return
     
-    def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name:str) -> None:
+    def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name: str) -> None:
         """
         Continuously send a given information message until we receive an ACK. The
         progress is shown with a status bar
@@ -165,6 +165,7 @@ class CustomNRF24(NRF24):
         message_has_been_sent = False
         
         while not message_has_been_sent:
+            WARN(f"Packages lost: {self.get_packages_lost()}")
             if t % 10 == 0:
                 status_bar(
                     message = f"Sending {message_name} message",
