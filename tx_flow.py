@@ -244,7 +244,8 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[list[list[bytes]]], lis
                 
                 burst_hasher.update(STREAM[PageID][BurstID][ChunkID])
 
-            CHECKSUMS[PageID][BurstID] = burst_hasher.hexdigest()
+            CHECKSUMS[PageID][BurstID] = burst_hasher.digest()
+            print(len(CHECKSUMS[PageID][BurstID]))
 
     # TODO: probably some information prints would be useful but I cannot come up with
     # something clean right now
@@ -325,7 +326,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                             message = f"Lost {packets_lost} packets for frame ({PageID}/{BurstID}/{ChunkID})",
                             status  = "WARN",
                         )
-                        
+
             # NOTE: After we have completed sending a Burst, we send empty frames until we
             # receive a checksum in the auto-ACK of the PRX
             while True:
