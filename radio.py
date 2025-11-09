@@ -94,6 +94,8 @@ class CustomNRF24(NRF24):
         self.set_crc_bytes(CRC_BYTES)
         self.set_payload_size(PAYLOAD_SIZE)
         self.set_retransmission(RETRANSMISSION_DELAY, RETRANSMISSION_TRIES)
+
+        self.ack_payload(RF24_RX_ADDR.P1, b"")
         
         self.show_registers()
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
