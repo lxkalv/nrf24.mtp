@@ -497,7 +497,10 @@ def BEGIN_RECEIVER_MODE() -> None:
                 tic = time.monotonic()
             
         throughput_tac = time.monotonic()
-        total_time     = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
+        if tac - tic < RECEIVER_TIMEOUT_S:
+            total_time = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
+        else:
+            total_time = throughput_tac - throughput_tic
         chunks_len     = len(chunks)
 
 
