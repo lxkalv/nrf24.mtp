@@ -275,7 +275,7 @@ def RX_PRESENTATION_LAYER(compressed_pages: list[bytes]) -> None:
     compressed_len = sum(len(compressed_page) for compressed_page in compressed_pages)
 
     pages: list[bytes] = []
-    decompressor = zlib.decompressobj(level = 6)
+    decompressor = zlib.decompressobj()
     for idx, compressed_page in enumerate(compressed_pages, 1):
         page = decompressor.decompress(compressed_page)
         pages.append(page)
