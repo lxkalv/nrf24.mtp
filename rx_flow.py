@@ -186,7 +186,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # TODO: Add some guard checking in case there are errors in the header uncatched
         # by the CRC
         elif not frame[0] & 0xF0:
-            # NOTE: We set the ACK payload to be emtpy to maximize throughput
+            # NOTE: We set the ACK payload to be empty to maximize throughput
             prx.ack_payload(RF24_RX_ADDR.P1, b"0")
 
             PageID  = frame[0]
@@ -228,7 +228,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # This message is used to notify the PRX that the current Burst has finished and
         # to set the ACK payload to be the checksum of the Burst. The TRX will decide
         # which Burst to send after receiving the checksum
-        elif frame == b"\xF2":
+        elif frame == b"\xF2" * 32:
             CHECKSUM = BURST_HASHER.digest()
             prx.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
 

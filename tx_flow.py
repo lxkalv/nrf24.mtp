@@ -269,35 +269,27 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     the burst or move on to the next
     """
 
-    # Generate and send the Transfer Info message (TR_INFO)
-    # NOTE: As of now the TR_INFO message contains, for every page, the number of
-    # Bursts of that page, the length of the last Burst and the length of the last
-    # Chunk of the last Burst. This allows the PRX to infer the total ammount of data
-    # expected, the length of each Page and the length of each Burst
+    # Generate and send the TRANSFER_INFO message
     #
-    # NOTE: The structure of our TR_INFO payload looks like this (for now):
-    #
-    # ┌────────────────────┬───────────────┬────────────────────┬────────────────────┬─────┬────────────────┬─────────────────────┬─────────────────────┐
-    # │ MessageID + InfoID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │ = 1B + (N Pages * 3B)
-    # └────────────────────┴───────────────┴────────────────────┴────────────────────┴─────┴────────────────┴─────────────────────┴─────────────────────┘
-    #   ↑           ↑        ↑               ↑                    ↑
-    #   │           │        │               │                    1B: The length of the last Chunk of the last Burst: [0 - 255]
-    #   │           │        │               1B: The number of Chunks in the last Burst: [0 - 255]
-    #   │           │        1B: The number of Bursts in the page: [0 - 255]
-    #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for TR_INFO is set to 0000
-    #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
-    TR_INFO  = bytes()
-    TR_INFO += 0xF0.to_bytes(1) # NOTE: Translates to 11110000
+    # NOTE: The structure of our TRANSFER_INFO payload looks like this:
+    # ┌───────────────────────┬───────────────┬────────────────────┬────────────────────┬─────┬────────────────┬─────────────────────┬─────────────────────┐
+    # │ MessageID + ControlID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │ = 1B + (N Pages * 3B)
+    # └───────────────────────┴───────────────┴────────────────────┴────────────────────┴─────┴────────────────┴─────────────────────┴─────────────────────┘
+    #   ↑           ↑           ↑               ↑                    ↑
+    #   │           │           │               │                    1B: The length of the last Chunk of the last Burst: [0 - 255]
+    #   │           │           │               1B: The number of Chunks in the last Burst: [0 - 255]
+    #   │           │           1B: The number of Bursts in the page: [0 - 255]
+    #   │           4b: Identifies the type of CONTROL message that we are sending: "0000" for TRANSFER_INFO
+    #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
+    TRANSFER_INFO  = bytes()
+    TRANSFER_INFO += 0xF0.to_bytes(1) # NOTE: Translates to 11110000
     for PageID in range(len(STREAM)):
-        TR_INFO += len(STREAM[PageID]).to_bytes(1)
-        TR_INFO += len(STREAM[PageID][-1]).to_bytes(1)
-        TR_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
-    INFO(f"Generated TR_INFO message of {len(TR_INFO)} B: {TR_INFO}")
-    ptx.send_INFO_message(TR_INFO, "TR_INFO")
+        TRANSFER_INFO += len(STREAM[PageID]).to_bytes(1)
+        TRANSFER_INFO += len(STREAM[PageID][-1]).to_bytes(1)
+        TRANSFER_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
+    ptx.send_CONTROL_message(TRANSFER_INFO, "TRANSFER_INFO")
 
     PageID  = 0
-    BurstID = 0
-    ChunkID = 0
     while PageID < len(STREAM):
         BurstID = 0
         while BurstID < len(STREAM[PageID]):
@@ -306,22 +298,23 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 packets_lost = 0
 
                 while True:
-                    status_bar(f"Sending frame ({PageID}/{BurstID}/{ChunkID})", "INFO")
+                    status_bar(f"Sending frame ({PageID}/{BurstID}/{ChunkID}) | retries = {packets_lost}", "INFO")
 
                     ptx.reset_packages_lost()
                     ptx.send(STREAM[PageID][BurstID][ChunkID])
 
                     try:
                         ptx.wait_until_sent()
+                    
                     except TimeoutError:
                         ERROR("Time-out while transmitting")
 
                     if ptx.get_packages_lost() == 0:
                         ChunkID += 1
                         break
+                    
                     else:
                         packets_lost += 1
-                        status_bar(f"Lost {packets_lost} packets for frame ({PageID}/{BurstID}/{ChunkID})", "ERROR")
 
             # NOTE: After we have completed sending a Burst, we send empty frames until we
             # receive a checksum in the auto-ACK of the PRX
@@ -341,7 +334,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 LOAD_CHECKSUM  = bytes()
                 for _ in range(32):
                     LOAD_CHECKSUM += 0xF2.to_bytes(1) # NOTE: Translates to 11110010
-                ptx.send_INFO_message(LOAD_CHECKSUM, "LOAD_CHECKSUM", progress = False)
+                ptx.send_CONTROL_message(LOAD_CHECKSUM, "LOAD_CHECKSUM", progress = False)
 
                 # Generate and send an EMPTY_FRAME message to trigger the auto-ACK with the
                 # checksum
@@ -356,7 +349,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 EMPTY  = bytes()
                 for _ in range(32):
                     EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
-                ptx.send_INFO_message(EMPTY, "EMPTY", progress = False)
+                ptx.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
                 
                 ACK = ptx.get_payload()
                 
@@ -390,7 +383,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     TR_FINISH  = bytes()
     for _ in range(32):
         TR_FINISH += 0xFA.to_bytes(1) # NOTE: Translates to 11111010
-    ptx.send_INFO_message(TR_FINISH, "TR_FINISH")
+    ptx.send_CONTROL_message(TR_FINISH, "TR_FINISH")
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
