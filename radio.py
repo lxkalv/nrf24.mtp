@@ -224,12 +224,10 @@ class CustomNRF24(NRF24):
             if self.get_packages_lost() == 0:
                 expected_ack = bytes([PageID, BurstID, ChunkID])
                 ack = self.get_payload()
-                INFO(f"Received ACK: {ack.hex()} | Expected ACK: {expected_ack.hex()}")
                 if ack.hex() == expected_ack.hex():
                     message_has_been_sent = True
                 else:
                     packets_lost += 1
-                    WARN(f"Unexpected ACK: {ack.hex()}")
             
             else:
                 packets_lost += 1
