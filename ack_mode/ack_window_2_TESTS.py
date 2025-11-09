@@ -216,7 +216,7 @@ def _disable_auto_ack(nrf_obj):
 
     nrf_obj.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
 
-
+_disable_auto_ack(nrf) 
 # =================================================================================
 
 
@@ -530,53 +530,3 @@ def BEGIN_RECEIVER_MODE() -> None:
     return
 
 
-
-
-
-
-
-
-
-
-def BEGIN_CONSTANT_CARRIER_MODE() -> None:
-    """
-    Transmits a constant carrier until the user exits with CTRL+C
-    """
-    
-    ERROR("TODO")
-    return
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-
-
-
-
-# :::: MAIN :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def main():
-    """
-    Main flow of the application
-    """
-
-    role = choose_node_role()
-    choose_address_based_on_role(role, nrf)
-    _disable_auto_ack(nrf)
-    INFO("EN_AA after disabling again:")
-    nrf.show_registers()  # opcional, para comprobar que EN_AA=0
-
-    if role is Role.TRANSMITTER:
-        BEGIN_TRANSMITTER_MODE()
-    
-    elif role is Role.RECEIVER:
-        BEGIN_RECEIVER_MODE()
-        
-    elif role is Role.CARRIER:
-        BEGIN_CONSTANT_CARRIER_MODE()
-
-    return
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-
-
-
-if __name__ == "__main__":
-    main()
