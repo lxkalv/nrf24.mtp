@@ -302,9 +302,8 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             while ChunkID < len(STREAM[PageID][BurstID]):
                 while True:
                     status_bar(
-                        pending_msg  = f"Sending frame ({PageID}/{BurstID}/{ChunkID})",
-                        finished_msg = f"Burst {BurstID} completed",
-                        finished     = False
+                        message = f"Sending frame ({PageID}/{BurstID}/{ChunkID})",
+                        status  = "INFO",
                     )
 
                     try:
@@ -321,9 +320,8 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             # receive a checksum in the auto-ACK of the PRX
             while True:
                 status_bar(
-                    pending_msg  = f"Waiting for checksum of Burst {BurstID}",
-                    finished_msg = f"...",
-                    finished     = False
+                    message = f"Waiting for checksum of Burst {BurstID}",
+                    status  = "INFO",
                 )
 
                 # Generate and send an Empty Frame message (EMPTY)
@@ -352,15 +350,13 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                         SUCC(f"Received valid checksum for Burst {BurstID}: {ACK.hex()}")
                         BurstID += 1
                         status_bar(
-                            pending_msg  = f"...",
-                            finished_msg = f"Checksum validated, sending next Burst",
-                            finished     = True,
+                            message = f"Checksum validated, sending next Burst",
+                            status  = "SUCC",
                         )
                     else:
                         status_bar(
-                            pending_msg  = f"...",
-                            finished_msg = f"Invalid checksum received for Burst {BurstID}, resending Burst",
-                            finished     = True,
+                            message = f"Invalid checksum received for Burst {BurstID}, resending Burst",
+                            status  = "ERROR",
                         )
                     ChunkID = 0
                     break

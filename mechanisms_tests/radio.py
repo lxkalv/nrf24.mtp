@@ -160,9 +160,9 @@ class CustomNRF24(NRF24):
         while True:
             if idx_bar % 100 == 0:
                 status_bar(
-                    pending_msg  = f"Sending {message_name} message",
+                    message  = f"Sending {message_name} message",
                     finished_msg = f"Sent {message_name} succesfully",
-                    finished     = False,
+                    status     = False,
                 )
             self.reset_packages_lost()
             self.send(INFO_MESSAGE)
@@ -171,9 +171,9 @@ class CustomNRF24(NRF24):
                 self.wait_until_sent()
                 if not self.get_packages_lost():
                     status_bar(
-                        pending_msg  = f"Sending {message_name} message",
+                        message  = f"Sending {message_name} message",
                         finished_msg = f"Sent {message_name} succesfully",
-                        finished     = True,
+                        status     = True,
                     )
                     return
                 else:
@@ -190,9 +190,9 @@ class CustomNRF24(NRF24):
         while not self.data_ready():
             if idx_bar % 100 == 0:
                 status_bar(
-                    pending_msg  = "Waiting for INFO message",
+                    message  = "Waiting for INFO message",
                     finished_msg = "...",
-                    finished     = False,
+                    status     = False,
                 )
                 idx_bar += 1
         
@@ -208,9 +208,9 @@ class CustomNRF24(NRF24):
             TxLength = int.from_bytes(INFO_MESSAGE[4:8]) + 1
             TxWidth  = int.from_bytes(INFO_MESSAGE[8:12])
             status_bar(
-                pending_msg  = "...",
+                message  = "...",
                 finished_msg = f"Received {self.TXIM} message: TxLength -> {TxLength} | TxWidth -> {TxWidth}",
-                finished     = True,
+                status     = True,
             )
             return (TxLength, TxWidth)
         
@@ -219,9 +219,9 @@ class CustomNRF24(NRF24):
             PageLength = int.from_bytes(INFO_MESSAGE[5:8]) + 1
             PageWidth  = int.from_bytes(INFO_MESSAGE[8:12])
             status_bar(
-                pending_msg  = "...",
+                message  = "...",
                 finished_msg = f"Received {self.PAIM} message: PageID -> {PageID} | PageLength -> {PageLength} | PageWidth -> {PageWidth}",
-                finished     = True,
+                status     = True,
             )
             return (PageID, PageLength, PageWidth)
     

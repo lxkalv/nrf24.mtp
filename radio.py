@@ -156,31 +156,47 @@ class CustomNRF24(NRF24):
         return
     
     def send_INFO_message(self: "CustomNRF24", INFO_MESSAGE: bytes, message_name:str) -> None:
-        idx_bar = 0
-        while True:
-            if idx_bar % 100 == 0:
+        """
+        Continuously send a given information message until we receive an ACK. The
+        progress is shown with a status bar
+        """
+        
+        t                     = 0
+        message_has_been_sent = False
+        
+        while not message_has_been_sent:
+            if t % 10 == 0:
                 status_bar(
-                    pending_msg  = f"Sending {message_name} message",
-                    finished_msg = f"Sent {message_name} succesfully",
-                    finished     = False,
+                    message = f"Sending {message_name} message",
+                    status  = "INFO",
                 )
+
+            t += 1
+
             self.reset_packages_lost()
             self.send(INFO_MESSAGE)
-            idx_bar += 1
+            
             try:
                 self.wait_until_sent()
-                if self.get_packages_lost() == 0:
-                    status_bar(
-                        pending_msg  = f"Sending {message_name} message",
-                        finished_msg = f"Sent {message_name} succesfully",
-                        finished     = True,
-                    )
-                    return
-                else:
-                    continue
+            
             except TimeoutError:
-                ERROR("Timeout while sending information message")
+                status_bar(
+                    message = f"Time-out while sending {message_name} message, retrying",
+                    status  = "ERROR",
+                )
+
                 continue
+
+
+            if self.get_packages_lost() == 0:
+                message_has_been_sent = True
+
+        status_bar(
+            message = f"Sent {message_name} succesfully",
+            status  = "SUCC",
+        )
+
+        return
     
     def receive_INFO_message(self: "CustomNRF24") -> None | tuple[int, int] | tuple[int, int, int]:
         """
@@ -190,9 +206,9 @@ class CustomNRF24(NRF24):
         while not self.data_ready():
             if idx_bar % 100 == 0:
                 status_bar(
-                    pending_msg  = "Waiting for INFO message",
+                    message  = "Waiting for INFO message",
                     finished_msg = "...",
-                    finished     = False,
+                    status     = False,
                 )
                 idx_bar += 1
         
@@ -208,9 +224,9 @@ class CustomNRF24(NRF24):
             TxLength = int.from_bytes(INFO_MESSAGE[4:8]) + 1
             TxWidth  = int.from_bytes(INFO_MESSAGE[8:12])
             status_bar(
-                pending_msg  = "...",
+                message  = "...",
                 finished_msg = f"Received {self.TXIM} message: TxLength -> {TxLength} | TxWidth -> {TxWidth}",
-                finished     = True,
+                status     = True,
             )
             return (TxLength, TxWidth)
         
@@ -219,9 +235,9 @@ class CustomNRF24(NRF24):
             PageLength = int.from_bytes(INFO_MESSAGE[5:8]) + 1
             PageWidth  = int.from_bytes(INFO_MESSAGE[8:12])
             status_bar(
-                pending_msg  = "...",
+                message  = "...",
                 finished_msg = f"Received {self.PAIM} message: PageID -> {PageID} | PageLength -> {PageLength} | PageWidth -> {PageWidth}",
-                finished     = True,
+                status     = True,
             )
             return (PageID, PageLength, PageWidth)
     

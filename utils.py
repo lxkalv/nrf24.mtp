@@ -106,28 +106,38 @@ def progress_bar(pending_msg: str, finished_msg: str, current_status: int, finis
     
     return
 
-def status_bar(pending_msg: str, finished_msg: str, finished: bool) -> None:
+def status_bar(message: str, status: str) -> None:
     """
-    Similar to progress bar but with max_status = 1
+    A bar that displays the status of one operation
     """
 
     terminal_width  = shutil.get_terminal_size().columns
     IDX_SPINNER[0] += 1
     spin            = SPINNER[IDX_SPINNER[0] % len(SPINNER)]
 
-    if not finished:
+    reset_line()
+    if status == "INFO":
         progress = spin
 
-        reset_line()
-        INFO(f"{pending_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 1)}", end = "")
+        INFO(f"{message} {progress.rjust(terminal_width - 8 - len(message) - 1)}", end = "")
         sys.stdout.flush()
 
-    else:
+    elif status == "WARN":
+        progress = spin
+
+        WARN(f"{message} {progress.rjust(terminal_width - 8 - len(message) - 1)}", end = "")
+        sys.stdout.flush()
+
+    elif status == "SUCC":
         progress = "█"
 
-        reset_line()
-        SUCC(f"{finished_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 2)}")
-    
+        SUCC(f"{message} {progress.rjust(terminal_width - 8 - len(message) - 2)}")
+
+    elif status == "ERROR":
+        progress = "X"
+
+        ERROR(f"{message} {progress.rjust(terminal_width - 8 - len(message) - 2)}")
+        
     return
 
 
