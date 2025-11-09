@@ -199,6 +199,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 continue
 
             prx.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
+            INFO(f"ACKing DATA ({bytes([PageID, BurstID, ChunkID]).hex()})")
 
             # If it is a retransmission we ignore the frame
             if (
