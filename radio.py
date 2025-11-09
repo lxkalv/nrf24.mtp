@@ -83,6 +83,8 @@ class CustomNRF24(NRF24):
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
         # :::: CONFIGURE RADIO DEVICE :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+        self.set_address_bytes(ADDRESS_BYTE_LENGTH)
+
         self.choose_node_role()
         self.choose_address_based_on_role()
 
@@ -92,7 +94,7 @@ class CustomNRF24(NRF24):
         self.set_crc_bytes(CRC_BYTES)
         self.set_payload_size(PAYLOAD_SIZE)
         self.set_retransmission(RETRANSMISSION_DELAY, RETRANSMISSION_TRIES)
-        self.set_address_bytes(ADDRESS_BYTE_LENGTH)
+        
         self.show_registers()
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
