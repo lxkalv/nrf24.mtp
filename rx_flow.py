@@ -158,7 +158,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     CHECKSUM     = 0
     BURST_HASHER = hashlib.sha256()
     
-    prx.ack_payload(RF24_RX_ADDR.P1, b"")
+    prx.ack_payload(RF24_RX_ADDR.P1, b"0")
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
         while not prx.data_ready(): continue
