@@ -259,7 +259,7 @@ if not pi.connected:
 
 
 # radio object
-nrf = NRF24(pi, ce = CE_PIN)
+nrf = NRF24(pi, ce = CE_PIN, spi_speed = 10e6)
 
 
 # radio channel
