@@ -174,10 +174,7 @@ class CustomNRF24(NRF24):
 
             t += 1
 
-            WARN(f"Packages lost: {self.get_packages_lost()}")
             self.reset_packages_lost()
-            WARN(f"Packages lost: {self.get_packages_lost()}")
-
             self.send(INFO_MESSAGE)
             
             try:
