@@ -44,9 +44,9 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: l
     MESSAGE           = TR_INFO[1:]
     print(len(MESSAGE))
     number_of_pages   = len(MESSAGE) // 3
-    burst_in_page     = [byte for byte in MESSAGE[0:-1:3]] ; print(len(burst_in_page))
-    length_last_burst = [byte for byte in MESSAGE[1:-1:3]] ; print(len(length_last_burst))
-    length_last_chunk = [byte for byte in MESSAGE[2:-1:3]] ; print(len(length_last_chunk))
+    burst_in_page     = [byte for byte in MESSAGE[0::3]] ; print(len(burst_in_page))
+    length_last_burst = [byte for byte in MESSAGE[1::3]] ; print(len(length_last_burst))
+    length_last_chunk = [byte for byte in MESSAGE[2::3]] ; print(len(length_last_chunk))
 
     for PageID in range(number_of_pages):
         INFO(f"Page {PageID}: {burst_in_page[PageID]} Bursts | {length_last_burst[PageID]} CLB | {length_last_chunk[PageID]} BLC")
