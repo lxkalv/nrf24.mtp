@@ -161,7 +161,7 @@ def find_usb_txt_file() -> Path:
             usb_mount_point = path
 
     if usb_mount_point is None:
-        return Path("lorem.txt")
+        return Path("test_files/lorem.txt")
     
 
     # filter out invalid files
