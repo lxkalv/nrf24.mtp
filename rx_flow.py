@@ -192,6 +192,15 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             BurstID = frame[1]
             ChunkID = frame[2]
 
+            # If the header information is invalid we discard the frame
+            if (
+                PageID  >= len(STREAM)
+            or  BurstID >= len(STREAM[PageID])
+            or  ChunkID >= len(STREAM[PageID][BurstID])
+            ):
+                WARN(f"Invalid header information received: ({PageID}/{BurstID}/{ChunkID})")
+                continue
+            
             # If it is a retransmission we ignore the frame
             if (
                 PageID  == LAST_PAGEID
