@@ -294,21 +294,24 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     INFO(f"Generated TR_INFO message of {len(TR_INFO)} B: {TR_INFO}")
     ptx.send_INFO_message(TR_INFO, "TR_INFO")
 
-    PageID  = 0
-    BurstID = 0
-    ChunkID = 0
+    PageID       = 0
+    BurstID      = 0
+    ChunkID      = 0
     while PageID < len(STREAM):
         while BurstID < len(STREAM[PageID]):
             while ChunkID < len(STREAM[PageID][BurstID]):
+                packets_lost = 0
+
                 while True:
                     status_bar(
                         message = f"Sending frame ({PageID}/{BurstID}/{ChunkID})",
                         status  = "INFO",
                     )
 
+                    ptx.reset_packages_lost()
+                    ptx.send(STREAM[PageID][BurstID][ChunkID])
+
                     try:
-                        ptx.reset_packages_lost()
-                        ptx.send(STREAM[PageID][BurstID][ChunkID])
                         ptx.wait_until_sent()
                     except TimeoutError:
                         ERROR("Timeout while transmitting")
@@ -316,6 +319,13 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                     if ptx.get_packages_lost() == 0:
                         ChunkID += 1
                         break
+                    else:
+                        packets_lost += 1
+                        status_bar(
+                            message = f"Lost {packets_lost} packets for frame ({PageID}/{BurstID}/{ChunkID})",
+                            status  = "WARN",
+                        )
+                        
             # NOTE: After we have completed sending a Burst, we send empty frames until we
             # receive a checksum in the auto-ACK of the PRX
             while True:

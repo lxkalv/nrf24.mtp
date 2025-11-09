@@ -152,7 +152,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         while not prx.data_ready():
             continue
 
-        prx.ack_payload(RF24_RX_ADDR.P1, b"A")
+        prx.ack_payload(RF24_RX_ADDR.P1, b"")
         # If we have received something we pull it from the FIFO and analyze the first
         # Byte to check what type of message we have received
         #
