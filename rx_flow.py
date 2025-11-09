@@ -180,7 +180,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             elif frame[0] == 0xF3:
                 checksum = burst_hasher.digest()
                 status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {checksum.hex()}", "SUCC")
-                prx.ack_payload(RF24_RX_ADDR.P1, checksum)
+                # prx.ack_payload(RF24_RX_ADDR.P1, checksum)
             
             # NOTE: TR_FINISH (11111010)
             elif frame[0] == 0xFA:
@@ -216,6 +216,8 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             LAST_PAGEID  = PageID
             LAST_BURSTID = BurstID
             LAST_CHUNKID = ChunkID
+
+            prx.ack_payload(RF24_RX_ADDR.P1, burst_hasher.digest())
 
     return
 
