@@ -415,7 +415,7 @@ def FULL_TX_MODE(ptx: CustomNRF24) -> None:
             for BurstID, burst in enumerate(page):
                 f.write(f"    BURST {BurstID}:\n")
                 for ChunkID, chunk in enumerate(burst):
-                    f.write(f"        CHUNK {ChunkID}: {chunk.hex()}\n")
+                    f.write(f"        CHUNK {ChunkID:03d}: {chunk.hex()}\n")
             f.write("\n")
 
 
