@@ -106,7 +106,7 @@ class CustomNRF24(NRF24):
         """
 
         while True:
-            val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver")
+            val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver: ")
             
             try:
                 val = val.upper()
