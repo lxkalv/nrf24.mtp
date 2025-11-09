@@ -337,7 +337,6 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 ptx.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
                 
                 ACK = ptx.get_payload()
-                INFO(f"ACK: {ACK}")
                 
                 if len(ACK) < 32: continue
 

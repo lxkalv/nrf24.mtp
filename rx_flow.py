@@ -155,6 +155,9 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     LAST_BURSTID              = 0
     LAST_CHUNKID              = 0
 
+    THROUGHPUT_TIC = 0
+    THROUGHPUT_TAC = 0
+
     CHECKSUM     = 0
     BURST_HASHER = hashlib.sha256()
     
@@ -176,6 +179,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
 
             generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
             STREAM_HAS_BEEN_GENERATED = True
+            THROUGHPUT_TIC = time.time()
         
 
         # NOTE: If the first Byte has the format 0000XXXX then it is a DATA message. We
@@ -239,6 +243,15 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         elif frame == b"\xFA" * 32:
             TRANSFER_HAS_ENDED = True
             SUCC(f"Transfer has finished successfully")
+            THROUGHPUT_TAC = time.time()
+
+            tx_time = THROUGHPUT_TAC - THROUGHPUT_TIC
+            tx_data = sum(
+                len(chunk)
+                for page in STREAM
+                for burst in page
+                for chunk in burst
+            )
 
             with open("STREAM.txt", "w") as f:
                 for PageID, page in enumerate(STREAM):
@@ -249,6 +262,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                             f.write(f"        CHUNK {ChunkID:03d}: {chunk.hex()}\n")
                     f.write("\n")     
 
+    INFO(f"Computed throughput: {tx_data * 8 / tx_time / 1024:.2f} Kb/s over {tx_time:.2f} seconds | {tx_data * 8 / 1024:.2f} Kb transferred")
     return STREAM
 
 
