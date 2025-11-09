@@ -530,3 +530,45 @@ def BEGIN_RECEIVER_MODE() -> None:
     return
 
 
+
+
+
+def BEGIN_CONSTANT_CARRIER_MODE() -> None:
+    """
+    Transmits a constant carrier until the user exits with CTRL+C
+    """
+    
+    ERROR("TODO")
+    return
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+
+
+
+
+# :::: MAIN :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+def main():
+    """
+    Main flow of the application
+    """
+
+    role = choose_node_role()
+    choose_address_based_on_role(role, nrf)
+
+    if role is Role.TRANSMITTER:
+        BEGIN_TRANSMITTER_MODE()
+    
+    elif role is Role.RECEIVER:
+        BEGIN_RECEIVER_MODE()
+        
+    elif role is Role.CARRIER:
+        BEGIN_CONSTANT_CARRIER_MODE()
+
+    return
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+
+
+
+if __name__ == "__main__":
+    main()
