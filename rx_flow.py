@@ -198,7 +198,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 WARN(f"Invalid header information received: ({PageID}/{BurstID}/{ChunkID})")
                 continue
 
-            prx.ack_payload(RF24_RX_ADDR.P1, bytes(PageID.to_bytes(1) + BurstID.to_bytes(1) + ChunkID.to_bytes(1)))
+            prx.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
 
             # If it is a retransmission we ignore the frame
             if (
