@@ -4,6 +4,8 @@ import hashlib
 from radio import CustomNRF24
 
 from utils import (
+    status_bar,
+
     SUCC,
     INFO,
 )
@@ -176,9 +178,8 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 STREAM_HAS_BEEN_GENERATED = True
             
             elif frame[0] == 0xF3:
-                check = burst_hasher.digest()
-                INFO("Received EMPTY INFO message")
-                INFO(f"Sending checksum {check.hex()}")
+                checksum = burst_hasher.digest()
+                status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {checksum}", "SUCC")
                 prx.ack_payload(RF24_RX_ADDR.P1, burst_hasher.digest())
             
             # NOTE: TR_FINISH (11111010)
@@ -208,7 +209,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 burst_hasher = hashlib.sha256()
 
             
-            INFO(f"Received DATA: PageID = {PageID} | BurstID = {BurstID} | ChunkID = {ChunkID}")
+            status_bar(f"Receiving DATA ({PageID}/{BurstID}/{ChunkID})", "INFO")
             STREAM[PageID][BurstID][ChunkID] = frame
             burst_hasher.update(frame)
 
