@@ -265,6 +265,17 @@ class CustomNRF24(NRF24):
     # 
     #     
     #     return
+    
+    def wait_until_sent_manual_ack(self, timeout_ns=100000000):
+        # Time out after 100 ms should ensure that we do not abandon good communication.
+        start_wait = time.monotonic_ns()
+        while self.is_sending():
+            
+            if time.monotonic_ns() - start_wait > timeout_ns: 
+                raise TimeoutError('Timed out wating for send to complete.')
+
+            # Wait 250µs before checking again. That is the retransmit delay.
+            time.sleep(0.000250)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 radio = CustomNRF24()
 
