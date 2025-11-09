@@ -32,30 +32,33 @@ from nrf24 import (
 
 
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: list[list[list[bytes]]]) -> None:
+def generate_STREAM_based_on_TRANSFER_INFO(TRANSFER_INFO: bytes, STREAM: list[list[list[bytes]]]) -> None:
     """
     Allocate all the slots of the STREAM structure to fill them up later with DATA
-    messages. We use the information contained in the TR_INFO message to do so
+    messages. We use the information contained in the TRANSFER_INFO message to do so
     """
-    # NOTE: The structure of our DATA payload looks like this (for now):
+    # Allocate the slots in the STREAM structure based on the information contained in
+    # the TRANSFER_INFO message
     #
-    # ┌────────────────────┬───────────────┬────────────────────┬────────────────────┬─────┬────────────────┬─────────────────────┬─────────────────────┐
-    # │ MessageID + InfoID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │
-    # └────────────────────┴───────────────┴────────────────────┴────────────────────┴─────┴────────────────┴─────────────────────┴─────────────────────┘
-    #   ↑           ↑        ↑               ↑                    ↑
-    #   │           │        │               │                    1B: The length of the last Chunk of the last Burst: [0 - 255]
-    #   │           │        │               1B: The number of Chunks in the last Burst: [0 - 255]
-    #   │           │        1B: The number of Bursts in the page: [0 - 255]
-    #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for TR_INFO is set to 0000
-    #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
-    MESSAGE           = TR_INFO[1:]
-    number_of_pages   = len(MESSAGE) // 3
-    burst_in_page     = [byte for byte in MESSAGE[0::3]]
-    length_last_burst = [byte for byte in MESSAGE[1::3]]
-    length_last_chunk = [byte for byte in MESSAGE[2::3]]
+    # NOTE: The structure of our TRANSFER_INFO message looks like this:
+    #
+    # ┌───────────────────────┬───────────────┬────────────────────┬────────────────────┬─────┬────────────────┬─────────────────────┬─────────────────────┐
+    # │ MessageID + ControlID │ Page0 N Burst │ Page0 L Last Burst │ Page0 L Last Chunk | ... | Page10 N Burst │ Page10 L Last Burst │ Page10 L Last Chunk │ = 1B + (N Pages * 3B)
+    # └───────────────────────┴───────────────┴────────────────────┴────────────────────┴─────┴────────────────┴─────────────────────┴─────────────────────┘
+    #   ↑           ↑           ↑               ↑                    ↑
+    #   │           │           │               │                    1B: The length of the last Chunk of the last Burst: [0 - 255]
+    #   │           │           │               1B: The number of Chunks in the last Burst: [0 - 255]
+    #   │           │           1B: The number of Bursts in the page: [0 - 255]
+    #   │           4b: Identifies the type of CONTROL message that we are sending: "0000" for TRANSFER_INFO
+    #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
+    INFO              = TRANSFER_INFO[1:]
+    number_of_pages   = len(INFO) // 3
+    burst_in_page     = [byte for byte in INFO[0::3]]
+    length_last_burst = [byte for byte in INFO[1::3]]
+    length_last_chunk = [byte for byte in INFO[2::3]]
 
     for PageID in range(number_of_pages):
-        INFO(f"Page {PageID}: {burst_in_page[PageID]} Bursts | {length_last_burst[PageID]} CLB | {length_last_chunk[PageID]} BLC")
+        INFO(f"PAGE {PageID}: {burst_in_page[PageID]} BURSTS | {length_last_burst[PageID]} CLB | {length_last_chunk[PageID]} BLC")
 
         STREAM.append(list())
         for BurstID in range(burst_in_page[PageID]):
@@ -74,69 +77,51 @@ def generate_STREAM_structure_based_on_TR_INFO_message(TR_INFO: bytes, STREAM: l
 def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     """
     This layer is responsible for the following things:
-    - Generating a unified structure containing the data of the transmission orderer
-    by page, burst and chunk
-    - Reading a TX_INFO message and set up the expected number of pages
-    - Reading a PAGE_INFO message
-    - Reading a BURST_INFO message
-    - Receiving each frame
-    - Compute and send the checksum at the end of the burst
+    - Generate the STREAM structure containing all the DATA of the communication
+    ordered by PAGE, BURST and CHUNK
+    - Compute and send the CHECKSUM at the end of each BURST
     """
-    # Generate the unified structure where we are goint to store the bytes categorized
-    # by Page, Burst and Chunk.
+    # Generate the organized structure containing the DATA to be transmitted organized
+    # by PageID, BurstID and ChunkID.
     #
-    # NOTE: The structure of our DATA payload looks like this (for now):
-    #
-    # ┌────────────────────┬─────────┬─────────┬──────┐
-    # │ MessageID + PageID │ BurstID │ ChunkID │ DATA │
-    # └────────────────────┴─────────┴─────────┴──────┘
-    #   ↑           ↑        ↑         ↑         ↑
-    #   │           │        │         │         29B: The data to be sent, either if it is part of a file or data from an info message
-    #   │           │        │         1B: Identifies a chunk inside a burst, starts from 0 at every Burst: [0 - 255]
-    #   │           │        1B: Identifies a Burst inside a Page, starts from 0 at every Page: [0 - 255]
-    #   │           4b: Identifies a Page inside a Transfer: [0 - 15]
-    #   4b: Identifies the kind of message that we are sending, for DATA payload is set to 0000
-    #
-    # NOTE: The unified structure of the Transfer looks like this:
-    # NOTE: N ≤ 255
-    # NOTE: L ≤ 15
+    # NOTE: The STREAM structure looks like this:
     #
     # PAGE 0:
     #     BURST 0:
-    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
-    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
-    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
     #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
     #     BURST 1:
-    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
-    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
-    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
     #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
     #     ...
-    #     BURST N:
-    #         CHUNK 000: bytes[B0, B1, B2, ..., B32]
-    #         CHUNK 001: bytes[B0, B1, B2, ..., B32]
-    #         CHUNK 002: bytes[B0, B1, B2, ..., B32]
+    #     BURST Y:
+    #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
+    #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
+    #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
     #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., B32]
+    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
     # PAGE 1:
     #     BURST 0:
     #         ...
     #     BURST 1:
     #         ...
     #     ...
-    #     BURST N:
+    #     BURST Y:
     #         ...
     # ...
-    # PAGE L:
+    # PAGE Z:
     #     BURST 0:
     #         ...
     #     BURST 1:
     #         ...
     #     ...
-    #     BURST N:
+    #     BURST Y:
     #         ...
     #
     #       PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
@@ -151,9 +136,9 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
     TRANSFER_HAS_ENDED        = False
     STREAM_HAS_BEEN_GENERATED = False
     
-    LAST_PAGEID               = 0
-    LAST_BURSTID              = 0
-    LAST_CHUNKID              = 0
+    LAST_PAGEID  = 0
+    LAST_BURSTID = 0
+    LAST_CHUNKID = 0
 
     THROUGHPUT_TIC = 0
     THROUGHPUT_TAC = 0
@@ -168,16 +153,16 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # Pull the received frame from the FIFO
         frame = prx.get_payload()
 
-        # NOTE: If the first Byte has the format 11110000 then it is a TR_INFO message.
-        # After we have received this type of message we generate the emtpy STREAM
-        # structure with all the allocated slots where we will store each reaceived DATA
-        # message. We only generate the structure once, meaning we discard any other
-        # TR_INFO that we may get by error
+        # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
+        # message. After we have received this type of message we generate the emtpy
+        # STREAM structure with all the allocated slots where we will store each
+        # received DATA message. We only generate the structure once, meaning we discard
+        # any other TRANSFER_INFO that we may get by error
         if frame[0] == 0xF0:
             prx.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
             if STREAM_HAS_BEEN_GENERATED: continue
 
-            generate_STREAM_structure_based_on_TR_INFO_message(frame, STREAM)
+            generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
             STREAM_HAS_BEEN_GENERATED = True
             THROUGHPUT_TIC = time.time()
         
@@ -187,12 +172,20 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # with the last received ones. We do not expect the TRX to send the frames
         # unordered even if there are lost ACKs, because the TRX will send the next frame
         # only if the ACK has been received.
-        # TODO: Add some guard checking in case there are errors in the header uncatched
-        # by the CRC
+        #
+        # NOTE: The structure of our DATA message looks like this:
+                #
+                # ┌────────────────────┬─────────┬─────────┬──────┐
+                # │ MessageID + PageID │ BurstID │ ChunkID │ DATA │
+                # └────────────────────┴─────────┴─────────┴──────┘
+                #   ↑           ↑        ↑         ↑         ↑
+                #   │           │        │         │         29B: The data to be sent
+                #   │           │        │         1B: Identifies a CHUNK inside a BURST, starts from 0 at every BURST: [0 - 255]
+                #   │           │        1B: Identifies a BURST inside a PAGE, starts from 0 at every PAGE: [0 - 255]
+                #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
+                #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
         elif not frame[0] & 0xF0:
             # NOTE: We set the ACK payload to be empty to maximize throughput
-            prx.ack_payload(RF24_RX_ADDR.P1, b"")
-
             PageID  = frame[0]
             BurstID = frame[1]
             ChunkID = frame[2]
@@ -205,6 +198,8 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             ):
                 WARN(f"Invalid header information received: ({PageID}/{BurstID}/{ChunkID})")
                 continue
+
+            prx.ack_payload(RF24_RX_ADDR.P1, bytes(PageID.to_bytes(1) + BurstID.to_bytes(1) + ChunkID.to_bytes(1)))
 
             # If it is a retransmission we ignore the frame
             if (
@@ -252,15 +247,6 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 for burst in page
                 for chunk in burst
             )
-
-            with open("STREAM.txt", "w") as f:
-                for PageID, page in enumerate(STREAM):
-                    f.write(f"PAGE {PageID}:\n")
-                    for BurstID, burst in enumerate(page):
-                        f.write(f"    BURST {BurstID}:\n")
-                        for ChunkID, chunk in enumerate(burst):
-                            f.write(f"        CHUNK {ChunkID:03d}: {chunk.hex()}\n")
-                    f.write("\n")     
 
     INFO(f"Computed throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
     return STREAM
@@ -352,4 +338,6 @@ def FULL_RX_MODE(prx: CustomNRF24) -> None:
     STREAM = RX_LINK_LAYER(prx)
     compressed_pages = RX_TRANSPORT_LAYER(STREAM)
     RX_PRESENTATION_LAYER(compressed_pages)
+
+    return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::

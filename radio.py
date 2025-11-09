@@ -198,21 +198,43 @@ class CustomNRF24(NRF24):
                 status  = "SUCC",
             )
 
-        return        
-
+        return
     
-    # NOTE: I trust that someday my wonderful team will either develop or discard
-    # this function
-    # def send_three_frames_fast(self: "CustomNRF24", frame_1: list[bytes], frame_2: list[bytes] | None, frame_3: list[bytes] | None) -> None:
-    #     """
-    #     Function to send three frames without waiting for an ACK between them
-    #     """
-    # 
-    #     if frame_2 is None:
-    #         self.send(frame_1)
-    # 
-    #     
-    #     return
+    def send_DATA_message(self: "CustomNRF24", DATA_MESSAGE: bytes, PageID: int, BurstID: int, ChunkID: int) -> None:
+        """
+        Continuously send a given data message until we receive the expected ACK
+        """
+        message_has_been_sent = False
+        packets_lost          = 0
+
+        while not message_has_been_sent:
+            status_bar(f"Sending DATA message: {PageID} | {BurstID} | {ChunkID} | {packets_lost}", "INFO")
+            self.reset_packages_lost()
+            self.send(DATA_MESSAGE)
+            
+            try:
+                self.wait_until_sent()
+            
+            except TimeoutError:
+                WARN(f"Time-out while sending DATA message Page {PageID} Burst {BurstID} Chunk {ChunkID}, retrying")
+                packets_lost += 1
+                continue
+
+
+            if self.get_packages_lost() == 0:
+                expected_ack  = bytes()
+                expected_ack +=  PageID.to_bytes(1)
+                expected_ack += BurstID.to_bytes(1)
+                expected_ack += ChunkID.to_bytes(1)
+                if self.get_payload() == expected_ack:
+                    message_has_been_sent = True
+                else:
+                    packets_lost += 1
+            
+            else:
+                packets_lost += 1
+        
+        return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 radio = CustomNRF24()
 
