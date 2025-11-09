@@ -167,7 +167,7 @@ class CustomNRF24(NRF24):
         message_has_been_sent = False
         
         while not message_has_been_sent:
-            time.sleep(delay)
+            
 
             if progress:
                 if t % 10 == 0:
@@ -195,6 +195,8 @@ class CustomNRF24(NRF24):
 
             if self.get_packages_lost() == 0:
                 message_has_been_sent = True
+
+            time.sleep(delay)
 
         if progress:
             status_bar(
