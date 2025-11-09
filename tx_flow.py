@@ -352,7 +352,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
                 EMPTY  = bytes()
                 EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
-                ptx.send_INFO_message(EMPTY, "EMPTY")
+                ptx.send_INFO_message(EMPTY, "EMPTY", progress = False)
                 ACK = ptx.get_payload()
                 
                 if len(ACK) < 32:
@@ -389,7 +389,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     #   4b: Identifies the kind of message that we are sending, for INFO payload is set to 1111
     TR_FINISH  = bytes()
     TR_FINISH += 0xFA.to_bytes(1) # NOTE: Translates to 11111010
-    ptx.send_INFO_message(TR_FINISH, "TR_FINISH", progress = False)
+    ptx.send_INFO_message(TR_FINISH, "TR_FINISH")
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
