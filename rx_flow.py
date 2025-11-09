@@ -256,10 +256,10 @@ def RX_TRANSPORT_LAYER(STREAM: list[list[list[bytes]]]) -> list[bytes]:
 
     compressed_pages = []
     for PageID in range(len(STREAM)):
-        compressed_page = []
+        compressed_page = bytes()
         for BurstID in range(len(STREAM[PageID])):
             for ChunkID in range(len(STREAM[PageID][BurstID])):
-                compressed_page.extend(STREAM[PageID][BurstID][ChunkID][2:]) # NOTE: We ignore the first 3 Bytes as they are the headers
+                compressed_page += STREAM[PageID][BurstID][ChunkID][2:] # NOTE: We ignore the first 3 Bytes as they are the headers
         compressed_pages.append(compressed_page)
     
     return compressed_pages
