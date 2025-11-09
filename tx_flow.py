@@ -100,7 +100,7 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
 
 
 
-def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[list[list[bytes]]], list[list[str]]]:
+def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[list[list[bytes]]], list[list[bytes]]]:
     """
     This layer is responsible for the following things:
     - Splitting the compressed pages into bursts of 7936 Bytes. This is done so that
@@ -198,7 +198,7 @@ def TX_TRANSPORT_LAYER(pages: list[bytes]) -> tuple[list[list[list[bytes]]], lis
     # NOTE: As of now, the checksum is computed INCLUDING all the headers
     #          PageID    BurstID    CHECKSUM
     #          ↓         ↓          ↓
-    CHECKSUMS: list[     list[      str]] = list()
+    CHECKSUMS: list[     list[      bytes]] = list()
 
     # Split each compressed Page into Bursts of 7424B
     # NOTE: The width of 7424B allows to split the Burst into 256 Chunks of 29
@@ -294,11 +294,13 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     INFO(f"Generated TR_INFO message of {len(TR_INFO)} B: {TR_INFO}")
     ptx.send_INFO_message(TR_INFO, "TR_INFO")
 
-    PageID       = 0
-    BurstID      = 0
-    ChunkID      = 0
+    PageID  = 0
+    BurstID = 0
+    ChunkID = 0
     while PageID < len(STREAM):
+        BurstID = 0
         while BurstID < len(STREAM[PageID]):
+            ChunkID = 0
             while ChunkID < len(STREAM[PageID][BurstID]):
                 packets_lost = 0
 
@@ -323,14 +325,14 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                         packets_lost += 1
                         status_bar(
                             message = f"Lost {packets_lost} packets for frame ({PageID}/{BurstID}/{ChunkID})",
-                            status  = "WARN",
+                            status  = "ERROR",
                         )
 
             # NOTE: After we have completed sending a Burst, we send empty frames until we
             # receive a checksum in the auto-ACK of the PRX
             while True:
                 status_bar(
-                    message = f"Waiting for checksum of Burst {BurstID}",
+                    message = f"Waiting for checksum of Burst {BurstID}, expecting {CHECKSUMS[PageID][BurstID].hex()}",
                     status  = "INFO",
                 )
 
@@ -357,19 +359,22 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                     continue
                 else:
                     if ACK == CHECKSUMS[PageID][BurstID]:
-                        SUCC(f"Received valid checksum for Burst {BurstID}: {ACK.hex()}")
-                        BurstID += 1
                         status_bar(
-                            message = f"Checksum validated, sending next Burst",
+                            message = f"Received   VALID checksum for {BurstID}: {ACK.hex()}",
                             status  = "SUCC",
                         )
+
+                        BurstID += 1
+
                     else:
                         status_bar(
-                            message = f"Invalid checksum received for Burst {BurstID}, resending Burst",
+                            message = f"Received INVALID checksum for {BurstID}: {ACK.hex()}",
                             status  = "ERROR",
                         )
-                    ChunkID = 0
+
                     break
+        
+        PageID += 1
                     
 
 
