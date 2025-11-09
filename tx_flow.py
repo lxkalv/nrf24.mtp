@@ -406,7 +406,7 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
 def FULL_TX_MODE(ptx: CustomNRF24) -> None:
     compressed_pages  = TX_PRESENTATION_LAYER()
     STREAM, CHECKSUMS = TX_TRANSPORT_LAYER(compressed_pages)
-    # TX_LINK_LAYER(ptx, STREAM, CHECKSUMS)
+    TX_LINK_LAYER(ptx, STREAM, CHECKSUMS)
 
     for page in range(len(STREAM)):
         for burst in range(len(STREAM[page])):
