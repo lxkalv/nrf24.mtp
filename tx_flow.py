@@ -321,21 +321,6 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             while True:
                 status_bar(f"Waiting for checksum of Burst {BurstID}, expecting {CHECKSUMS[PageID][BurstID].hex()}", "INFO")
 
-                # Generate a LOAD_CHECKSUM message to signal the PRX to load the checksum into
-                # the auto-ACK payload
-                #
-                # NOTE: The structure of our LOAD_CHECKSUM payload looks like this:
-                # ┌────────────────────┬────┬────┬─────┬────┐
-                # │ MessageID + InfoID │ F2 │ F2 │ ... │ F2 │ = 1B + 31B = 32B
-                # └────────────────────┴────┴────┴─────┴────┘
-                #   ↑           ↑
-                #   │           4b: Identifies the type of INFO message that we are sending: [0 - 15], for LOAD_CHECKSUM it is set to 0010
-                #   4b: Identifies the kind of message that we are sending, for CONTROL payload it is set to 1111
-                LOAD_CHECKSUM  = bytes()
-                for _ in range(32):
-                    LOAD_CHECKSUM += 0xF2.to_bytes(1) # NOTE: Translates to 11110010
-                ptx.send_CONTROL_message(LOAD_CHECKSUM, "LOAD_CHECKSUM", progress = False)
-
                 # Generate and send an EMPTY_FRAME message to trigger the auto-ACK with the
                 # checksum
                 #
@@ -346,8 +331,6 @@ def TX_LINK_LAYER(ptx: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   ↑           ↑
                 #   │           4b: Identifies the type of CONTROL message that we are sending: [0 - 15], for EMPTY it is set to 0011
                 #   4b: Identifies the kind of message that we are sending, for CONTROL payload is set to 1111
-                time.sleep(0.5)
-
                 EMPTY  = bytes()
                 for _ in range(32):
                     EMPTY += 0xF3.to_bytes(1) # NOTE: Translates to 11110011
