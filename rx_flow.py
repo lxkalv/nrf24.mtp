@@ -179,7 +179,7 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
                 STREAM_HAS_BEEN_GENERATED = True
             
             elif frame[0] == 0xF3:
-                # checksum = burst_hasher.digest()
+                CHECKSUM = burst_hasher.digest()
                 status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
                 # prx.ack_payload(RF24_RX_ADDR.P1, checksum)
             
@@ -217,7 +217,6 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
             LAST_PAGEID  = PageID
             LAST_BURSTID = BurstID
             LAST_CHUNKID = ChunkID
-            CHECKSUM     = burst_hasher.digest()
 
     return
 
