@@ -228,13 +228,9 @@ def RX_LINK_LAYER(prx: CustomNRF24) -> None:
         # This message is used to notify the PRX that the current Burst has finished and
         # to set the ACK payload to be the checksum of the Burst. The TRX will decide
         # which Burst to send after receiving the checksum
-        elif frame == b"\xF2" * 32:
+        elif frame == b"\xF2" * 32 or frame == b"\xF3" * 32:
             CHECKSUM = BURST_HASHER.digest()
             prx.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
-
-        elif frame == b"\xF3" * 32:
-            # CHECKSUM = BURST_HASHER.digest()
-            # prx.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
         
         # NOTE: If the first Byte has the format 11111010 then it is a TR_FINISH message.
