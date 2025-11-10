@@ -168,6 +168,8 @@ class CustomNRF24(NRF24):
 
                 t += 1
 
+            self.flush_rx()
+            self.flush_tx()
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
             
