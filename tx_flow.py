@@ -293,7 +293,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             INFO(f"Sending BURST {BurstID} expected CHECKSUM: {CHECKSUMS[PageID][BurstID].hex()}")
             while ChunkID < len(STREAM[PageID][BurstID]):
                 PTX.send_DATA_message(STREAM[PageID][BurstID][ChunkID], PageID, BurstID, ChunkID)
-                time.sleep(250e-6 * PTX.get_retransmission()[0])
+                time.sleep(250e-6 * PTX.RETRANSMISSION_DELAY)
                 ChunkID += 1
 
             # NOTE: After we have completed sending a BURST, we send empty frames until we
@@ -316,6 +316,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
                 EMPTY = 0xF3.to_bytes(1)
                 PTX.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
+                time.sleep(250e-6 * PTX.RETRANSMISSION_DELAY)
                 
                 ACK = PTX.get_payload()
                 

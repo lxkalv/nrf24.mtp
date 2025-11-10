@@ -82,9 +82,19 @@ class CustomNRF24(NRF24):
         self.role = Role.UNSET
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-        # :::: CONFIGURE RADIO DEVICE :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-        
+        # :::: PARAMETERS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+        self.CE_PIN               = CE_PIN
+        self.CHANNEL              = CHANNEL
+        self.DATA_RATE            = DATA_RATE
+        self.PA_LEVEL             = PA_LEVEL
+        self.CRC_BYTES            = CRC_BYTES
+        self.PAYLOAD_SIZE         = PAYLOAD_SIZE
+        self.RETRANSMISSION_TRIES = RETRANSMISSION_TRIES
+        self.RETRANSMISSION_DELAY = RETRANSMISSION_DELAY
+        self.ADDRESS_BYTE_LENGTH  = ADDRESS_BYTE_LENGTH
+        # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+        # :::: CONFIGURE RADIO DEVICE :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
         self.set_channel(CHANNEL)
         self.set_data_rate(DATA_RATE)
         self.set_pa_level(PA_LEVEL)
@@ -192,7 +202,7 @@ class CustomNRF24(NRF24):
                 else:
                     message_has_been_sent = True
 
-            time.sleep(delay)
+            time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
 
         if progress:
             status_bar(
@@ -215,7 +225,6 @@ class CustomNRF24(NRF24):
             self.flush_rx()
             self.flush_tx()
             self.send(DATA_MESSAGE)
-            print(self.get_retransmission()[0])
             
             try:
                 self.wait_until_sent()
@@ -229,7 +238,7 @@ class CustomNRF24(NRF24):
                 message_has_been_sent = True
             
             else:
-                time.sleep(250e-6 * self.get_retransmission()[0])
+                time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
                 packets_lost += 1
         
         return
