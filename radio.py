@@ -210,6 +210,8 @@ class CustomNRF24(NRF24):
         while not message_has_been_sent:
             status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
             self.reset_packages_lost()
+            self.flush_rx()
+            self.flush_tx()
             self.send(DATA_MESSAGE)
             
             try:
