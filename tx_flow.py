@@ -311,7 +311,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   ↑           ↑
                 #   │           4b: Identifies the type of CONTROL message that we are sending: "0011" for EMPTY
                 #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
-                EMPTY = b"\xF3" * 32
+                EMPTY = 0xF3.to_bytes(1)
                 PTX.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
                 
                 ACK = PTX.get_payload()
@@ -343,7 +343,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     #   ↑           ↑
     #   │           4b: Identifies the type of CONTROL message that we are sending: "1010" for TRANSFER_FINISH
     #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
-    TRANSFER_FINISH = b"\xFA" * 32
+    TRANSFER_FINISH = 0xFA.to_bytes(1)
     PTX.send_CONTROL_message(TRANSFER_FINISH, "TRANSFER_FINISH")
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
