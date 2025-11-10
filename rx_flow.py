@@ -340,9 +340,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> list[list[list[bytes]]]:
                 WARN(f"Invalid header information received: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}")
                 return
 
-            # ACK with the header (your design)
-            PRX.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
-
             # Drop duplicates
             if (PageID == LAST_PAGEID and BurstID == LAST_BURSTID and ChunkID == LAST_CHUNKID):
                 return
