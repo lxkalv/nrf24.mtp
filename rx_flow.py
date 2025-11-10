@@ -210,6 +210,17 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             LAST_PAGEID  = PageID
             LAST_BURSTID = BurstID
             LAST_CHUNKID = ChunkID
+
+            if ChunkID == len(STREAM[PageID][BurstID]) - 1:
+                status_bar(f"Completed BURST: {PageID:02d}|{BurstID:03d}", "SUCC")
+                BURST_HASHER = hashlib.sha256()
+                for ChunkID, chunk in enumerate(STREAM[PageID][BurstID]):
+                    if not chunk:
+                        WARN(f"Missing {ChunkID:03d} in BURST")
+                    BURST_HASHER.update(chunk)
+                CHECKSUM = BURST_HASHER.digest()
+                PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
+                
         
 
         # NOTE: If the first Byte has the format 11110011 then it is an EMPTY message.
@@ -217,13 +228,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # to set the ACK payload to be the checksum of the Burst. The TRX will decide
         # which Burst to send after receiving the checksum
         elif frame[0] == 0xF3:
-            BURST_HASHER = hashlib.sha256()
-            for ChunkID, frame in enumerate(STREAM[LAST_PAGEID][LAST_BURSTID]):
-                if not frame:
-                    WARN(f"Missing {ChunkID:03d} in BURST")
-                BURST_HASHER.update(frame)
-            CHECKSUM = BURST_HASHER.digest()
-            PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
         
         # NOTE: If the first Byte has the format 11111010 then it is a TR_FINISH message.
