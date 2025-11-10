@@ -184,8 +184,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
                 #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
         elif (frame[0] & 0xF0) == 0x00:
-            PRX.flush_rx()
-            PRX.flush_tx()
             PRX.ack_payload(RF24_RX_ADDR.P1, b"")
 
             # NOTE: We set the ACK payload to be empty to maximize throughput
