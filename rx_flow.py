@@ -22,7 +22,62 @@ from nrf24 import (
 )
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
+# :::: TESTING ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+# rx_flow.py — robust RX loop for DPL payloads
 
+def _rx_drain_once(radio):
+    """
+    Try to fetch one payload safely.
+    Returns (pipe_num, payload_bytes) or (None, None) if nothing valid.
+    """
+    pipe = [0]  # bjarne-hansen API returns the pipe via a 1-elem list
+    if not radio.available(pipe):
+        return None, None
+
+    # 1) read payload width
+    try:
+        plen = radio.getDynamicPayloadSize()  # sends R_RX_PL_WID
+    except Exception:
+        # defensive: if wrapper raises, bail & flush
+        radio.flush_rx()
+        return None, None
+
+    # 2) reject illegal widths (datasheet: if 0 or >32, you *must* FLUSH_RX)
+    if plen == 0 or plen > 32:
+        radio.flush_rx()  # clears all 3 levels of the RX FIFO
+        # 3) clear RX_DR after dealing with it
+        radio.write_register(radio.STATUS, 1 << radio.RX_DR)  # some wrappers expose constants
+        return None, None
+
+    # 4) read exactly plen bytes
+    buf = []
+    radio.read(buf, plen)  # IMPORTANT: read only plen bytes
+    payload = bytes(buf)
+
+    # 5) clear RX_DR (datasheet step 2 in the IRQ service sequence)
+    radio.write_register(radio.STATUS, 1 << radio.RX_DR)
+
+    return pipe[0], payload
+
+
+def rx_loop(radio, handle_payload):
+    """
+    Drain all queued payloads and pass each to your handler.
+    `handle_payload(pipe, payload_bytes)` is your existing frame assembler.
+    """
+    while True:
+        pipe, payload = _rx_drain_once(radio)
+        if pipe is None:
+            break
+        try:
+            handle_payload(pipe, payload)
+        except Exception as e:
+            # If your upper layer explodes, don't let the FIFO back up forever
+            # Keep draining so the radio can keep receiving.
+            # Optional: log the bad payload and continue
+            WARN(f"Dropping payload from pipe {pipe}: {e!r}")
+            continue
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
 
@@ -73,183 +128,289 @@ def generate_STREAM_based_on_TRANSFER_INFO(TRANSFER_INFO: bytes, STREAM: list[li
     
     return
 
-def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
-    """
-    This layer is responsible for the following things:
-    - Generate the STREAM structure containing all the DATA of the communication
-    ordered by PAGE, BURST and CHUNK
-    - Compute and send the CHECKSUM at the end of each BURST
-    """
-    # Generate the organized structure containing the DATA to be transmitted organized
-    # by PageID, BurstID and ChunkID.
-    #
-    # NOTE: The STREAM structure looks like this:
-    #
-    # PAGE 0:
-    #     BURST 0:
-    #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
-    #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
-    #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
-    #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
-    #     BURST 1:
-    #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
-    #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
-    #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
-    #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
-    #     ...
-    #     BURST Y:
-    #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
-    #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
-    #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
-    #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
-    # PAGE 1:
-    #     BURST 0:
-    #         ...
-    #     BURST 1:
-    #         ...
-    #     ...
-    #     BURST Y:
-    #         ...
-    # ...
-    # PAGE Z:
-    #     BURST 0:
-    #         ...
-    #     BURST 1:
-    #         ...
-    #     ...
-    #     BURST Y:
-    #         ...
-    #
-    #       PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
-    #       ↓         ↓         ↓          ↓
-    STREAM: list[     list[     list[      bytes]]] = list()
+# def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
+#     """
+#     This layer is responsible for the following things:
+#     - Generate the STREAM structure containing all the DATA of the communication
+#     ordered by PAGE, BURST and CHUNK
+#     - Compute and send the CHECKSUM at the end of each BURST
+#     """
+#     # Generate the organized structure containing the DATA to be transmitted organized
+#     # by PageID, BurstID and ChunkID.
+#     #
+#     # NOTE: The STREAM structure looks like this:
+#     #
+#     # PAGE 0:
+#     #     BURST 0:
+#     #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
+#     #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
+#     #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
+#     #         ...
+#     #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
+#     #     BURST 1:
+#     #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
+#     #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
+#     #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
+#     #         ...
+#     #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
+#     #     ...
+#     #     BURST Y:
+#     #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
+#     #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
+#     #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
+#     #         ...
+#     #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
+#     # PAGE 1:
+#     #     BURST 0:
+#     #         ...
+#     #     BURST 1:
+#     #         ...
+#     #     ...
+#     #     BURST Y:
+#     #         ...
+#     # ...
+#     # PAGE Z:
+#     #     BURST 0:
+#     #         ...
+#     #     BURST 1:
+#     #         ...
+#     #     ...
+#     #     BURST Y:
+#     #         ...
+#     #
+#     #       PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
+#     #       ↓         ↓         ↓          ↓
+#     STREAM: list[     list[     list[      bytes]]] = list()
+# 
+#     # NOTE: The flow of the PRX is as follows, we keep receiving frames until the
+#     # transmission has finished. We do not care about the order of the frames as we
+#     # assume that the PTX will take care of that. We treat each frame differently
+#     # depending on the information inside the frame itself. After each received frame,
+#     # we evaluate if the transmission has ended or not
+#     TRANSFER_HAS_ENDED        = False
+#     STREAM_HAS_BEEN_GENERATED = False
+#     
+#     LAST_PAGEID  = None
+#     LAST_BURSTID = None
+#     LAST_CHUNKID = None
+# 
+#     THROUGHPUT_TIC = 0
+#     THROUGHPUT_TAC = 0
+# 
+#     BURST_HASHER = hashlib.sha256()
+#     while not TRANSFER_HAS_ENDED:
+#         # If we have not received anything we do nothing
+#         time.sleep(0.01)
+#         while not PRX.data_ready(): continue
+# 
+#         # Pull the received frame from the FIFO
+#         frame = PRX.get_payload()
+#         INFO(f"Received frame: {frame.hex()}")
+# 
+#         # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
+#         # message. After we have received this type of message we generate the emtpy
+#         # STREAM structure with all the allocated slots where we will store each
+#         # received DATA message. We only generate the structure once, meaning we discard
+#         # any other TRANSFER_INFO that we may get by error
+#         if frame[0] == 0xF0:
+#             PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
+#             if STREAM_HAS_BEEN_GENERATED: continue
+# 
+#             generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
+#             STREAM_HAS_BEEN_GENERATED = True
+#             THROUGHPUT_TIC = time.time()
+#         
+# 
+#         # NOTE: If the first Byte has the format 0000XXXX then it is a DATA message. We
+#         # check if it was a retransmision by comparing the PageID, BurstID and ChunkID
+#         # with the last received ones. We do not expect the TRX to send the frames
+#         # unordered even if there are lost ACKs, because the TRX will send the next frame
+#         # only if the ACK has been received.
+#         #
+#         # NOTE: The structure of our DATA message looks like this:
+#                 #
+#                 # ┌────────────────────┬─────────┬─────────┬──────┐
+#                 # │ MessageID + PageID │ BurstID │ ChunkID │ DATA │
+#                 # └────────────────────┴─────────┴─────────┴──────┘
+#                 #   ↑           ↑        ↑         ↑         ↑
+#                 #   │           │        │         │         29B: The data to be sent
+#                 #   │           │        │         1B: Identifies a CHUNK inside a BURST, starts from 0 at every BURST: [0 - 255]
+#                 #   │           │        1B: Identifies a BURST inside a PAGE, starts from 0 at every PAGE: [0 - 255]
+#                 #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
+#                 #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
+#         elif (frame[0] & 0xF0) == 0x00:
+#             # NOTE: We set the ACK payload to be empty to maximize throughput
+#             PageID  = frame[0]
+#             BurstID = frame[1]
+#             ChunkID = frame[2]
+# 
+#             # If the header information is invalid we discard the frame
+#             if (
+#                 PageID  >= len(STREAM)
+#             or  BurstID >= len(STREAM[PageID])
+#             or  ChunkID >= len(STREAM[PageID][BurstID])
+#             ):
+#                 WARN(f"Invalid header information received: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}")
+#                 continue
+#             
+#             PRX.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
+# 
+#             # If it is a retransmission we ignore the frame
+#             if (
+#                 PageID  == LAST_PAGEID
+#             and BurstID == LAST_BURSTID
+#             and ChunkID == LAST_CHUNKID    
+#             ): continue
+#             
+#             # If this is the start of a new Burst, we reset the hasher
+#             if ChunkID == 0:
+#                 BURST_HASHER = hashlib.sha256()
+#                 INFO(f"Resetting BURST_HASHER for new BURST")
+# 
+#             status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
+#             STREAM[PageID][BurstID][ChunkID] = frame
+# 
+#             BURST_HASHER.update(frame)
+# 
+#             LAST_PAGEID  = PageID
+#             LAST_BURSTID = BurstID
+#             LAST_CHUNKID = ChunkID
+#         
+# 
+#         # NOTE: If the first Byte has the format 11110011 then it is an EMPTY message.
+#         # This message is used to notify the PRX that the current Burst has finished and
+#         # to set the ACK payload to be the checksum of the Burst. The TRX will decide
+#         # which Burst to send after receiving the checksum
+#         elif frame[0] == 0xF3:
+#             CHECKSUM = BURST_HASHER.digest()
+#             PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
+#             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
+#         
+#         # NOTE: If the first Byte has the format 11111010 then it is a TR_FINISH message.
+#         # This message notifies the PRX that the transmission has ended and no more data
+#         # will be sent.
+#         elif frame[0] == 0xFA:
+#             TRANSFER_HAS_ENDED = True
+#             SUCC(f"Transfer has finished successfully")
+#             THROUGHPUT_TAC = time.time()
+# 
+#             tx_time = THROUGHPUT_TAC - THROUGHPUT_TIC
+#             tx_data = sum(
+#                 len(chunk)
+#                 for page in STREAM
+#                 for burst in page
+#                 for chunk in burst
+#             )
+# 
+#     INFO(f"Computed throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
+#     return STREAM
 
-    # NOTE: The flow of the PRX is as follows, we keep receiving frames until the
-    # transmission has finished. We do not care about the order of the frames as we
-    # assume that the PTX will take care of that. We treat each frame differently
-    # depending on the information inside the frame itself. After each received frame,
-    # we evaluate if the transmission has ended or not
+def RX_LINK_LAYER(PRX: CustomNRF24) -> list[list[list[bytes]]]:
+    """
+    Receive frames and build STREAM[PageID][BurstID][ChunkID] with the raw frames.
+    Uses rx_loop(...) to safely drain the RX FIFO with DPL.
+    """
+    STREAM: list[list[list[bytes]]] = []
+
     TRANSFER_HAS_ENDED        = False
     STREAM_HAS_BEEN_GENERATED = False
-    
+
     LAST_PAGEID  = None
     LAST_BURSTID = None
     LAST_CHUNKID = None
 
-    THROUGHPUT_TIC = 0
-    THROUGHPUT_TAC = 0
+    THROUGHPUT_TIC = 0.0
+    THROUGHPUT_TAC = 0.0
 
     BURST_HASHER = hashlib.sha256()
-    while not TRANSFER_HAS_ENDED:
-        # If we have not received anything we do nothing
-        time.sleep(0.01)
-        while not PRX.data_ready(): continue
 
-        # Pull the received frame from the FIFO
-        frame = PRX.get_payload()
+    def handle_payload(pipe: int, frame: bytes) -> None:
+        nonlocal STREAM_HAS_BEEN_GENERATED, TRANSFER_HAS_ENDED
+        nonlocal LAST_PAGEID, LAST_BURSTID, LAST_CHUNKID
+        nonlocal BURST_HASHER, THROUGHPUT_TIC, THROUGHPUT_TAC
+
+        if not frame:
+            return
+
         INFO(f"Received frame: {frame.hex()}")
+        b0 = frame[0]
 
-        # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
-        # message. After we have received this type of message we generate the emtpy
-        # STREAM structure with all the allocated slots where we will store each
-        # received DATA message. We only generate the structure once, meaning we discard
-        # any other TRANSFER_INFO that we may get by error
-        if frame[0] == 0xF0:
+        # CONTROL: TRANSFER_INFO (0xF0 = 11110000)
+        if b0 == 0xF0:
+            # Optional: ACK-payload to signal we got it
             PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
-            if STREAM_HAS_BEEN_GENERATED: continue
-
+            if STREAM_HAS_BEEN_GENERATED:
+                return
             generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
             STREAM_HAS_BEEN_GENERATED = True
             THROUGHPUT_TIC = time.time()
-        
+            return
 
-        # NOTE: If the first Byte has the format 0000XXXX then it is a DATA message. We
-        # check if it was a retransmision by comparing the PageID, BurstID and ChunkID
-        # with the last received ones. We do not expect the TRX to send the frames
-        # unordered even if there are lost ACKs, because the TRX will send the next frame
-        # only if the ACK has been received.
-        #
-        # NOTE: The structure of our DATA message looks like this:
-                #
-                # ┌────────────────────┬─────────┬─────────┬──────┐
-                # │ MessageID + PageID │ BurstID │ ChunkID │ DATA │
-                # └────────────────────┴─────────┴─────────┴──────┘
-                #   ↑           ↑        ↑         ↑         ↑
-                #   │           │        │         │         29B: The data to be sent
-                #   │           │        │         1B: Identifies a CHUNK inside a BURST, starts from 0 at every BURST: [0 - 255]
-                #   │           │        1B: Identifies a BURST inside a PAGE, starts from 0 at every PAGE: [0 - 255]
-                #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
-                #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
-        elif (frame[0] & 0xF0) == 0x00:
-            # NOTE: We set the ACK payload to be empty to maximize throughput
-            PageID  = frame[0]
+        # DATA: 0000PPPP | BurstID | ChunkID | DATA...
+        if (b0 & 0xF0) == 0x00:
+            PageID  = b0 & 0x0F          # <<<<<<<<<<  FIXED
             BurstID = frame[1]
             ChunkID = frame[2]
 
-            # If the header information is invalid we discard the frame
+            # Header sanity
             if (
                 PageID  >= len(STREAM)
-            or  BurstID >= len(STREAM[PageID])
-            or  ChunkID >= len(STREAM[PageID][BurstID])
+                or BurstID >= len(STREAM[PageID])
+                or ChunkID >= len(STREAM[PageID][BurstID])
             ):
                 WARN(f"Invalid header information received: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}")
-                continue
-            
+                return
+
+            # ACK with the header (your design)
             PRX.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
 
-            # If it is a retransmission we ignore the frame
-            if (
-                PageID  == LAST_PAGEID
-            and BurstID == LAST_BURSTID
-            and ChunkID == LAST_CHUNKID    
-            ): continue
-            
-            # If this is the start of a new Burst, we reset the hasher
+            # Drop duplicates
+            if (PageID == LAST_PAGEID and BurstID == LAST_BURSTID and ChunkID == LAST_CHUNKID):
+                return
+
             if ChunkID == 0:
                 BURST_HASHER = hashlib.sha256()
-                INFO(f"Resetting BURST_HASHER for new BURST")
+                INFO("Resetting BURST_HASHER for new BURST")
 
             status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
+
+            # Store raw frame (your transport layer strips headers)
             STREAM[PageID][BurstID][ChunkID] = frame
 
             BURST_HASHER.update(frame)
 
-            LAST_PAGEID  = PageID
-            LAST_BURSTID = BurstID
-            LAST_CHUNKID = ChunkID
-        
+            LAST_PAGEID, LAST_BURSTID, LAST_CHUNKID = PageID, BurstID, ChunkID
+            return
 
-        # NOTE: If the first Byte has the format 11110011 then it is an EMPTY message.
-        # This message is used to notify the PRX that the current Burst has finished and
-        # to set the ACK payload to be the checksum of the Burst. The TRX will decide
-        # which Burst to send after receiving the checksum
-        elif frame[0] == 0xF3:
+        # CONTROL: EMPTY (end of burst) → send hash as ACK payload
+        if b0 == 0xF3:
             CHECKSUM = BURST_HASHER.digest()
             PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
-        
-        # NOTE: If the first Byte has the format 11111010 then it is a TR_FINISH message.
-        # This message notifies the PRX that the transmission has ended and no more data
-        # will be sent.
-        elif frame[0] == 0xFA:
+            return
+
+        # CONTROL: TR_FINISH (0xFA)
+        if b0 == 0xFA:
             TRANSFER_HAS_ENDED = True
-            SUCC(f"Transfer has finished successfully")
+            SUCC("Transfer has finished successfully")
             THROUGHPUT_TAC = time.time()
+            return
 
-            tx_time = THROUGHPUT_TAC - THROUGHPUT_TIC
-            tx_data = sum(
-                len(chunk)
-                for page in STREAM
-                for burst in page
-                for chunk in burst
-            )
+        # Unknown control code — ignore
+        WARN(f"Unknown message type: 0x{b0:02X}")
+        return
 
+    # Main receive loop: drain all queued payloads each tick until the TR_FINISH arrives
+    while not TRANSFER_HAS_ENDED:
+        rx_loop(PRX, handle_payload)   # <<<<<<<<<<<<< USES the safe DPL draining
+        time.sleep(0.001)              # tiny pause to avoid busy-spin
+
+    # Throughput calc
+    tx_time = max(THROUGHPUT_TAC - THROUGHPUT_TIC, 1e-9)
+    tx_data = sum(len(chunk) for page in STREAM for burst in page for chunk in burst)
     INFO(f"Computed throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
-    return STREAM
 
+    return STREAM
 
 
 
@@ -267,7 +428,7 @@ def RX_TRANSPORT_LAYER(STREAM: list[list[list[bytes]]]) -> list[bytes]:
         compressed_page = bytes()
         for BurstID in range(len(STREAM[PageID])):
             for ChunkID in range(len(STREAM[PageID][BurstID])):
-                compressed_page += STREAM[PageID][BurstID][ChunkID][2:] # NOTE: We ignore the first 3 Bytes as they are the headers
+                compressed_page += STREAM[PageID][BurstID][ChunkID][3:] # NOTE: We ignore the first 3 Bytes as they are the headers
         compressed_pages.append(compressed_page)
     
     return compressed_pages
