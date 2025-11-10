@@ -184,7 +184,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Pull the received frame from the FIFO
         frame = PRX.get_payload()
-        INFO(f"Received frame: {frame.hex()}")
 
         # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
         # message. After we have received this type of message we generate the emtpy
@@ -232,8 +231,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 WARN(f"Invalid header information received: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}")
                 continue
             
-            PRX.ack_payload(RF24_RX_ADDR.P1, bytes([PageID, BurstID, ChunkID]))
-
             # If it is a retransmission we ignore the frame
             if (
                 PageID  == LAST_PAGEID
