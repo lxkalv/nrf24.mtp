@@ -145,6 +145,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     BURST_HASHER = hashlib.sha256()
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
+        time.sleep(0.01)
         while not PRX.data_ready(): continue
 
         # Pull the received frame from the FIFO
