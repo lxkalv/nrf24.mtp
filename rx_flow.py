@@ -143,7 +143,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     THROUGHPUT_TAC = 0
 
     BURST_HASHER = hashlib.sha256()
-    PRX.ack_payload(RF24_RX_ADDR.P1, b"\xFF" * 32)
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
         while not PRX.data_ready(): continue
@@ -158,7 +157,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # received DATA message. We only generate the structure once, meaning we discard
         # any other TRANSFER_INFO that we may get by error
         if frame[0] == 0xF0:
-            PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
+            # PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
             if STREAM_HAS_BEEN_GENERATED: continue
 
             generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
