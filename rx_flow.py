@@ -203,16 +203,9 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             and BurstID == LAST_BURSTID
             and ChunkID == LAST_CHUNKID    
             ): continue
-            
-            # If this is the start of a new Burst, we reset the hasher
-            if ChunkID == 0:
-                BURST_HASHER = hashlib.sha256()
-                INFO(f"Resetting BURST_HASHER for new BURST")
 
             status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
             STREAM[PageID][BurstID][ChunkID] = frame
-
-            BURST_HASHER.update(frame)
 
             LAST_PAGEID  = PageID
             LAST_BURSTID = BurstID
@@ -224,6 +217,9 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # to set the ACK payload to be the checksum of the Burst. The TRX will decide
         # which Burst to send after receiving the checksum
         elif frame[0] == 0xF3:
+            BURST_HASHER = hashlib.sha256()
+            for frame in STREAM[LAST_PAGEID][LAST_BURSTID]:
+                BURST_HASHER.update(frame)
             CHECKSUM = BURST_HASHER.digest()
             PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
