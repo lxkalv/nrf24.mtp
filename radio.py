@@ -215,6 +215,7 @@ class CustomNRF24(NRF24):
             self.flush_rx()
             self.flush_tx()
             self.send(DATA_MESSAGE)
+            print(self.get_retransmission()[0])
             
             try:
                 self.wait_until_sent()
