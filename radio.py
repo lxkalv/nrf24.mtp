@@ -228,6 +228,7 @@ class CustomNRF24(NRF24):
                 message_has_been_sent = True
             
             else:
+                time.sleep(250e-6 * self.get_retransmission()[0])
                 packets_lost += 1
         
         return
