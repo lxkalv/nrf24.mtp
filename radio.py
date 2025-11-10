@@ -55,7 +55,7 @@ PA_LEVEL             = RF24_PA.MIN                 # NOTE: Select one from {MIN 
 CRC_BYTES            = RF24_CRC.BYTES_2            # NOTE: Select one from {DISABLED, BYTES_1, BYTES_2}
 PAYLOAD_SIZE         = RF24_PAYLOAD.ACK            # NOTE: Select one from {ACK, DYNAMIC, MIN (1), MAX (32), [1..32]}
 RETRANSMISSION_TRIES = 0                           # NOTE: Select one from [1..15]
-RETRANSMISSION_DELAY = 1                           # NOTE: Select one from [1..15], Delay is computed as 250us + (250 * RETRANSMISSION_DELAY)us
+RETRANSMISSION_DELAY = 0                           # NOTE: Select one from [1..15], Delay is computed as 250us + (250 * RETRANSMISSION_DELAY)us
 ADDRESS_BYTE_LENGTH  = 3                           # NOTE: Select one from [3..5]
 
 
