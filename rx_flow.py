@@ -182,7 +182,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 #   │           │        1B: Identifies a BURST inside a PAGE, starts from 0 at every PAGE: [0 - 255]
                 #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
                 #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
-        elif not frame[0] & 0xF0:
+        elif (frame[0] & 0xF0) == 0x00:
             # NOTE: We set the ACK payload to be empty to maximize throughput
             PageID  = frame[0]
             BurstID = frame[1]
