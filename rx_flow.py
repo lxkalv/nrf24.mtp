@@ -25,58 +25,37 @@ from nrf24 import (
 # :::: TESTING ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 # rx_flow.py — robust RX loop for DPL payloads
 
-def _rx_drain_once(radio):
+def _rx_drain_once(PRX):
     """
-    Try to fetch one payload safely.
-    Returns (pipe_num, payload_bytes) or (None, None) if nothing valid.
+    Use the py-nrf24-style API.
+    Returns (None, payload_bytes) or (None, None) if nothing ready.
     """
-    pipe = [0]  # bjarne-hansen API returns the pipe via a 1-elem list
-    if not radio.available(pipe):
+    if not PRX.data_ready():
         return None, None
 
-    # 1) read payload width
-    try:
-        plen = radio.getDynamicPayloadSize()  # sends R_RX_PL_WID
-    except Exception:
-        # defensive: if wrapper raises, bail & flush
-        radio.flush_rx()
+    # get_payload() already reads the current payload length (DPL or fixed)
+    frame = PRX.get_payload()
+    if not frame:
         return None, None
 
-    # 2) reject illegal widths (datasheet: if 0 or >32, you *must* FLUSH_RX)
-    if plen == 0 or plen > 32:
-        radio.flush_rx()  # clears all 3 levels of the RX FIFO
-        # 3) clear RX_DR after dealing with it
-        radio.write_register(radio.STATUS, 1 << radio.RX_DR)  # some wrappers expose constants
-        return None, None
-
-    # 4) read exactly plen bytes
-    buf = []
-    radio.read(buf, plen)  # IMPORTANT: read only plen bytes
-    payload = bytes(buf)
-
-    # 5) clear RX_DR (datasheet step 2 in the IRQ service sequence)
-    radio.write_register(radio.STATUS, 1 << radio.RX_DR)
-
-    return pipe[0], payload
+    return None, bytes(frame)
 
 
-def rx_loop(radio, handle_payload):
+def rx_loop(PRX, handle_payload):
     """
-    Drain all queued payloads and pass each to your handler.
-    `handle_payload(pipe, payload_bytes)` is your existing frame assembler.
+    Drain every payload currently queued in RX FIFO and pass to handler.
+    No register pokes; rely on CustomNRF24 to clear RX_DR internally.
     """
-    while True:
-        pipe, payload = _rx_drain_once(radio)
-        if pipe is None:
+    while PRX.data_ready():
+        _, payload = _rx_drain_once(PRX)
+        if payload is None:
             break
         try:
-            handle_payload(pipe, payload)
+            handle_payload(None, payload)
         except Exception as e:
-            # If your upper layer explodes, don't let the FIFO back up forever
-            # Keep draining so the radio can keep receiving.
-            # Optional: log the bad payload and continue
-            WARN(f"Dropping payload from pipe {pipe}: {e!r}")
+            WARN(f"Dropping payload: {e!r}")
             continue
+
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
