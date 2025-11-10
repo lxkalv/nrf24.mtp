@@ -96,7 +96,7 @@ class CustomNRF24(NRF24):
         self.choose_node_role()
         self.choose_address_based_on_role()
 
-        self.ack_payload(RF24_RX_ADDR.P1, b"")
+        self.ack_payload(RF24_RX_ADDR.P0, b"")
 
         self.show_registers()
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -136,12 +136,12 @@ class CustomNRF24(NRF24):
         
         if self.role is Role.TRANSMITTER:
             self.open_writing_pipe(b"TA1")
-            self.open_reading_pipe(RF24_RX_ADDR.P1, b"TA0")
+            self.open_reading_pipe(RF24_RX_ADDR.P0, b"TA0")
             INFO("Writing @: TA1 | Reading @: TA0")
         
         elif self.role is Role.RECEIVER:
             self.open_writing_pipe(b"TA0")
-            self.open_reading_pipe(RF24_RX_ADDR.P1, b"TA1")
+            self.open_reading_pipe(RF24_RX_ADDR.P0, b"TA1")
             INFO("Writing @: TA0 | Reading @: TA1")
 
         return

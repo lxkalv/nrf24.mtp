@@ -157,7 +157,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # received DATA message. We only generate the structure once, meaning we discard
         # any other TRANSFER_INFO that we may get by error
         if frame[0] == 0xF0:
-            PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
+            PRX.ack_payload(RF24_RX_ADDR.P0, b"TRANSFER_INFO")
             if STREAM_HAS_BEEN_GENERATED: continue
 
             generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
@@ -225,7 +225,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # which Burst to send after receiving the checksum
         elif frame[0] == 0xF3:
             CHECKSUM = BURST_HASHER.digest()
-            PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
+            PRX.ack_payload(RF24_RX_ADDR.P0, CHECKSUM)
             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
         
         # NOTE: If the first Byte has the format 11111010 then it is a TR_FINISH message.
