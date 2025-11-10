@@ -93,10 +93,10 @@ class CustomNRF24(NRF24):
         self.set_retransmission(RETRANSMISSION_DELAY, RETRANSMISSION_TRIES)
         self.set_address_bytes(ADDRESS_BYTE_LENGTH)
 
-        self.ack_payload(RF24_RX_ADDR.P1, b"\xFF" * PAYLOAD_SIZE)
-
         self.choose_node_role()
         self.choose_address_based_on_role()
+
+        self.ack_payload(RF24_RX_ADDR.P1, b"")
 
         self.show_registers()
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
