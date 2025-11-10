@@ -181,7 +181,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
                 #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
         elif (frame[0] & 0xF0) == 0x00:
-            PRX.ack_payload(RF24_RX_ADDR.P1, b"")
+            PRX.ack_payload(RF24_RX_ADDR.P1, b"\x00" * 32)
 
             # NOTE: We set the ACK payload to be empty to maximize throughput
             PageID  = frame[0]
@@ -218,7 +218,9 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # which Burst to send after receiving the checksum
         elif frame[0] == 0xF3:
             BURST_HASHER = hashlib.sha256()
-            for frame in STREAM[LAST_PAGEID][LAST_BURSTID]:
+            for ChunkID, frame in enumerate(STREAM[LAST_PAGEID][LAST_BURSTID]):
+                if not frame:
+                    WARN(f"Missing {ChunkID:03d} in BURST")
                 BURST_HASHER.update(frame)
             CHECKSUM = BURST_HASHER.digest()
             PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
