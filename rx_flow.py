@@ -310,8 +310,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> list[list[list[bytes]]]:
 
         if not frame:
             return
-
-        INFO(f"Received frame: {frame.hex()}")
+        
         b0 = frame[0]
 
         # CONTROL: TRANSFER_INFO (0xF0 = 11110000)
@@ -346,7 +345,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> list[list[list[bytes]]]:
 
             if ChunkID == 0:
                 BURST_HASHER = hashlib.sha256()
-                INFO("Resetting BURST_HASHER for new BURST")
 
             status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
 
