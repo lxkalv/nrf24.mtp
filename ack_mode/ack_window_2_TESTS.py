@@ -115,7 +115,7 @@ def choose_node_role() -> Role:
     """
 
     while True:
-        val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver, [C]arrier, [Q]uit: ")
+        val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver: ")
         
         try:
             val = val.upper()
@@ -129,14 +129,6 @@ def choose_node_role() -> Role:
         elif val == "R":
             INFO(f"Device set to {Role.RECEIVER} role")
             return Role.RECEIVER
-
-        elif val == "C":
-            INFO(f"Device set to {Role.CARRIER} role")
-            return Role.CARRIER
-        
-        elif val == "Q":
-            INFO("Quitting program...")
-            return Role.QUIT
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -150,12 +142,12 @@ def choose_address_based_on_role(role: Role, nrf: NRF24) -> None:
     if role is Role.TRANSMITTER:
         nrf.open_writing_pipe(b"TAN1")
         nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN0")
-        INFO("Writing @: TAN1 | Reading @; TAN0")
+        INFO("Writing @: TAN1 | Reading @: TAN0")
     
     elif role is Role.RECEIVER:
         nrf.open_writing_pipe(b"TAN0")
         nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN1")
-        INFO("Writing @: TAN0 | Reading @; TAN1")
+        INFO("Writing @: TAN0 | Reading @: TAN1")
 
     return
 
@@ -183,7 +175,7 @@ nrf.set_data_rate(RF24_DATA_RATE.RATE_1MBPS)
 
 
 # Tx/Rx power
-nrf.set_pa_level(RF24_PA.HIGH)
+nrf.set_pa_level(RF24_PA.MIN)
 
 
 # CRC
@@ -221,7 +213,6 @@ def _disable_auto_ack(nrf_obj):
 
 
 # status visualization
-INFO(f"Radio details:")
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -403,10 +394,10 @@ def BEGIN_RECEIVER_MODE() -> None:
         timeout = 20
         INFO(f'Timeout set to {timeout} seconds')
 
+        INFO("Waiting for header packet...")
         while (tac - tic) < timeout:
             tac = time.monotonic()
 
-            INFO("Waiting for header packet...")
             if not nrf.data_ready():
                 continue
 
@@ -522,23 +513,6 @@ def BEGIN_RECEIVER_MODE() -> None:
         pi.stop()
 
     return
-
-
-
-
-
-
-
-
-
-
-def BEGIN_CONSTANT_CARRIER_MODE() -> None:
-    """
-    Transmits a constant carrier until the user exits with CTRL+C
-    """
-    
-    ERROR("TODO")
-    return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -562,9 +536,6 @@ def main():
     
     elif role is Role.RECEIVER:
         BEGIN_RECEIVER_MODE()
-        
-    elif role is Role.CARRIER:
-        BEGIN_CONSTANT_CARRIER_MODE()
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
