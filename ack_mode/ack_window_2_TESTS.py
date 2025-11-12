@@ -391,6 +391,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     return
 
 
+
 def BEGIN_RECEIVER_MODE() -> None:
     """
     Receives multiple frames from a transmitter and reassembles the blocks into a
@@ -408,183 +409,127 @@ def BEGIN_RECEIVER_MODE() -> None:
         timeout = 20
         INFO(f'Timeout set to {timeout} seconds')
 
-        total_wind = 0         # <--- CAMBIO (Inicializar)
-        last_window_size = 0   # <--- CAMBIO (Inicializar)
-
         while (tac - tic) < timeout:
             tac = time.monotonic()
 
             INFO("Waiting for header packet...")
             while not nrf.data_ready():
-                # Actualiza 'tac' mientras espera para evitar un timeout falso
-                tac = time.monotonic()
-                if (tac - tic) > timeout:
-                    ERROR("Timeout waiting for header packet.")
-                    raise StopIteration # Sale del bucle principal
                 pass
 
             header_packet = nrf.get_payload()
-            try:
-                raw = header_packet[:ID_WIND_BYTES+1]
-                total_wind_bytes, last_window_size = struct.unpack(f">{ID_WIND_BYTES}sB", raw)
-                total_wind = int.from_bytes(total_wind_bytes, "big")
-                
-                if total_wind == 0:
-                    INFO("Received empty header (total_wind=0), discarding.")
-                    tic = time.monotonic() # Reinicia el timer para esperar un header válido
-                    continue
-
-                print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
-
-                # --- Enviar ACK para el Header ---
-                nrf.power_up_tx()
-                _send_ack_packet(0) # Envía ACK para la ventana 0 (el header)
-                nrf.power_up_rx()
-                # ---------------------------------
-                
-                print(f"ACK sent for header packet")
-                tic = time.monotonic()
-                break # Header recibido y ACK enviado, salir a la recepción de datos
+            raw = header_packet[:ID_WIND_BYTES+1]
+            total_wind, last_window_size = struct.unpack(f">{ID_WIND_BYTES}sB", raw)
+            total_wind = int.from_bytes(total_wind, "big") #Check that we don't need to 0 for the index of the payload
             
-            except Exception as e:
-                ERROR(f"Header packet corrupt or invalid: {e}. Discarding.")
-                tic = time.monotonic() # Reinicia timer
-        
-        else:
-            # Este 'else' se ejecuta si el 'while' termina por timeout
-            ERROR("Timeout waiting for header packet. No data received.")
-            return
+            print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
 
+            _send_ack_packet(0)
+
+            print(f"ACK sent for header packet")
+            tic = time.monotonic()
+            break
+        
         current_window = 0
+        extracted_window= 0
+        current_chunk_in_window=0
         chunks = []
-        window_chunks = {} # <--- CAMBIO (Ahora es un diccionario)
+        window_chunks=[]
         timer_has_started = False
-        throughput_tic = time.monotonic() # <--- CAMBIO (Iniciar temporizador aquí)
 
         # check if there are frames
         while ((tac - tic) < timeout) and (current_window < total_wind):
             
             tac = time.monotonic()
             while nrf.data_ready():
-                if not timer_has_started: # <--- CAMBIO (Lógica movida)
-                    #throughput_tic = time.monotonic() # <-- Movido arriba
+                if not timer_has_started:
+                    throughput_tic = time.monotonic()
                     timer_has_started = True
-                
                 payload_pipe = nrf.data_pipe()
+
                 packet = nrf.get_payload()
 
-                try: # <--- CAMBIO (Añadido try-except para _decode_packet)
-                    # NOTA: _decode_packet necesita el 'extracted_window' actual
-                    # Si el chunk 0 no ha llegado, usa el 'current_window' como referencia
-                    # Esto asume que _decode_packet puede manejarlo
-                    temp_window_ref = window_chunks.get(0, {}).get('window', current_window) # <--- Lógica temporal, ajustar _decode_packet
+                extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
+                print(f"Extracted window:{extracted_window} Extracted cunck: {extracted_chunk}")
+                if current_chunk_in_window == extracted_chunk:
+                    window_chunks.append(chunk)
+                    current_chunk_in_window +=1
+                    SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {current_window}")
                     
-                    # --- NUEVA LÓGICA DE RECEPCIÓN ---
-                    # Asumimos que _decode_packet ahora funciona bien y no necesita 'extracted_window' como arg
-                    # O que lo actualizas para que lo devuelva él mismo si es el chunk 0
-                    
-                    # --- SIMPLIFICACIÓN ---
-                    # Tu _decode_packet parece un poco complejo. Vamos a simplificar.
-                    # Asumimos que _decode_packet devuelve (window, chunk_id, data)
-                    
-                    # --- REEMPLAZO DE _decode_packet ---
-                    # Esta lógica es más segura que la función _decode_packet
-                    extracted_chunk_id = int.from_bytes(packet[0:ID_CHUNK_BYTES], "big")
-                    
-                    if extracted_chunk_id == 0:
-                        # Es el chunk 0, contiene el ID de la ventana
-                        extracted_window_id = int.from_bytes(packet[ID_CHUNK_BYTES:ID_CHUNK_BYTES+ID_WIND_BYTES], "big")
-                        chunk_data = packet[ID_CHUNK_BYTES+ID_WIND_BYTES:]
-                    else:
-                        # Es un chunk normal, no tiene ID de ventana.
-                        # Asumimos que pertenece a la *última* ventana de la que oímos.
-                        # Esta es una debilidad del protocolo, pero la arreglamos con 'current_window'
-                        extracted_window_id = current_window # Asumir ventana actual
-                        chunk_data = packet[ID_CHUNK_BYTES:]
-                    # --- FIN REEMPLAZO ---
-                    
-                    # print(f"Extracted window:{extracted_window_id} Extracted chunk: {extracted_chunk_id}") # Debug
+                    if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
+                        # --- SEND ACK --------------------------------
+                        nrf.power_up_tx()                   
+                        _send_ack_packet(extracted_window)                  
+                        nrf.power_up_rx()                 
+                        # ---------------------------------------------
+                        window_chunks.clear()
+                        SUCC(f"ACK send for window {extracted_window} / {total_wind} we wait for window {current_window}")
+                        current_chunk_in_window = 0
+                    # if window completed
+                    elif (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
+                        # --- SEND ACK --------------------------------
+                        nrf.power_up_tx()                   
+                        _send_ack_packet(extracted_window)                  
+                        nrf.power_up_rx()                 
+                        # ---------------------------------------------
+                        SUCC(f"ACK send for window {current_window} / {total_wind}")
 
-                    if extracted_window_id == current_window:
-                        # Es la ventana que esperamos
-                        if extracted_chunk_id not in window_chunks:
-                            window_chunks[extracted_chunk_id] = chunk_data
-                            SUCC(f"Received chunk {extracted_chunk_id} for window {current_window}")
-                        else:
-                            INFO(f"Received duplicate chunk {extracted_chunk_id} (window {current_window}), discarding")
+                        current_window +=1
+                        chunks.extend(window_chunks)
+                        window_chunks.clear()
 
-                        # Comprobar si la ventana está completa
-                        is_last_window = (current_window == total_wind - 1)
-                        expected_size = last_window_size if is_last_window else WINDOW_SIZE
+                        
+                        current_chunk_in_window = 0
+                    # last window completed
+                    elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
+                        # --- SEND ACK --------------------------------
+                        nrf.power_up_tx()                   
+                        _send_ack_packet(extracted_window)                  
+                        nrf.power_up_rx()                 
+                        # ---------------------------------------------
+                        current_window +=1
+                        chunks.extend(window_chunks)
+                        SUCC(f"ACK send for last window ({current_window} / {total_wind})")
+                        break
+                    tic = time.monotonic()
+                else:
+                    ERROR(f"Received out-of-order chunk (expected {current_chunk_in_window}, got {extracted_chunk}), discarding")
+                    # Optional: could implement NACK or request retransmission here
+                    tic = time.monotonic()
 
-                        if len(window_chunks) == expected_size:
-                            # ¡Ventana completa!
-                            nrf.power_up_tx() 
-                            _send_ack_packet(current_window) 
-                            nrf.power_up_rx() 
-                            SUCC(f"ACK sent for window {current_window} / {total_wind}")
-
-                            # Ensamblar en orden
-                            for i in range(expected_size):
-                                chunks.append(window_chunks[i])
-
-                            current_window += 1
-                            window_chunks.clear()
-
-                    elif extracted_window_id < current_window:
-                        # Es una ventana vieja, el TX no recibió nuestro ACK.
-                        # Enviar el ACK de nuevo.
-                        nrf.power_up_tx() 
-                        _send_ack_packet(extracted_window_id) 
-                        nrf.power_up_rx()
-                        INFO(f"Received old window {extracted_window_id}, resending ACK")
-
-                    else:
-                        # Ventana futura, descartar
-                        ERROR(f"Received future window {extracted_window_id} (expected {current_window}), discarding")
-                    
-                    tic = time.monotonic() # Reinicia el timeout cada vez que recibimos un paquete
-                
-                except Exception as e:
-                    ERROR(f"Packet corrupt or decode error: {e}. Discarding.")
-                    tic = time.monotonic() # Reinicia el timeout
-
-
-        if current_window < total_wind:
-            ERROR(f'Connection timed-out. Only {current_window}/{total_wind} windows received.')
-        else:
-            SUCC('All windows received successfully.')
-
+            
+        INFO('Connection timed-out or all chunks recieved')
         throughput_tac = time.monotonic()
-        total_time = throughput_tac - throughput_tic
+        total_time     = throughput_tac - throughput_tic
         
         INFO('Collected:')
-        #for chunk in chunks:
-        #    print(f"    {chunk}") # Esto puede ser mucho texto
+        for chunk in chunks:
+            print(f"    {chunk}")
         
+
         content = bytes()
         for chunk in chunks:
             content += chunk
-        INFO(f'Merged data: {content[:100]}...') # Mostrar solo los primeros 100 bytes
+        INFO(f'Merged data: {content}')
     
+
         if len(content) == 0:
             ERROR('Did not receive anything')
             return
-            
-            
+        
+        
         with open("file_received.txt", "wb") as f:
             f.write(content)
         content_len = len(content)
         SUCC(f'Saved {content_len} bytes to: file_received.txt')
-        
-        if total_time > 0:
-            INFO(f"Computed throughput: {((content_len / 1024)*8 / total_time):.2f} Kbps") # <--- Corregido a Kbps
+        INFO(f"Computed throughput: {((content_len / 1024)*8 / total_time):.2f} KBps")
 
     finally:
         nrf.power_down()
         pi.stop()
 
     return
+
+
 
 
 
