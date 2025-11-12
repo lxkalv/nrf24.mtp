@@ -230,14 +230,9 @@ INFO(f"Radio details:")
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def _send_ack_packet(extracted_window: int) -> None:
-    ack = (extracted_window).to_bytes(ID_WIND_BYTES, "big")                                    # build 32B: "ACK" 
-    #nrf.unset_ce()                                  # disable CE during config
-    nrf.send(struct.pack(f"<{len(ack)}s", ack))
+    ack = extracted_window.to_bytes(ID_WIND_BYTES, "big")                                    # build 32B: "ACK" 
+    nrf.send(ack)
     print(f"Sent ACK for window {extracted_window}")
-    #try:
-    #   nrf.wait_until_sent()
-    #except TimeoutError:
-        #        ERROR(f"Timeout while transmitting ID header packet")                          # block until TX done (radio goes back to RX)
 
 
 def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
@@ -245,7 +240,7 @@ def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
     while (time.monotonic() - t0) < timeout_s: 
         print("1")
         if nrf.data_ready():
-            print("2")
+            SUCC("2")
             pkt = nrf.get_payload()
 
             try:
@@ -264,7 +259,7 @@ def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
             else: 
                 print(f'Expected ACK for {current_window}, got {extracted_window}. Discarding.')
         else:
-            time.sleep(0.0001) 
+            time.sleep(0.0001)
     return False
 
 # --- helpers arriba de BEGIN_RECEIVER_MODE ---
@@ -332,11 +327,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         
         while not got_ack_id:
             nrf.send(struct.pack(f"<{len(header)}s", header))
-            try:
-                nrf.power_up_rx() 
-                got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
-            except TimeoutError:
-                ERROR(f"Timeout while transmitting ID header packet") 
+            nrf.power_up_rx() 
+            got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
+        INFO(f"Received ACK for frame")
+        return
             
         
         
@@ -413,8 +407,8 @@ def BEGIN_RECEIVER_MODE() -> None:
             tac = time.monotonic()
 
             INFO("Waiting for header packet...")
-            while not nrf.data_ready():
-                pass
+            if not nrf.data_ready():
+                continue
 
             header_packet = nrf.get_payload()
             raw = header_packet[:ID_WIND_BYTES+1]
@@ -430,6 +424,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             tic = time.monotonic()
             break
         
+        return
         current_window = 0
         extracted_window= 0
         current_chunk_in_window=0
@@ -451,6 +446,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
                 print(f"Extracted window:{extracted_window} Extracted cunck: {extracted_chunk}")
+                current_chunk_in_window +=1
                 if current_chunk_in_window == extracted_chunk:
                     window_chunks.append(chunk)
                     SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {current_window}")
@@ -488,7 +484,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                         SUCC(f"ACK send for last window ({current_window} / {total_wind})")
                         break
                     tic = time.monotonic()
-                    current_chunk_in_window +=1
+                    
                 else:
                     ERROR(f"Received out-of-order chunk (expected {current_chunk_in_window}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
