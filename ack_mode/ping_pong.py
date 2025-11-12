@@ -201,7 +201,7 @@ def _disable_auto_ack(nrf_obj):
 
 
 
-
+wait = .5
 
 def BEGIN_TRANSMITTER_MODE() -> None:
 
@@ -222,10 +222,13 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
             received = nrf.get_payload()
             SUCC(f"Received: {received}")
+            idx = int.from_bytes(received) + 1
             break
 
         if (tac - tic) >= 3:
             ERROR(f"Timed-out")
+
+        time.sleep(wait)
 
     return
 
