@@ -183,7 +183,7 @@ nrf.set_data_rate(RF24_DATA_RATE.RATE_1MBPS)
 
 
 # Tx/Rx power
-nrf.set_pa_level(RF24_PA.MIN)
+nrf.set_pa_level(RF24_PA.HIGH)
 
 
 # CRC
@@ -329,7 +329,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         
         while not got_ack_id:
             nrf.send(struct.pack(f"<{len(header)}s", header))
-            time.sleep(0.001)
+            nrf.wait_until_sent()
             try:
                 nrf.power_up_rx() 
                 got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
@@ -347,7 +347,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         # Start transmitting                       
         start = time.monotonic()   
         current_window = 0  
-        current_chunk = 0     
+        current_chunk = 0    
         while current_window < total_wind:
             attempt = 1
             sent_ok = False
@@ -356,7 +356,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet): 
                     nrf.send(pkt)
-                    time.sleep(0.001)
+                    time.sleep(0.001)  # Small delay between packets
                 try:
                     nrf.power_up_rx() 
                     got_ack = _wait_for_ack(ACK_TIMEOUT_S, current_window)    # Listen to RX for ACK
