@@ -222,7 +222,7 @@ def _disable_auto_ack(nrf_obj):
 
 # status visualization
 INFO(f"Radio details:")
-nrf.show_registers()
+
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -242,7 +242,9 @@ def _send_ack_packet(extracted_window: int) -> None:
 def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
     t0 = time.monotonic() 
     while (time.monotonic() - t0) < timeout_s: 
+        print("1")
         if nrf.data_ready():
+            print("2")
             pkt = nrf.get_payload()
 
             try:
