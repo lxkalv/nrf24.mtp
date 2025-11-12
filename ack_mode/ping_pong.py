@@ -201,7 +201,7 @@ def _disable_auto_ack(nrf_obj):
 
 
 
-wait   = 500e-6
+wait   = 1000e-6
 length = 9
 
 def BEGIN_TRANSMITTER_MODE() -> None:
