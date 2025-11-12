@@ -201,7 +201,7 @@ def _disable_auto_ack(nrf_obj):
 
 
 
-wait   = .1
+wait   = 500e-6
 length = 9
 
 def BEGIN_TRANSMITTER_MODE() -> None:
@@ -211,7 +211,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         packet = idx.to_bytes(length)
         nrf.send(packet)
         # nrf.wait_until_sent()
-        INFO(f"Sending: {packet} -> {idx}")
+        INFO(f"Sending: {packet.hex()} -> {idx}")
 
         nrf.power_up_rx()
 
