@@ -329,7 +329,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         
         while not got_ack_id:
             nrf.send(struct.pack(f"<{len(header)}s", header))
-            nrf.wait_until_sent()
+            time.sleep(0.001)
             try:
                 nrf.power_up_rx() 
                 got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
