@@ -201,15 +201,16 @@ def _disable_auto_ack(nrf_obj):
 
 
 
-wait = .5
+wait   = .0
+length = 9
 
 def BEGIN_TRANSMITTER_MODE() -> None:
 
     idx = 0
     while True:
-        packet = idx.to_bytes(20)
+        packet = idx.to_bytes(length)
         nrf.send(packet)
-        INFO(f"Sending: {packet}")
+        INFO(f"Sending: {packet} -> {idx}")
 
         nrf.power_up_rx()
 
@@ -221,7 +222,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 pass
 
             received = nrf.get_payload()
-            SUCC(f"Received: {received}")
+            SUCC(f"Received: {received.hex()} -> {int.from_bytes(received)}")
             idx = int.from_bytes(received) + 1
             break
 
@@ -242,13 +243,13 @@ def BEGIN_RECEIVER_MODE() -> None:
             pass
     
         packet = nrf.get_payload()
-        SUCC(f"Received: {packet}")
+        SUCC(f"Received: {packet.hex()} -> {int.from_bytes(packet)}")
 
         byte_to_num = int.from_bytes(packet)
-        next_idx    = (byte_to_num + 1).to_bytes(20)
+        next_idx    = (byte_to_num + 1).to_bytes(length)
 
         nrf.send(next_idx)
-        INFO(f"Sending: {next_idx}")
+        INFO(f"Sending: {next_idx.hex()} -> {byte_to_num + 1}")
 
     return
 
