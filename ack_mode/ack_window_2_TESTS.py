@@ -233,10 +233,11 @@ def _send_ack_packet(extracted_window: int) -> None:
     ack = (extracted_window).to_bytes(ID_WIND_BYTES, "big")                                    # build 32B: "ACK" 
     #nrf.unset_ce()                                  # disable CE during config
     nrf.send(struct.pack(f"<{len(ack)}s", ack))
-    try:
-        nrf.wait_until_sent()
-    except TimeoutError:
-                ERROR(f"Timeout while transmitting ID header packet")                          # block until TX done (radio goes back to RX)
+    print(f"Sent ACK for window {extracted_window}")
+    #try:
+    #   nrf.wait_until_sent()
+    #except TimeoutError:
+        #        ERROR(f"Timeout while transmitting ID header packet")                          # block until TX done (radio goes back to RX)
 
 
 def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
