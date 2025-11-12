@@ -68,7 +68,7 @@ def generate_STREAM_based_on_TRANSFER_INFO(TRANSFER_INFO: bytes, STREAM: list[li
                 chunks_count = 256
 
             for ChunkID in range(chunks_count):
-                STREAM[PageID][BurstID].append(bytes())
+                STREAM[PageID][BurstID].append(bytes(length_last_chunk[PageID]))
     
     return
 
@@ -181,7 +181,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
                 #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
         elif (frame[0] & 0xF0) == 0x00:
-            PRX.ack_payload(RF24_RX_ADDR.P1, b"\x00" * 32)
+            PRX.ack_payload(RF24_RX_ADDR.P1, b"")
 
             # NOTE: We set the ACK payload to be empty to maximize throughput
             PageID  = frame[0]
@@ -219,7 +219,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                         WARN(f"Missing {ChunkID:03d} in BURST")
                     BURST_HASHER.update(chunk)
                 CHECKSUM = BURST_HASHER.digest()
-                PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
+                PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM) # XXX
                 
         
 
@@ -228,6 +228,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # to set the ACK payload to be the checksum of the Burst. The TRX will decide
         # which Burst to send after receiving the checksum
         elif frame[0] == 0xF3:
+            PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
         
         # NOTE: If the first Byte has the format 11111010 then it is a TR_FINISH message.

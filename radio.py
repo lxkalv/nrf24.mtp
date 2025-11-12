@@ -17,7 +17,6 @@ from utils import (
     YELLOW,
 
     ERROR,
-    SUCC,
     WARN,
     INFO,
 
@@ -156,7 +155,7 @@ class CustomNRF24(NRF24):
 
         return
     
-    def send_CONTROL_message(self: "CustomNRF24", CONTROL_MESSAGE: bytes, message_name: str, progress: bool = True, delay: float = 0, expected_ack = b"") -> None:
+    def send_CONTROL_message(self: "CustomNRF24", CONTROL_MESSAGE: bytes, message_name: str, progress: bool = True, expected_ack = b"") -> None:
         """
         Continuously send a given information message until we receive an ACK. The
         progress is shown with a status bar
@@ -167,19 +166,14 @@ class CustomNRF24(NRF24):
         message_has_been_sent = False
         
         while not message_has_been_sent:
-            
-
             if progress:
                 if t % 10 == 0:
-                    status_bar(
-                        message = f"Sending {message_name} message",
-                        status  = "INFO",
-                    )
+                    status_bar(f"Sending {message_name} message", "INFO")
 
                 t += 1
 
-            self.flush_rx()
-            self.flush_tx()
+            self.flush_rx() # XXX
+            self.flush_tx() # XXX
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
             
@@ -221,9 +215,10 @@ class CustomNRF24(NRF24):
 
         while not message_has_been_sent:
             status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
-            self.reset_packages_lost()
+            
             self.flush_rx()
             self.flush_tx()
+            self.reset_packages_lost()
             self.send(DATA_MESSAGE)
             
             try:
@@ -244,5 +239,4 @@ class CustomNRF24(NRF24):
         return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 radio = CustomNRF24()
-
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
