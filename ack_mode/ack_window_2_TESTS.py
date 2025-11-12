@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 1          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 10          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -424,6 +424,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
 
             _send_ack_packet(0)
+            nrf.power_up_rx()
 
             print(f"ACK sent for header packet")
             tic = time.monotonic()
@@ -452,7 +453,6 @@ def BEGIN_RECEIVER_MODE() -> None:
                 print(f"Extracted window:{extracted_window} Extracted cunck: {extracted_chunk}")
                 if current_chunk_in_window == extracted_chunk:
                     window_chunks.append(chunk)
-                    current_chunk_in_window +=1
                     SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {current_window}")
                     
                     if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
@@ -488,6 +488,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                         SUCC(f"ACK send for last window ({current_window} / {total_wind})")
                         break
                     tic = time.monotonic()
+                    current_chunk_in_window +=1
                 else:
                     ERROR(f"Received out-of-order chunk (expected {current_chunk_in_window}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
