@@ -231,7 +231,7 @@ INFO(f"Radio details:")
 
 def _send_ack_packet(extracted_window: int) -> None:
     ack = (extracted_window).to_bytes(ID_WIND_BYTES, "big")                                    # build 32B: "ACK" 
-    nrf.unset_ce()                                  # disable CE during config
+    #nrf.unset_ce()                                  # disable CE during config
     nrf.send(struct.pack(f"<{len(ack)}s", ack))
     try:
         nrf.wait_until_sent()
