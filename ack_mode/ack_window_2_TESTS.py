@@ -333,7 +333,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             try:
                 nrf.power_up_rx() 
                 got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
-                nrf.power_up_tx() 
             except TimeoutError:
                 ERROR(f"Timeout while transmitting ID header packet") 
             
@@ -360,7 +359,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 try:
                     nrf.power_up_rx() 
                     got_ack = _wait_for_ack(ACK_TIMEOUT_S, current_window)    # Listen to RX for ACK
-                    nrf.power_up_tx() 
                 except TimeoutError:
                     ERROR(f"Timeout while transmitting packet in window at local index {current_chunk+p_idx}")
                 # Wait for the reception of the ACK. Cumulative ACK of the last seq_id
@@ -456,8 +454,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {current_window}")
                     
                     if (extracted_window!=current_window) and ((current_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (current_chunk_in_window == last_window_size))):
-                        # --- SEND ACK --------------------------------
-                        nrf.power_up_tx()                   
+                        # --- SEND ACK --------------------------------           
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -466,8 +463,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                         current_chunk_in_window = 0
                     # if window completed
                     elif (current_window != total_wind-1) and (current_chunk_in_window == WINDOW_SIZE):
-                        # --- SEND ACK --------------------------------
-                        nrf.power_up_tx()                   
+                        # --- SEND ACK --------------------------------                  
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -481,8 +477,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                         current_chunk_in_window = 0
                     # last window completed
                     elif (current_window == total_wind-1) and (current_chunk_in_window == last_window_size) :
-                        # --- SEND ACK --------------------------------
-                        nrf.power_up_tx()                   
+                        # --- SEND ACK --------------------------------                 
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
