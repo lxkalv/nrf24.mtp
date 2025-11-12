@@ -321,7 +321,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             nrf.power_up_rx() 
             got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
         INFO(f"Received ACK for frame")
-        return
+        
             
         
         
@@ -415,7 +415,6 @@ def BEGIN_RECEIVER_MODE() -> None:
             tic = time.monotonic()
             break
         
-        return
         current_window = 0
         extracted_window= 0
         current_chunk_in_window=0
