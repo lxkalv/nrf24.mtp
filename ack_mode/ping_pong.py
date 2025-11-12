@@ -222,6 +222,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
             received = nrf.get_payload()
             SUCC(f"Received: {received}")
+            break
 
         if (tac - tic) >= 3:
             ERROR(f"Timed-out")
