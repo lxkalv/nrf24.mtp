@@ -201,8 +201,9 @@ def _disable_auto_ack(nrf_obj):
 
 
 
-wait   = 1000e-6
-length = 9
+wait    = 1000e-6
+length  = 9
+timeout = 10e-3
 
 def BEGIN_TRANSMITTER_MODE() -> None:
 
@@ -217,7 +218,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         tic = time.time()
         tac = time.time()
-        while (tac - tic) < 3:
+        while (tac - tic) < timeout:
             tac = time.time()
 
             if not nrf.data_ready():
