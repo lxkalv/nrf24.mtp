@@ -209,7 +209,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     while True:
         packet = idx.to_bytes(20)
         nrf.send(packet)
-        INFO(f"Sending: {packet:x}")
+        INFO(f"Sending: {packet}")
 
         nrf.power_up_rx()
 
@@ -221,7 +221,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 pass
 
             received = nrf.get_payload()
-            SUCC(f"Received: {received:x}")
+            SUCC(f"Received: {received}")
 
         if (tac - tic) >= 3:
             ERROR(f"Timed-out")
@@ -238,7 +238,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             pass
     
         packet = nrf.get_payload()
-        SUCC(f"Received: {packet:x}")
+        SUCC(f"Received: {packet}")
 
         byte_to_num = int.from_bytes(packet)
         next_idx    = (byte_to_num + 1).to_bytes(20)
