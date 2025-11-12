@@ -210,7 +210,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     while True:
         packet = idx.to_bytes(length)
         nrf.send(packet)
-        nrf.wait_until_sent()
+        # nrf.wait_until_sent()
         INFO(f"Sending: {packet} -> {idx}")
 
         nrf.power_up_rx()
@@ -250,7 +250,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         next_idx    = (byte_to_num + 1).to_bytes(length)
 
         nrf.send(next_idx)
-        nrf.wait_until_sent()
+        # nrf.wait_until_sent()
         INFO(f"Sending: {next_idx.hex()} -> {byte_to_num + 1}")
 
     return
