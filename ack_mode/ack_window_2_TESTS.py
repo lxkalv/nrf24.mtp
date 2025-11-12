@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.09          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 1          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -332,7 +332,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         
         while not got_ack_id:
             nrf.send(struct.pack(f"<{len(header)}s", header))
-            time.sleep(0.001)
             try:
                 nrf.power_up_rx() 
                 got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
