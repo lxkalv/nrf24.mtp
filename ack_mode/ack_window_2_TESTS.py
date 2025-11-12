@@ -295,7 +295,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 size = PAYLOAD_SIZE - ID_CHUNK_BYTES - ID_WIND_BYTES
                 end_val = min(start_val + size, content_len)
                 ident_wind = (chunk_id // WINDOW_SIZE).to_bytes(ID_WIND_BYTES, "big")  # exactly DATA_BYTES
-                print(f"Window ID bytes: {ident_wind} for window {(chunk_id // WINDOW_SIZE)}")
+                # print(f"Window ID bytes: {ident_wind} for window {(chunk_id // WINDOW_SIZE)}")
                 ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")  # exactly DATA_BYTES
                 final_content = ident_chunk + ident_wind + content[start_val:end_val]
             else:
@@ -430,14 +430,14 @@ def BEGIN_RECEIVER_MODE() -> None:
                 if not timer_has_started:
                     throughput_tic = time.monotonic()
                     timer_has_started = True
-                payload_pipe = nrf.data_pipe()
 
                 packet = nrf.get_payload()
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
                 print(f"Extracted window:{extracted_window} Extracted cunck: {extracted_chunk}")
-                current_chunk_in_window +=1
+                
                 if current_chunk_in_window == extracted_chunk:
+                    current_chunk_in_window += 1
                     window_chunks.append(chunk)
                     SUCC(f"Received chunk {current_chunk_in_window}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {current_window}")
                     
