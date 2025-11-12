@@ -219,8 +219,9 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         tac = time.time()
         while (tac - tic) < 3:
             tac = time.time()
-            while not nrf.data_ready():
-                pass
+
+            if not nrf.data_ready():
+                continue
 
             received = nrf.get_payload()
             SUCC(f"Received: {received.hex()} -> {int.from_bytes(received)}")
