@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 10          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 1          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -248,7 +248,7 @@ def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
             else: 
                 print(f'Expected ACK for {current_window}, got {extracted_window}. Discarding.')
         else:
-            time.sleep(0.0001)
+            time.sleep(0.001)
     return False
 
 # --- helpers arriba de BEGIN_RECEIVER_MODE ---
