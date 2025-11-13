@@ -330,10 +330,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             packets.append(struct.pack(f"<{len(chunk)}s", chunk))
 
         # Start transmitting                       
-        start = time.monotonic()   
         current_window = 0  
         current_chunk = 0    
         while current_window < total_wind:
+            start = time.monotonic()
             attempt = 1
             sent_ok = False
             window_packet = packets[current_chunk:current_chunk+WINDOW_SIZE]
@@ -341,7 +341,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet): 
                     nrf.send(pkt)
-                    time.sleep(0.001)  # Small delay between packets
+                    time.sleep(0)  # Small delay between packets
                 try:
                     nrf.power_up_rx() 
                     got_ack = _wait_for_ack(ACK_TIMEOUT_S, current_window)    # Listen to RX for ACK
