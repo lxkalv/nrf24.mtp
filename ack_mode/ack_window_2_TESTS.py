@@ -341,7 +341,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet): 
                     nrf.send(pkt)
-                    time.sleep(0)  # Small delay between packets
+                    time.sleep(0.01)  # Small delay between packets
                 try:
                     nrf.power_up_rx() 
                     got_ack = _wait_for_ack(ACK_TIMEOUT_S, current_window)    # Listen to RX for ACK
