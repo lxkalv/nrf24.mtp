@@ -341,6 +341,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet): 
                     nrf.send(pkt)
+                    time.sleep(0.01)  # Small delay between packets
                     time.sleep(0.001)  # Small delay between packets
                 try:
                     nrf.power_up_rx() 
@@ -549,3 +550,4 @@ def main():
 
 
 if __name__ == "__main__":
+    main()
