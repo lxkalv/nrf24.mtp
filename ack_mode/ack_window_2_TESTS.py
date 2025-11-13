@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.01          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 0.0001          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -507,7 +507,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             f.write(content)
         content_len = len(content)
         SUCC(f'Saved {content_len} bytes to: file_received.txt')
-        INFO(f"Computed throughput: {((content_len / 1024)*8 / total_time):.2f} KBps")
+        INFO(f"Computed throughput: {((content_len / 1024)*8 / total_time):.2f} Kbps")
 
     finally:
         nrf.power_down()
