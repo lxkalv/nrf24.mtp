@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.01          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 0.1          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -38,6 +38,7 @@ ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
 WINDOW_SIZE = 3
 SEQ_START   = 1        # first packet ID
+GUARD_TIME_S = 0.001
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def RED(message: str) -> str:
@@ -340,7 +341,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet): 
                     nrf.send(pkt)
-                    time.sleep(0.001)  # Small delay between packets
+                    time.sleep(0.0001)  # Small delay between packets
                 try:
                     nrf.power_up_rx() 
                     got_ack = _wait_for_ack(ACK_TIMEOUT_S, current_window)    # Listen to RX for ACK
@@ -406,7 +407,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             
             print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
 
-            time.sleep(0.005)
+            time.sleep(GUARD_TIME_S)
             _send_ack_packet(0)
             nrf.power_up_rx()
 
@@ -442,7 +443,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     
                     if (extracted_window!=expected_window) and ((expected_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (expected_chunk_in_window == last_window_size))):
                         # --- SEND ACK --------------------------------  
-                        time.sleep(0.005)         
+                        time.sleep(GUARD_TIME_S)         
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -452,7 +453,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     # if window completed
                     elif (expected_window != total_wind-1) and (expected_chunk_in_window == WINDOW_SIZE):
                         # --- SEND ACK --------------------------------  
-                        time.sleep(0.005)                
+                        time.sleep(GUARD_TIME_S)                
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -467,7 +468,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     # last window completed
                     elif (expected_window == total_wind-1) and (expected_chunk_in_window == last_window_size) :
                         # --- SEND ACK --------------------------------     
-                        time.sleep(0.005)            
+                        time.sleep(GUARD_TIME_S)            
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
