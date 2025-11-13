@@ -38,6 +38,7 @@ ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
 WINDOW_SIZE = 3
 SEQ_START   = 1        # first packet ID
+ACK_WAIT   = 0.005      # time to wait for an ACK (s)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def RED(message: str) -> str:
@@ -406,7 +407,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
             print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
 
-            time.sleep(0.005)
+            time.sleep(ACK_WAIT )
             _send_ack_packet(0)
             nrf.power_up_rx()
 
@@ -443,7 +444,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     if (extracted_window!=expected_window) and ((expected_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (expected_chunk_in_window == last_window_size))):
                         # --- SEND ACK --------------------------------           
                         # --- SEND ACK --------------------------------  
-                        time.sleep(0.005)         
+                        time.sleep(ACK_WAIT )         
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -454,7 +455,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     elif (expected_window != total_wind-1) and (expected_chunk_in_window == WINDOW_SIZE):
                         # --- SEND ACK --------------------------------                  
                         # --- SEND ACK --------------------------------  
-                        time.sleep(0.005)                
+                        time.sleep(ACK_WAIT )                
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -470,7 +471,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     elif (expected_window == total_wind-1) and (expected_chunk_in_window == last_window_size) :
                         # --- SEND ACK --------------------------------                 
                         # --- SEND ACK --------------------------------     
-                        time.sleep(0.005)            
+                        time.sleep(ACK_WAIT)            
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
