@@ -10,16 +10,11 @@ from nrf24 import (
 )
 
 from enum import Enum
-from typing import Any
-from pathlib import Path
 
-import math
+
 import pigpio
-import struct
-import shutil
 import time
 import sys
-import os
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -117,7 +112,7 @@ nrf.set_data_rate(RF24_DATA_RATE.RATE_1MBPS)
 
 
 # Tx/Rx power
-nrf.set_pa_level(RF24_PA.HIGH)
+nrf.set_pa_level(RF24_PA.MIN)
 
 
 # CRC
@@ -211,7 +206,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     while True:
         packet = idx.to_bytes(length)
         nrf.send(packet)
-        # nrf.wait_until_sent()
         INFO(f"Sending: {packet.hex()} -> {idx}")
 
         nrf.power_up_rx()
