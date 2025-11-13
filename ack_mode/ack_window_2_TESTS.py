@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.1          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 0.01          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -38,7 +38,7 @@ ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
 WINDOW_SIZE = 3
 SEQ_START   = 1        # first packet ID
-GUARD_TIME_S = 0.1
+GUARD_TIME_S = 0.005
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def RED(message: str) -> str:
