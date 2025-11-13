@@ -33,7 +33,7 @@ CE_PIN  = 22
 ACK_TIMEOUT_S = 0.01          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
-ID_WIND_BYTES=10
+ID_WIND_BYTES=100
 ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
 WINDOW_SIZE = 3
