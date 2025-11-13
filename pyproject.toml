@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nrf24_mtp"
+version = "0.0.0"
+description = "nrf24.mtp editable development package"
+requires-python = ">=3.8"
+authors = [ { name = "lxkalv" } ]
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["nrf24_mtp", "nrf24_mtp.*"]

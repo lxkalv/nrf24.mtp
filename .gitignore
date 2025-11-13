@@ -2,3 +2,6 @@
 **/examples/**
 test*
 tests*
+*.egg-info/
+*.egg-info
+nrf24_mtp.egg-info/
