@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.01          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 1          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -38,7 +38,6 @@ ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
 WINDOW_SIZE = 3
 SEQ_START   = 1        # first packet ID
-GUARD_TIME_S = 0.005
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def RED(message: str) -> str:
@@ -117,7 +116,7 @@ def choose_node_role() -> Role:
 
     while True:
         val = input(f"{YELLOW('[>>>>]:')} Please choose a role for this device [T]ransmitter, [R]eceiver: ")
-        
+
         try:
             val = val.upper()
         except:
@@ -126,7 +125,7 @@ def choose_node_role() -> Role:
         if val == "T":
             INFO(f"Device set to {Role.TRANSMITTER} role")
             return Role.TRANSMITTER
-            
+
         elif val == "R":
             INFO(f"Device set to {Role.RECEIVER} role")
             return Role.RECEIVER
@@ -139,12 +138,12 @@ def choose_address_based_on_role(role: Role, nrf: NRF24) -> None:
     Choose the address of the current node based on the role that it has been
     assigned
     """
-    
+
     if role is Role.TRANSMITTER:
         nrf.open_writing_pipe(b"TAN1")
         nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN0")
         INFO("Writing @: TAN1 | Reading @: TAN0")
-    
+
     elif role is Role.RECEIVER:
         nrf.open_writing_pipe(b"TAN0")
         nrf.open_reading_pipe(RF24_RX_ADDR.P1, b"TAN1")
@@ -245,7 +244,7 @@ def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
             if extracted_window == current_window:
                 print(f'Recieved the correct ACK') 
                 return True
-            
+
             else: 
                 print(f'Expected ACK for {current_window}, got {extracted_window}. Discarding.')
         else:
@@ -303,27 +302,27 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")  # exactly DATA_BYTES
                 final_content = ident_chunk + content[start_val:end_val]
 
-            
+
             chunks.append(final_content)
             start_val = end_val
             chunk_id += 1
-        
+
         #chunks_len = len(chunks) # Total number of chunks
         total_wind = math.ceil(chunk_id / WINDOW_SIZE)
         last_window_size = chunk_id % WINDOW_SIZE if (chunk_id % WINDOW_SIZE) != 0 else WINDOW_SIZE
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
-        
+
         got_ack_id = False
-        
+
         while not got_ack_id:
             nrf.send(struct.pack(f"<{len(header)}s", header))
             nrf.power_up_rx() 
             got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
         INFO(f"Received ACK for frame")
-        
-            
-        
-        
+
+
+
+
         # store the encoded bytes
         packets = []
         for chunk in chunks:
@@ -341,7 +340,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet): 
                     nrf.send(pkt)
-                    time.sleep(0.0001)  # Small delay between packets
+                    time.sleep(0.001)  # Small delay between packets
                 try:
                     nrf.power_up_rx() 
                     got_ack = _wait_for_ack(ACK_TIMEOUT_S, current_window)    # Listen to RX for ACK
@@ -358,20 +357,20 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 else:
                     ERROR(f"No manual ACK for the window seq={current_window}")
                     attempt += 1
-            
+
 
             if not sent_ok:
                 ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
                 break
-            
+
             current_window += 1
             current_chunk += WINDOW_SIZE
-            
+
 
     finally:
         nrf.power_down()
         pi.stop()
-    
+
     return
 
 
@@ -404,17 +403,17 @@ def BEGIN_RECEIVER_MODE() -> None:
             raw = header_packet[:ID_WIND_BYTES+1]
             total_wind, last_window_size = struct.unpack(f">{ID_WIND_BYTES}sB", raw)
             total_wind = int.from_bytes(total_wind, "big") #Check that we don't need to 0 for the index of the payload
-            
+
             print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
 
-            time.sleep(GUARD_TIME_S)
+            time.sleep(0.005)
             _send_ack_packet(0)
             nrf.power_up_rx()
 
             print(f"ACK sent for header packet")
             tic = time.monotonic()
             break
-        
+
         expected_window = 0
         extracted_window= 0
         expected_chunk_in_window=0
@@ -424,7 +423,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         # check if there are frames
         while ((tac - tic) < timeout) and (expected_window < total_wind):
-            
+
             tac = time.monotonic()
             while nrf.data_ready():
                 if not timer_has_started:
@@ -435,15 +434,16 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
                 print(f"Extracted window:{extracted_window} Extracted cunck: {extracted_chunk}")
-                
+
                 if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)
                     SUCC(f"Received chunk {extracted_chunk + 1}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {expected_window}")
-                    
+
                     if (extracted_window!=expected_window) and ((expected_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (expected_chunk_in_window == last_window_size))):
+                        # --- SEND ACK --------------------------------           
                         # --- SEND ACK --------------------------------  
-                        time.sleep(GUARD_TIME_S)         
+                        time.sleep(0.005)         
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -452,8 +452,9 @@ def BEGIN_RECEIVER_MODE() -> None:
                         expected_chunk_in_window = 0
                     # if window completed
                     elif (expected_window != total_wind-1) and (expected_chunk_in_window == WINDOW_SIZE):
+                        # --- SEND ACK --------------------------------                  
                         # --- SEND ACK --------------------------------  
-                        time.sleep(GUARD_TIME_S)                
+                        time.sleep(0.005)                
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -463,12 +464,13 @@ def BEGIN_RECEIVER_MODE() -> None:
                         chunks.extend(window_chunks)
                         window_chunks.clear()
 
-                        
+
                         expected_chunk_in_window = 0
                     # last window completed
                     elif (expected_window == total_wind-1) and (expected_chunk_in_window == last_window_size) :
+                        # --- SEND ACK --------------------------------                 
                         # --- SEND ACK --------------------------------     
-                        time.sleep(GUARD_TIME_S)            
+                        time.sleep(0.005)            
                         _send_ack_packet(extracted_window)                  
                         nrf.power_up_rx()                 
                         # ---------------------------------------------
@@ -477,38 +479,38 @@ def BEGIN_RECEIVER_MODE() -> None:
                         SUCC(f"ACK send for last window ({expected_window} / {total_wind})")
                         break
                     tic = time.monotonic()
-                    
+
                 else:
                     ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
                     tic = time.monotonic()
 
-            
+
         INFO('Connection timed-out or all chunks recieved')
         throughput_tac = time.monotonic()
         total_time     = throughput_tac - throughput_tic
-        
+
         INFO('Collected:')
         for chunk in chunks:
             print(f"    {chunk}")
-        
+
 
         content = bytes()
         for chunk in chunks:
             content += chunk
         INFO(f'Merged data: {content}')
-    
+
 
         if len(content) == 0:
             ERROR('Did not receive anything')
             return
-        
-        
+
+
         with open("file_received.txt", "wb") as f:
             f.write(content)
         content_len = len(content)
         SUCC(f'Saved {content_len} bytes to: file_received.txt')
-        INFO(f"Computed throughput: {((content_len / 1024)*8 / total_time):.2f} Kbps")
+        INFO(f"Computed throughput: {((content_len / 1024)*8 / total_time):.2f} KBps")
 
     finally:
         nrf.power_down()
@@ -535,7 +537,7 @@ def main():
 
     if role is Role.TRANSMITTER:
         BEGIN_TRANSMITTER_MODE()
-    
+
     elif role is Role.RECEIVER:
         BEGIN_RECEIVER_MODE()
 
