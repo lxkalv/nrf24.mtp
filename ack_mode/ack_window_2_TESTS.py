@@ -38,7 +38,7 @@ ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
 WINDOW_SIZE = 3
 SEQ_START   = 1        # first packet ID
-GUARD_TIME_S = 0.001
+GUARD_TIME_S = 0.1
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 def RED(message: str) -> str:
