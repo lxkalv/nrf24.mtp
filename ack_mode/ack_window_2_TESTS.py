@@ -36,7 +36,7 @@ MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 ID_WIND_BYTES=3
 ID_CHUNK_BYTES=1
 PAYLOAD_SIZE=32
-WINDOW_SIZE = 10
+WINDOW_SIZE = 3
 SEQ_START   = 1        # first packet ID
 ACK_WAIT   = 0.005      # time to wait for an ACK (s)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
