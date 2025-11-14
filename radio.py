@@ -210,7 +210,9 @@ class CustomNRF24(NRF24):
             self.send(DATA_MESSAGE)
             
             try:
+                INFO("Waiting")
                 self.wait_until_sent()
+                INFO("Waited")
             
             except TimeoutError:
                 WARN(f"Time-out while sending DATA message Page {PageID} Burst {BurstID} Chunk {ChunkID}, retrying")
