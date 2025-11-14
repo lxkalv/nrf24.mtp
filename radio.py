@@ -218,7 +218,6 @@ class CustomNRF24(NRF24):
                 continue
 
             if self.get_packages_lost() > 0:
-                time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
                 packets_lost += 1
                 continue
             
@@ -227,6 +226,7 @@ class CustomNRF24(NRF24):
                     pass
 
                 ack = self.get_payload()
+                INFO(f"ACK: {ack} | len {len(ack)}")
 
                 if len(ack) != 1:
                     continue
