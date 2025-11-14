@@ -284,9 +284,6 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
         TRANSFER_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
     PTX.send_CONTROL_message(TRANSFER_INFO, "TRANSFER_INFO")
 
-    with open("tx_stream_debug.txt", "w") as f:
-        for CHUNK in STREAM[0][0]:
-            f.write(CHUNK.hex())
     # Send all the DATA inside the STREAM structure in an ordered manner
     PageID = 0
     while PageID < len(STREAM):
@@ -299,17 +296,12 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 PTX.send_DATA_message(STREAM[PageID][BurstID][ChunkID], PageID, BurstID, ChunkID)
                 INFO(f"Burst sent {STREAM[PageID][BurstID][ChunkID].hex()}")
 
-
-                time.sleep(250e-6 * PTX.RETRANSMISSION_DELAY) # XXX
-                time.sleep(0.1)
                 ChunkID += 1
+
             # NOTE: After we have completed sending a BURST, we send empty frames until we
             # receive a valid CHECKSUM in the auto-ACK of the PRX
             while True:
                 status_bar(f"Waiting for CHECKSUM: {BurstID} | {CHECKSUMS[PageID][BurstID].hex()}", "INFO")
-                PTX.flush_rx()
-                PTX.flush_tx()
-
                 # Generate and send an EMPTY_FRAME message to trigger the auto-ACK with the
                 # checksum
                 #
@@ -323,8 +315,10 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
                 EMPTY = 0xF3.to_bytes(1)
                 PTX.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
-                time.sleep(250e-6 * PTX.RETRANSMISSION_DELAY)
                 
+                while not PTX.data_ready():
+                    pass
+
                 ACK = PTX.get_payload()
                 
                 if len(ACK) < 32: continue

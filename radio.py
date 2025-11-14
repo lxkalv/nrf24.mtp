@@ -105,8 +105,6 @@ class CustomNRF24(NRF24):
         self.choose_node_role()
         self.choose_address_based_on_role()
 
-        self.ack_payload(RF24_RX_ADDR.P1, b"")
-
         self.show_registers()
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -155,25 +153,20 @@ class CustomNRF24(NRF24):
 
         return
     
-    def send_CONTROL_message(self: "CustomNRF24", CONTROL_MESSAGE: bytes, message_name: str, progress: bool = True, expected_ack = b"") -> None:
+    def send_CONTROL_message(self: "CustomNRF24", CONTROL_MESSAGE: bytes, message_name: str, progress: bool = True) -> None:
         """
         Continuously send a given information message until we receive an ACK. The
         progress is shown with a status bar
         """
 
-        if progress:
-            t = 0
+        if progress: t = 0
         message_has_been_sent = False
         
         while not message_has_been_sent:
             if progress:
-                if t % 10 == 0:
-                    status_bar(f"Sending {message_name} message", "INFO")
-
+                if t % 10 == 0: status_bar(f"Sending {message_name} message", "INFO")
                 t += 1
 
-            self.flush_rx() # XXX
-            self.flush_tx() # XXX
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
             
@@ -190,11 +183,7 @@ class CustomNRF24(NRF24):
 
 
             if self.get_packages_lost() == 0:
-                if expected_ack:
-                    if expected_ack == self.get_payload():
-                        message_has_been_sent = True
-                else:
-                    message_has_been_sent = True
+                message_has_been_sent = True
 
             time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
 
@@ -215,9 +204,7 @@ class CustomNRF24(NRF24):
 
         while not message_has_been_sent:
             status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
-            
-            self.flush_rx()
-            self.flush_tx()
+
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
             
@@ -229,12 +216,21 @@ class CustomNRF24(NRF24):
                 packets_lost += 1
                 continue
 
-            if self.get_packages_lost() == 0:
-                message_has_been_sent = True
-            
-            else:
+            if self.get_packages_lost() > 0:
                 time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
                 packets_lost += 1
+                continue
+            
+            else:
+                while not self.data_ready():
+                    pass
+
+                ack = self.get_payload()
+
+                if len(ack) != 1:
+                    continue
+
+                message_has_been_sent = True
         
         return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
