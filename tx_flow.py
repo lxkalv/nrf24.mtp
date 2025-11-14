@@ -294,6 +294,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
 
             while ChunkID < len(STREAM[PageID][BurstID]):
                 PTX.send_DATA_message(STREAM[PageID][BurstID][ChunkID], PageID, BurstID, ChunkID)
+                time.sleep(.1)
                 INFO(f"Burst sent {STREAM[PageID][BurstID][ChunkID].hex()}")
 
                 ChunkID += 1
