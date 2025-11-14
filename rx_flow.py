@@ -221,7 +221,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 CHECKSUM = BURST_HASHER.digest()
                 PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM) # XXX
 
-                with open("rx_stream_debug.txt", "wb") as f:
+                with open("rx_stream_debug.txt", "w") as f:
                     for chunk in STREAM[PageID][BurstID]:
                         f.write(chunk.hex())
                 
