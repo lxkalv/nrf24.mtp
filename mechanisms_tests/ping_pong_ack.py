@@ -228,7 +228,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             INFO(f"BUZZ: {ack.hex()} -> {int.from_bytes(ack)}")
             idx = int.from_bytes(ack) + 1
         elif len(ack) == 1:
-            INFO(f"FIZZBUZZ: : {ack.hex()} -> {int.from_bytes(ack)}")
+            INFO(f"FIZZBUZZ: {ack.hex()} -> {int.from_bytes(ack)}")
+            idx = int.from_bytes(ack) + 1
+        elif len(ack) == 10:
+            INFO(f"ACK: {ack.hex()} -> {int.from_bytes(ack)}")
             idx = int.from_bytes(ack) + 1
         elif len(ack) == 20:
             INFO(f"INITIAL PAYLOAD: {ack.hex()}")
