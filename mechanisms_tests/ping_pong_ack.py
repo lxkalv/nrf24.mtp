@@ -254,14 +254,14 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         byte_to_num = int.from_bytes(packet)
 
-        if byte_to_num % 3 == 0:
-            length = 5
-            next_idx = (byte_to_num + 1).to_bytes(length)
-        if byte_to_num % 5 == 0:
-            length = 32
-            next_idx = (byte_to_num + 1).to_bytes(length)
         if byte_to_num % 15 == 0:
             length = 1
+            next_idx = (byte_to_num + 1).to_bytes(length)
+        elif byte_to_num % 3 == 0:
+            length = 5
+            next_idx = (byte_to_num + 1).to_bytes(length)
+        elif byte_to_num % 5 == 0:
+            length = 32
             next_idx = (byte_to_num + 1).to_bytes(length)
         else:
             length = 10
