@@ -55,7 +55,7 @@ CRC_BYTES            = RF24_CRC.BYTES_2            # NOTE: Select one from {DISA
 PAYLOAD_SIZE         = RF24_PAYLOAD.ACK            # NOTE: Select one from {ACK, DYNAMIC, MIN (1), MAX (32), [1..32]}
 RETRANSMISSION_TRIES = 15                          # NOTE: Select one from [1..15]
 RETRANSMISSION_DELAY = 2                           # NOTE: Select one from [1..15], Delay is computed as 250us + (250 * RETRANSMISSION_DELAY)us
-ADDRESS_BYTE_LENGTH  = 3                           # NOTE: Select one from [3..5]
+ADDRESS_BYTE_LENGTH  = 4                           # NOTE: Select one from [3..5]
 
 
 # TODO: kill pigpiod correctly
@@ -97,8 +97,8 @@ class CustomNRF24(NRF24):
         self.set_channel(CHANNEL)
         self.set_data_rate(DATA_RATE)
         self.set_pa_level(PA_LEVEL)
-        self.set_crc_bytes(CRC_BYTES)
         self.enable_crc()
+        self.set_crc_bytes(CRC_BYTES)
         self.set_payload_size(PAYLOAD_SIZE)
         self.set_retransmission(RETRANSMISSION_DELAY, RETRANSMISSION_TRIES)
         self.set_address_bytes(ADDRESS_BYTE_LENGTH)
@@ -143,14 +143,14 @@ class CustomNRF24(NRF24):
         """
         
         if self.role is Role.TRANSMITTER:
-            self.open_writing_pipe(b"TA1")
+            self.open_writing_pipe(b"TAN1")
             self.open_reading_pipe(RF24_RX_ADDR.P1, b"TA0")
-            INFO("Writing @: TA1 | Reading @: TA0")
+            INFO("Writing @: TAN1 | Reading @: TAN0")
         
         elif self.role is Role.RECEIVER:
-            self.open_writing_pipe(b"TA0")
+            self.open_writing_pipe(b"TAN0")
             self.open_reading_pipe(RF24_RX_ADDR.P1, b"TA1")
-            INFO("Writing @: TA0 | Reading @: TA1")
+            INFO("Writing @: TAN0 | Reading @: TAN1")
 
         return
     
