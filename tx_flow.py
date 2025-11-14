@@ -283,7 +283,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
         TRANSFER_INFO += len(STREAM[PageID][-1]).to_bytes(1)
         TRANSFER_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
     PTX.send_CONTROL_message(TRANSFER_INFO, "TRANSFER_INFO")
-    time.sleep(wait_t)
+    time.sleep(2)
 
     # Send all the DATA inside the STREAM structure in an ordered manner
     PageID = 0
