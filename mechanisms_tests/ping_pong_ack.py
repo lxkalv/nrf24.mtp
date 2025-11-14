@@ -243,7 +243,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
 
 def BEGIN_RECEIVER_MODE() -> None:
-    nrf.ack_payload(RF24_RX_ADDR.P1, 0xFF * 20)
+    nrf.ack_payload(RF24_RX_ADDR.P1, 0xFF.to_bytes(20))
     while True:
         
         while not nrf.data_ready():
