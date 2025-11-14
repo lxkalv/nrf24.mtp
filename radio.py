@@ -182,10 +182,18 @@ class CustomNRF24(NRF24):
                 continue
 
 
-            if self.get_packages_lost() == 0:
-                message_has_been_sent = True
+            if self.get_packages_lost() > 0:
+                time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
+                continue
+            
+            message_has_been_sent = True
 
-            time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
+            while not self.data_ready():
+                pass
+
+            ack = self.get_payload()
+            INFO(f"ACK: {ack} | len {len(ack)}")
+            
 
         if progress:
             status_bar(
