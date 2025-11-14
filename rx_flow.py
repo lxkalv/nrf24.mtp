@@ -160,7 +160,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # Pull the received frame from the FIFO
         frame = PRX.get_payload()
         INFO(f"Burst received {frame.hex()}")
-        # PRX.show_registers()
+        PRX.show_registers()
         # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
         # message. After we have received this type of message we generate the emtpy
         # STREAM structure with all the allocated slots where we will store each

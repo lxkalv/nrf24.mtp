@@ -215,7 +215,7 @@ class CustomNRF24(NRF24):
 
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
-            self.show_registers()
+            # self.show_registers()
             
             try:
                 self.wait_until_sent()
