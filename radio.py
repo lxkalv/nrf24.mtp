@@ -223,6 +223,7 @@ class CustomNRF24(NRF24):
             
             else:
                 tic = time.time()
+                tac = time.time()
                 while not self.data_ready() or (tac - tic) < 3:
                     tac = time.time()
                     pass
