@@ -142,6 +142,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     THROUGHPUT_TAC = 0
 
     BURST_HASHER = hashlib.sha256()
+    num_chunks =0
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
         while not PRX.data_ready(): continue
@@ -214,12 +215,16 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             if ChunkID == len(STREAM[PageID][BurstID]) - 1:
                 status_bar(f"Completed BURST: {PageID:02d}|{BurstID:03d}", "SUCC")
                 BURST_HASHER = hashlib.sha256()
+                num_chunks = 0
                 for ChunkID, chunk in enumerate(STREAM[PageID][BurstID]):
+                    num_chunks += num_chunks
                     if not chunk:
                         WARN(f"Missing {ChunkID:03d} in BURST")
                     BURST_HASHER.update(chunk)
                 CHECKSUM = BURST_HASHER.digest()
                 PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM) # XXX
+
+                INFO(f"Total used chunks {num_chunks}")
 
                 with open("rx_stream_debug.txt", "w") as f:
                     for chunk in STREAM[PageID][BurstID]:
