@@ -323,7 +323,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 PTX.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
                 time.sleep(250e-6 * PTX.RETRANSMISSION_DELAY)
                 
-                while not PRX.data_ready(): continue
+                while not PTX.data_ready(): continue
                 ACK = PTX.get_payload()
                 
                 if len(ACK) < 32: continue
