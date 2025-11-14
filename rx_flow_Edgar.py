@@ -149,11 +149,11 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Pull the received frame from the FIFO
         frame = PRX.get_payload()
-        INFO(f"Burst sent {frame.hex()}")
 
         if len(frame) > MAX_PAYLOAD:
-            WARN(f"Frame demasiado largo ({len(frame)}B), truncando a {MAX_PAYLOAD}B")
+            #WARN(f"Frame demasiado largo ({len(frame)}B), truncando a {MAX_PAYLOAD}B")
             frame = frame[:MAX_PAYLOAD]
+        INFO(f"Burst sent {frame.hex()}")
         # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
         # message. After we have received this type of message we generate the emtpy
         # STREAM structure with all the allocated slots where we will store each
