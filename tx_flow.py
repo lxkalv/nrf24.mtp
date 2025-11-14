@@ -253,7 +253,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], lis
 
 
 
-wait_t = 1e-3
+wait_t = 5e-3
 def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: list[list[str]]) -> None:
     """
     This layer is responsible for the following things:
