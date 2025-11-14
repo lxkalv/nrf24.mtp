@@ -220,8 +220,12 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                     BURST_HASHER.update(chunk)
                 CHECKSUM = BURST_HASHER.digest()
                 PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM) # XXX
+
+                with open("rx_stream_debug.txt", "wb") as f:
+                    for chunk in STREAM[PageID][BurstID]:
+                        f.write(chunk.hex())
                 
-        
+            
 
         # NOTE: If the first Byte has the format 11110011 then it is an EMPTY message.
         # This message is used to notify the PRX that the current Burst has finished and
