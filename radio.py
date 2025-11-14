@@ -98,6 +98,7 @@ class CustomNRF24(NRF24):
         self.set_data_rate(DATA_RATE)
         self.set_pa_level(PA_LEVEL)
         self.set_crc_bytes(CRC_BYTES)
+        self.enable_crc()
         self.set_payload_size(PAYLOAD_SIZE)
         self.set_retransmission(RETRANSMISSION_DELAY, RETRANSMISSION_TRIES)
         self.set_address_bytes(ADDRESS_BYTE_LENGTH)
