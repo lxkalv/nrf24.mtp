@@ -125,7 +125,7 @@ nrf.set_crc_bytes(2)
 
 
 # global payload 
-nrf.set_payload_size(RF24_PAYLOAD.DYNAMIC)
+nrf.set_payload_size(RF24_PAYLOAD.ACK)
 payload:list[bytes] = []
 
 
