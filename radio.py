@@ -55,7 +55,7 @@ CRC_BYTES            = RF24_CRC.BYTES_2            # NOTE: Select one from {DISA
 PAYLOAD_SIZE         = RF24_PAYLOAD.ACK            # NOTE: Select one from {ACK, DYNAMIC, MIN (1), MAX (32), [1..32]}
 RETRANSMISSION_TRIES = 15                          # NOTE: Select one from [1..15]
 RETRANSMISSION_DELAY = 2                           # NOTE: Select one from [1..15], Delay is computed as 250us + (250 * RETRANSMISSION_DELAY)us
-ADDRESS_BYTE_LENGTH  = 4                           # NOTE: Select one from [3..5]
+ADDRESS_BYTE_LENGTH  = 3                           # NOTE: Select one from [3..5]
 
 
 # TODO: kill pigpiod correctly
