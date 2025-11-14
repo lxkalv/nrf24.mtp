@@ -163,7 +163,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             PRX.ack_payload(RF24_RX_ADDR.P1, 0xFF.to_bytes(1))
             if STREAM_HAS_BEEN_GENERATED: continue
 
-            generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
+            generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM, SIZES)
             STREAM_HAS_BEEN_GENERATED = True
             THROUGHPUT_TIC = time.time()
         
