@@ -225,6 +225,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
 
 def BEGIN_RECEIVER_MODE() -> None:
+    nrf.ack_payload(RF24_RX_ADDR.P1, b"")
     while True:
         
         while not nrf.data_ready():
@@ -248,7 +249,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             next_idx = (0).to_bytes(length)
 
         INFO(f"Setting payload: {next_idx.hex()} -> {byte_to_num + 1}")
-        nrf.ack_payload(next_idx)
+        nrf.ack_payload(RF24_RX_ADDR.P1, next_idx)
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
