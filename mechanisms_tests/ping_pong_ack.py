@@ -246,6 +246,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             next_idx = (byte_to_num + 1).to_bytes(2)
             INFO(f"Setting payload: {next_idx.hex()} -> {byte_to_num + 1}")
             nrf.ack_payload(RF24_RX_ADDR.P1, next_idx)
+            continue
 
         if length != 1:
             next_idx = (byte_to_num + 1).to_bytes(length)
