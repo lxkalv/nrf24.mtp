@@ -321,20 +321,46 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 EMPTY = 0xF3.to_bytes(1)
                 PTX.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
                 
-                while not PTX.data_ready(): continue
+               # while not PTX.data_ready(): continue
+                #ACK = PTX.get_payload()
+                
+                #if len(ACK) < 32: continue
+
+                #if ACK == CHECKSUMS[PageID][BurstID]:
+                  #  status_bar(f"Received VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
+
+                #    BurstID += 1
+
+               # else:
+                 #   status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
+
+               # break
+
+               # Primero, comprobamos si el ACK tenía un payload.
+                if not PTX.data_ready():
+                    # El ACK llegó, pero sin payload. Repetimos.
+                    status_bar(f"Received ACK without payload. Retrying...", "WARN")
+                    continue # Repite el 'while True:'
+
+                # Si llegamos aquí, data_ready() era True
                 ACK = PTX.get_payload()
                 
-                if len(ACK) < 32: continue
+                # Segundo, comprobamos si el payload tiene la longitud correcta
+                if len(ACK) < 32:
+                    status_bar(f"Received short payload (len {len(ACK)}). Retrying...", "WARN")
+                    continue # Repite el 'while True:'
 
+                # Tercero, comparamos el checksum
                 if ACK == CHECKSUMS[PageID][BurstID]:
+                    # ¡ÉXITO!
                     status_bar(f"Received VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
-
                     BurstID += 1
-
+                    break # <-- El break SÓLO ocurre si el checksum es válido.
+                
                 else:
+                    # El checksum es incorrecto.
                     status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
-
-                break
+                    continue # Repite el 'while True:'
         
         PageID += 1
                     
