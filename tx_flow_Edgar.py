@@ -298,7 +298,8 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             while ChunkID < len(STREAM[PageID][BurstID]):
                 PTX.send_DATA_message(STREAM[PageID][BurstID][ChunkID], PageID, BurstID, ChunkID)
                 INFO(f"Burst sent {STREAM[PageID][BurstID][ChunkID].hex()}")
-                time.sleep(250e-6 * PTX.RETRANSMISSION_DELAY) # XXX
+                #time.sleep(250e-6 * PTX.RETRANSMISSION_DELAY)
+                time.sleep(0.1)
                 ChunkID += 1
             # NOTE: After we have completed sending a BURST, we send empty frames until we
             # receive a valid CHECKSUM in the auto-ACK of the PRX
