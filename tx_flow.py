@@ -253,7 +253,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], lis
 
 
 
-
+wait_t = 1e-3
 def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: list[list[str]]) -> None:
     """
     This layer is responsible for the following things:
@@ -283,7 +283,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
         TRANSFER_INFO += len(STREAM[PageID][-1]).to_bytes(1)
         TRANSFER_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
     PTX.send_CONTROL_message(TRANSFER_INFO, "TRANSFER_INFO")
-    time.sleep(1)
+    time.sleep(wait_t)
 
     # Send all the DATA inside the STREAM structure in an ordered manner
     PageID = 0
@@ -295,7 +295,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
 
             while ChunkID < len(STREAM[PageID][BurstID]):
                 PTX.send_DATA_message(STREAM[PageID][BurstID][ChunkID], PageID, BurstID, ChunkID)
-                time.sleep(1)
+                time.sleep(wait_t)
                 INFO(f"Burst sent {STREAM[PageID][BurstID][ChunkID].hex()}")
 
                 ChunkID += 1
