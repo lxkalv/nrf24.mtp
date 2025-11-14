@@ -171,7 +171,7 @@ class CustomNRF24(NRF24):
             
             try:
                 self.wait_until_sent()
-                self.show_registers()
+                # self.show_registers()
             
             except TimeoutError:
                 status_bar(
