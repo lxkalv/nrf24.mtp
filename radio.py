@@ -222,9 +222,14 @@ class CustomNRF24(NRF24):
                 continue
             
             else:
-                while not self.data_ready():
-                    INFO("NOT READY")
+                tic = time.time()
+                while not self.data_ready() or (tac - tic) < 3:
+                    tac = time.time()
                     pass
+
+                if (tac - tic) >= 3:
+                    ERROR("Timeout")
+                    continue
 
                 ack = self.get_payload()
                 INFO(f"ACK: {ack} | len {len(ack)}")
