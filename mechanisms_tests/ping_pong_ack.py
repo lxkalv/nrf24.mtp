@@ -225,7 +225,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
 
 def BEGIN_RECEIVER_MODE() -> None:
-    nrf.ack_payload(RF24_RX_ADDR.P1, b"")
+    nrf.ack_payload(RF24_RX_ADDR.P1, b"0")
     while True:
         
         while not nrf.data_ready():
