@@ -35,8 +35,6 @@ class Role(Enum):
     UNSET       = "UNSET"
     TRANSMITTER = "TRANSMITTER"
     RECEIVER    = "RECEIVER"
-    CARRIER     = "CARRIER"
-    QUIT        = "QUIT"
 
     def __str__(self: "Role") -> str:
         return self.value
