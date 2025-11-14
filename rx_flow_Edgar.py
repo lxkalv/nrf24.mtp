@@ -68,7 +68,7 @@ def generate_STREAM_based_on_TRANSFER_INFO(TRANSFER_INFO: bytes, STREAM: list[li
                 chunks_count = 256
 
             for ChunkID in range(chunks_count):
-                STREAM[PageID][BurstID].append(bytes(length_last_chunk[PageID]))
+                STREAM[PageID][BurstID].append(b"")
     
     return
 
