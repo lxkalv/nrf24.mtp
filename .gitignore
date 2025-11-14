@@ -5,3 +5,7 @@ tests*
 *.egg-info/
 *.egg-info
 nrf24_mtp.egg-info/
+__pycache__
+__pycache__/**
+**/__pycache__/**
+**/__pycache__/
