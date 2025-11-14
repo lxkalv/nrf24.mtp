@@ -217,15 +217,30 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             ERROR("Packet lost")
             continue
 
-        ack = nrf.get_payload()    
-        SUCC(f"Received: {ack.hex()} -> {int.from_bytes(ack)}")
-        idx = int.from_bytes(ack) + 1
+        while not nrf.data_ready():
+            pass
 
+        ack = nrf.get_payload()
+        if len(ack) == 5:
+            INFO(f"FIZZ: {ack.hex()} -> {int.from_bytes(ack)}")
+            idx = int.from_bytes(ack) + 1
+        elif len(ack) == 32:
+            INFO(f"BUZZ: {ack.hex()} -> {int.from_bytes(ack)}")
+            idx = int.from_bytes(ack) + 1
+        elif len(ack) == 1:
+            INFO(f"FIZZBUZZ: : {ack.hex()} -> {int.from_bytes(ack)}")
+            idx = int.from_bytes(ack) + 1
+        elif len(ack) == 20:
+            INFO(f"INITIAL PAYLOAD: {ack.hex()}")
+            idx = 1
+
+        SUCC(f"Received: {ack.hex()} -> {int.from_bytes(ack)}")
+    
     return
 
 
 def BEGIN_RECEIVER_MODE() -> None:
-    nrf.ack_payload(RF24_RX_ADDR.P1, b"0")
+    nrf.ack_payload(RF24_RX_ADDR.P1, 0xFF * 20)
     while True:
         
         while not nrf.data_ready():
@@ -238,20 +253,16 @@ def BEGIN_RECEIVER_MODE() -> None:
 
         if byte_to_num % 3 == 0:
             length = 5
+            next_idx = (byte_to_num + 1).to_bytes(length)
         if byte_to_num % 5 == 0:
             length = 32
+            next_idx = (byte_to_num + 1).to_bytes(length)
         if byte_to_num % 15 == 0:
             length = 1
-        else:
-            next_idx = (byte_to_num + 1).to_bytes(2)
-            INFO(f"Setting payload: {next_idx.hex()} -> {byte_to_num + 1}")
-            nrf.ack_payload(RF24_RX_ADDR.P1, next_idx)
-            continue
-
-        if length != 1:
             next_idx = (byte_to_num + 1).to_bytes(length)
         else:
-            next_idx = (0).to_bytes(length)
+            length = 10
+            next_idx = (byte_to_num + 1).to_bytes(length)
 
         INFO(f"Setting payload: {next_idx.hex()} -> {byte_to_num + 1}")
         nrf.ack_payload(RF24_RX_ADDR.P1, next_idx)
