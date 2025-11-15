@@ -317,26 +317,45 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   │           4b: Identifies the type of CONTROL message that we are sending: "0011" for EMPTY
                 #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
                 EMPTY = 0xF3.to_bytes(1)
+
+                INFO(f"Preparing empty message")
                 PTX.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
-                
-                if not PTX.data_ready():
-                    status_bar(f"Received ACK without payload. Retrying...", "WARN")
-                    continue 
+                INFO(f"Empty message sent and waiting for ACK")
+                 
+                while not PTX.data_ready(): continue
+
+                INFO(f"Received ACK")
                 ACK = PTX.get_payload()
-        
-                if len(ACK) < 32:
-                    status_bar(f"Received short payload (len {len(ACK)}). Retrying...", "WARN")
-                    continue 
+                
+                if len(ACK) < 32: continue
 
                 if ACK == CHECKSUMS[PageID][BurstID]:
-
                     status_bar(f"Received VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
                     BurstID += 1
-                    break 
-                else:
 
+                else:
                     status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
-                    continue
+
+                break
+
+                # if not PTX.data_ready():
+                #     status_bar(f"Received ACK without payload. Retrying...", "WARN")
+                #     continue 
+                # ACK = PTX.get_payload()
+        
+                # if len(ACK) < 32:
+                #     status_bar(f"Received short payload (len {len(ACK)}). Retrying...", "WARN")
+                #     continue 
+
+                # if ACK == CHECKSUMS[PageID][BurstID]:
+
+                #     status_bar(f"Received VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
+                #     BurstID += 1
+                #     break 
+                # else:
+
+                #     status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
+                #     continue
         
         PageID += 1
                     
