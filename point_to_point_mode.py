@@ -9,8 +9,8 @@ from radio import (
     radio,
 )
 
-from tx_flow_Edgar import FULL_TX_MODE
-from rx_flow_Edgar import FULL_RX_MODE
+from tx_flow import FULL_TX_MODE
+from rx_flow import FULL_RX_MODE
 
 from utils import (
     ERROR,
@@ -20,12 +20,6 @@ from utils import (
 
 
 
-
-
-# :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-RECEIVER_TIMEOUT_S = 20
-DATA_SIZE          = 32
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -96,18 +90,6 @@ def BEGIN_RECEIVER_MODE() -> None:
         radio._pi.stop()
 
     return
-
-
-
-
-
-def BEGIN_CONSTANT_CARRIER_MODE() -> None:
-    """
-    Transmits a constant carrier until the user exits with CTRL+C
-    """
-    
-    ERROR("TODO")
-    return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -120,15 +102,11 @@ def main():
     Main flow of the application
     """
 
-
     if radio.role is Role.TRANSMITTER:
         BEGIN_TRANSMITTER_MODE()
     
     elif radio.role is Role.RECEIVER:
         BEGIN_RECEIVER_MODE()
-        
-    elif radio.role is Role.CARRIER:
-        BEGIN_CONSTANT_CARRIER_MODE()
 
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::

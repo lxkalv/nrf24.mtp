@@ -17,10 +17,8 @@ from utils import (
     YELLOW,
 
     ERROR,
-    WARN,
+    SUCC,
     INFO,
-
-    status_bar,
 )
 
 from enum import Enum
@@ -35,8 +33,6 @@ class Role(Enum):
     UNSET       = "UNSET"
     TRANSMITTER = "TRANSMITTER"
     RECEIVER    = "RECEIVER"
-    CARRIER     = "CARRIER"
-    QUIT        = "QUIT"
 
     def __str__(self: "Role") -> str:
         return self.value
@@ -155,25 +151,17 @@ class CustomNRF24(NRF24):
 
         return
     
-    def send_CONTROL_message(self: "CustomNRF24", CONTROL_MESSAGE: bytes, message_name: str, progress: bool = True, expected_ack = b"") -> None:
+    def send_CONTROL_message(self: "CustomNRF24", CONTROL_MESSAGE: bytes, message_name: str) -> None:
         """
         Continuously send a given information message until we receive an ACK. The
         progress is shown with a status bar
         """
 
-        if progress:
-            t = 0
+        INFO(f"Sending {message_name} message")
         message_has_been_sent = False
-        
         while not message_has_been_sent:
-            if progress:
-                if t % 10 == 0:
-                    status_bar(f"Sending {message_name} message", "INFO")
-
-                t += 1
-                
-            self.flush_rx() # XXX
-            # self.flush_tx() # XXX
+            
+            self.flush_rx()
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
             
@@ -181,28 +169,13 @@ class CustomNRF24(NRF24):
                 self.wait_until_sent()
             
             except TimeoutError:
-                status_bar(
-                    message = f"Time-out while sending {message_name} message, retrying",
-                    status  = "ERROR",
-                )
-
+                ERROR(f"Time-out while sending {message_name} message, retrying")
                 continue
 
 
             if self.get_packages_lost() == 0:
-                if expected_ack:
-                    if expected_ack == self.get_payload():
-                        message_has_been_sent = True
-                else:
-                    message_has_been_sent = True
-
-            #time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
-
-        if progress:
-            status_bar(
-                message = f"Sent {message_name} succesfully",
-                status  = "SUCC",
-            )
+                message_has_been_sent = True
+                SUCC(f"{message_name} message sent succesfully")
 
         return
     
@@ -210,14 +183,12 @@ class CustomNRF24(NRF24):
         """
         Continuously send a given data message until we receive the expected ACK
         """
-        message_has_been_sent = False
+        
         packets_lost          = 0
-
+        message_has_been_sent = False
         while not message_has_been_sent:
-            # status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
-            
+        
             self.flush_rx()
-            # self.flush_tx()
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
             
@@ -225,7 +196,7 @@ class CustomNRF24(NRF24):
                 self.wait_until_sent()
             
             except TimeoutError:
-                WARN(f"Time-out while sending DATA message Page {PageID} Burst {BurstID} Chunk {ChunkID}, retrying")
+                ERROR(f"Time-out while sending DATA message {PageID}|{BurstID}|{ChunkID}, retrying")
                 packets_lost += 1
                 continue
 
@@ -233,7 +204,6 @@ class CustomNRF24(NRF24):
                 message_has_been_sent = True
             
             else:
-                #time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
                 packets_lost += 1
         
         return
