@@ -173,8 +173,8 @@ class CustomNRF24(NRF24):
                 t += 1
                 
             self.show_registers()
-            #self.flush_rx() # XXX
-            #self.flush_tx() # XXX
+            self.flush_rx() # XXX
+            self.flush_tx() # XXX
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
             
@@ -217,8 +217,8 @@ class CustomNRF24(NRF24):
         while not message_has_been_sent:
             status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
             
-            #self.flush_rx()
-            #self.flush_tx()
+            self.flush_rx()
+            self.flush_tx()
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
             
