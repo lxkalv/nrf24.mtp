@@ -126,7 +126,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         frame: bytes = PRX.get_payload()
 
         # Burst INFO
-        if frame[0] == 0xFF and frame[1] == 0xF0:
+        if (frame[0] == 0xFF) and (frame[1] == 0xF0):
             PageID, BurstID, sizes = generate_STREAM_section_based_on_BURST_INFO(frame, STREAM)
 
             if not TX_HAS_STARTED:
@@ -134,7 +134,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             TX_HAS_STARTED = True
 
         # Transfer FINISH
-        elif frame[0] == 0xFF and frame[1] == 0x0F:
+        elif (frame[0] == 0xFF) and (frame[1] == 0x0F):
             TRANSFER_HAS_ENDED = True
             THROUGHPUT_TAC = time.time()
 
