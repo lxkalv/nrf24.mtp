@@ -151,17 +151,15 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # Pull the received frame from the FIFO
         frame = PRX.get_payload()
 
-        if len(frame) > MAX_PAYLOAD:
-            #WARN(f"Frame demasiado largo ({len(frame)}B), truncando a {MAX_PAYLOAD}B")
-            frame = frame[:MAX_PAYLOAD]
-        # INFO(f"Burst sent {frame.hex()}")
+        # if len(frame) > MAX_PAYLOAD:
+        #     frame = frame[:MAX_PAYLOAD]
+
         # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
         # message. After we have received this type of message we generate the emtpy
         # STREAM structure with all the allocated slots where we will store each
         # received DATA message. We only generate the structure once, meaning we discard
         # any other TRANSFER_INFO that we may get by error
         if frame[0] == 0xF0:
-            # PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
             if STREAM_HAS_BEEN_GENERATED: continue
 
             generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
@@ -212,7 +210,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             and ChunkID == LAST_CHUNKID    
             ): continue
 
-            # status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
             STREAM[PageID][BurstID][ChunkID] = bytes(frame)
 
             LAST_PAGEID  = PageID
