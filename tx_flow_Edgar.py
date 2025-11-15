@@ -284,9 +284,6 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
         TRANSFER_INFO += len(STREAM[PageID][-1][-1]).to_bytes(1)
     PTX.send_CONTROL_message(TRANSFER_INFO, "TRANSFER_INFO")
 
-    with open("tx_stream_debug.txt", "w") as f:
-        for CHUNK in STREAM[0][0]:
-            f.write(CHUNK.hex())
     # Send all the DATA inside the STREAM structure in an ordered manner
     PageID = 0
     while PageID < len(STREAM):

@@ -232,10 +232,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM) # XXX
 
                 INFO(f"Total used chunks {num_chunks}")
-
-                with open("rx_stream_debug.txt", "w") as f:
-                    for chunk in STREAM[PageID][BurstID]:
-                        f.write(chunk.hex())
                 
             
 
