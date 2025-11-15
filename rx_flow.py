@@ -189,7 +189,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         elif (frame[0] & 0xF0) == 0x00:
             if once == False:
                 PRX.ack_payload(RF24_RX_ADDR.P1, b"")
-                BURST_HASHER = hashlib.sha256()
                 once = True
 
             # NOTE: We set the ACK payload to be empty to maximize throughput
@@ -221,24 +220,20 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             LAST_CHUNKID = ChunkID
 
             BURST_HASHER.update(frame)
+
             if ChunkID == len(STREAM[PageID][BurstID]) - 1:
                 status_bar(f"Completed BURST: {PageID:02d}|{BurstID:03d}", "SUCC")
+                BURST_HASHER = hashlib.sha256()
+                num_chunks = 0
+                for ChunkID, chunk in enumerate(STREAM[PageID][BurstID]):
+                    num_chunks += num_chunks
+                    if not chunk:
+                        WARN(f"Missing {ChunkID:03d} in BURST")
+                    BURST_HASHER.update(chunk)
                 CHECKSUM = BURST_HASHER.digest()
                 PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM) # XXX
                 
-            #if ChunkID == len(STREAM[PageID][BurstID]) - 1:
-            #    status_bar(f"Completed BURST: {PageID:02d}|{BurstID:03d}", "SUCC")
-            #    BURST_HASHER = hashlib.sha256()
-            #    num_chunks = 0
-            #    for ChunkID, chunk in enumerate(STREAM[PageID][BurstID]):
-            #        num_chunks += num_chunks
-            #        if not chunk:
-            #            WARN(f"Missing {ChunkID:03d} in BURST")
-            #        BURST_HASHER.update(chunk)
-            #    CHECKSUM = BURST_HASHER.digest()
-            #    PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM) # XXX
-            #
-            #    INFO(f"Total used chunks {num_chunks}")
+                INFO(f"Total used chunks {num_chunks}")
                 
             
 
