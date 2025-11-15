@@ -196,7 +196,7 @@ class CustomNRF24(NRF24):
                 else:
                     message_has_been_sent = True
 
-            time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
+            #time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
 
         if progress:
             status_bar(
@@ -233,7 +233,7 @@ class CustomNRF24(NRF24):
                 message_has_been_sent = True
             
             else:
-                time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
+                #time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
                 packets_lost += 1
         
         return
