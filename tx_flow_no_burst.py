@@ -30,13 +30,12 @@ from utils import (
 
 
 
-# :::: CONSTANTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-NUMBER_OF_PAGES  = 10
-BURST_WIDTH      = 7905
-CHUNK_WIDTH      = 31
+# :::: CONSTANTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+PAGE_WIDTH       = 126_945
+CHUNK_WIDTH      = 30
 CHECKSUM_TIMEOUT = 1
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-Inv_checksums = [0]
+
 
 
 
@@ -72,12 +71,11 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
     content = file_path.read_bytes()
     
     content_len = len(content)
-    PAGE_len    = ceil(content_len / NUMBER_OF_PAGES)
     PAGES       = [
-        content[i : i + PAGE_len]
-        for i in range(0, content_len, PAGE_len)
+        content[i : i + PAGE_WIDTH]
+        for i in range(0, content_len, PAGE_WIDTH)
     ]
-    INFO(f"Splitted file into {NUMBER_OF_PAGES} PAGES of {PAGE_len} B (last page may be shorter)")
+    INFO(f"Splitted file into {len(PAGES)} PAGES of {PAGE_WIDTH} B (last page may be shorter)")
 
 
     # Compress each PAGE
@@ -106,49 +104,36 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
 
 
 
-def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], list[list[bytes]]]:
-    #       PageID    BurstID   ChunkID    Payload(MessageID | ChunkID + DATA)
-    #       ↓         ↓         ↓          ↓
-    STREAM: list[     list[     list[      bytes]]] = list()
+def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[bytes]], list[bytes]]:
+    #       PageID  ChunkID  Payload(MessageID | ChunkID + DATA)
+    #       ↓       ↓        ↓
+    STREAM: list[   list[    bytes]] = list()
 
-    #          PageID    BurstID    CHECKSUM
-    #          ↓         ↓          ↓
-    CHECKSUMS: list[     list[      bytes]] = list()
+    #          PageID  CHECKSUM
+    #          ↓       ↓
+    CHECKSUMS: list[   bytes] = list()
 
-    
     # Build the STREAM and CHECKSUMS structures
     for PageID, PAGE in enumerate(PAGES):
 
         STREAM.append(list())
-        CHECKSUMS.append(list())
         
-        # Split each compressed PAGE into BURSTS of 7905 B
-        BURSTS = [
-            PAGE[i : i + BURST_WIDTH]
-            for i in range(0, len(PAGE), BURST_WIDTH)
+        # Split the PAGE into CHUNKS of 30 B
+        CHUNKS = [
+            PAGE[i : i + CHUNK_WIDTH]
+            for i in range(0, len(PAGE), CHUNK_WIDTH)
         ]
 
-        for BurstID, BURST in enumerate(BURSTS):
+        PAGE_hasher = hashlib.sha256()
+        for ChunkID, CHUNK in enumerate(CHUNKS):
 
-            STREAM[PageID].append(list())
-            CHECKSUMS[PageID].append(bytes())
-
-            # Split the BURST into CHUNKS of 31 B
-            CHUNKS = [
-                BURST[i : i + CHUNK_WIDTH]
-                for i in range(0, len(BURST), CHUNK_WIDTH)
-            ]
-
-            BURST_hasher = hashlib.sha256()
-            for ChunkID, CHUNK in enumerate(CHUNKS):
-
-                STREAM[PageID][BurstID].append(bytes())
-                STREAM[PageID][BurstID][ChunkID] += ChunkID.to_bytes(1)
-                STREAM[PageID][BurstID][ChunkID] += CHUNK
+            STREAM[PageID].append(bytes())
+            STREAM[PageID][ChunkID] += ChunkID.to_bytes(2) # The first 4 bites should always be 0
+            STREAM[PageID][ChunkID] += CHUNK
                 
-                BURST_hasher.update(STREAM[PageID][BurstID][ChunkID])
+            PAGE_hasher.update(STREAM[PageID][ChunkID])
 
-            CHECKSUMS[PageID][BurstID] = BURST_hasher.digest()
+            CHECKSUMS.append(PAGE_hasher.digest())
 
     return (STREAM, CHECKSUMS)
 
@@ -156,7 +141,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], lis
 
 
 
-def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: list[list[str]]) -> None:
+def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[bytes]], CHECKSUMS: list[bytes]) -> None:
     PageID = 0
     while PageID < len(STREAM):
         BurstID = 0
@@ -194,9 +179,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                     BurstID += 1
 
                 else:
-                    Inv_checksums[0] += 1
                     WARN(f"Invalid CHECKSUM received for BURST {BurstID}: {received.hex()}")
-                    checksum_received
             
             if (tac - tic) >= CHECKSUM_TIMEOUT:
                 ERROR(f"CHECKSUM timeout for BURST {BurstID}")
