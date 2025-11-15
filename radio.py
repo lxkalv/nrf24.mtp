@@ -172,7 +172,6 @@ class CustomNRF24(NRF24):
 
                 t += 1
                 
-            self.show_registers()
             self.flush_rx() # XXX
             self.flush_tx() # XXX
             self.reset_packages_lost()
