@@ -334,7 +334,7 @@ def FULL_TX_MODE(ptx: CustomNRF24) -> None:
         for PageID, PAGE in enumerate(STREAM):
             f.write(f"PAGE {PageID:02d}:\n")
             for BurstID, BURST in enumerate(PAGE):
-                f.write(f"    BURST {PageID:03d}:\n")
+                f.write(f"    BURST {BurstID:03d}:\n")
                 for ChunkID, CHUNK in enumerate(BURST):
                     f.write(f"        CHUNK {ChunkID:03d}: {CHUNK.hex()}\n")
 
