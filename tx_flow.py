@@ -232,6 +232,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
 
             BURST_INFO  = bytes()
             BURST_INFO += 0xFF.to_bytes(1)                                                   # INFO message header
+            BURST_INFO += 0xF0.to_bytes(1)                                                   # BURST_INFO sub-message header
             BURST_INFO += PageID.to_bytes(1)                                                 # PageID header
             BURST_INFO += BurstID.to_bytes(1)                                                # BurstID header (should always fit)
             BURST_INFO += (sum(len(chunk) for chunk in STREAM[PageID][BurstID])).to_bytes(2) # ammount of bytes in the BURST
@@ -266,7 +267,11 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 ERROR(f"CHECKSUM timeout for BURST {BurstID}")
             
         PageID += 1
-                    
+
+    TRANSFER_FINISH  = bytes()
+    TRANSFER_FINISH += 0xFF.to_bytes(1)  # INFO message header
+    TRANSFER_FINISH += 0x0F.to_bytes(1)  # TRANSFER_FINISH sub-message header
+    PTX.send_CONTROL_message(TRANSFER_FINISH, "TRANSFER_FINISH")        
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 

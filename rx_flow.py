@@ -125,12 +125,27 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         frame: bytes = PRX.get_payload()
 
         # Burst INFO
-        if frame[0] == 0xFF:
+        if frame[0] == 0xFF and frame[1] == 0xF0:
             PageID, BurstID, sizes = generate_STREAM_section_based_on_BURST_INFO(frame, STREAM)
 
             if not TX_HAS_STARTED:
                 THROUGHPUT_TIC = time.time()
             TX_HAS_STARTED = True
+
+        # Transfer FINISH
+        elif frame[0] == 0xFF and frame[1] == 0x0F:
+            TRANSFER_HAS_ENDED = True
+            THROUGHPUT_TAC = time.time()
+
+            tx_time = THROUGHPUT_TAC - THROUGHPUT_TIC
+            tx_data = sum(
+                len(STREAM[PageID][BurstID][ChunkID])
+                for PageID in range(len(STREAM))
+                for BurstID in range(len(STREAM[PageID]))
+                for ChunkID in range(len(STREAM[PageID][BurstID]))
+            )
+
+            INFO(f"Transfer finished successfully | Throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
             
         else:
             ChunkID = frame[0]
@@ -178,8 +193,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 if (tac - tic) >= CHECKSUM_TIMEOUT:
                     ERROR(f"CHECKSUM timeout for BURST {PageID:02d}|{BurstID:03d}, retrying") 
 
-
-    # INFO(f"Computed throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
     return STREAM
 
 
