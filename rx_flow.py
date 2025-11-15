@@ -52,7 +52,7 @@ def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[
         if ChunkID == chunks_in_burst - 1:
             sizes.append(bytes(length_last_chunk))
         else:
-            sizes[PageID][BurstID].append(bytes(32))
+            sizes.append(bytes(32))
 
     return (PageID, BurstID, sizes)
 
