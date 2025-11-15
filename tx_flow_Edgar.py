@@ -67,7 +67,7 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
         file_path = find_valid_txt_file_in_usb(usb_mount_path)
 
     if not file_path:
-        file_path = fallback_dir / "quijote.txt"  
+        file_path = fallback_dir / "lorem.txt"  
         WARN(f"File candidate not found, using fallback file: {file_path}")
     
     else:
