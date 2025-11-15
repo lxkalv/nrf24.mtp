@@ -54,6 +54,7 @@ def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[
         else:
             sizes.append(bytes(32))
 
+    INFO(f"Receiving BURST: {PageID:02d}|{BurstID:03d} -> {size_of_burst} B in {chunks_in_burst} CHUNKS")
     return (PageID, BurstID, sizes)
 
 def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
