@@ -143,6 +143,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
     BURST_HASHER = hashlib.sha256()
     num_chunks =0
+    once = False
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
         while not PRX.data_ready(): continue
@@ -160,7 +161,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # received DATA message. We only generate the structure once, meaning we discard
         # any other TRANSFER_INFO that we may get by error
         if frame[0] == 0xF0:
-            PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
+            # PRX.ack_payload(RF24_RX_ADDR.P1, b"TRANSFER_INFO")
             if STREAM_HAS_BEEN_GENERATED: continue
 
             generate_STREAM_based_on_TRANSFER_INFO(frame, STREAM)
@@ -186,7 +187,9 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
                 #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
         elif (frame[0] & 0xF0) == 0x00:
-            PRX.ack_payload(RF24_RX_ADDR.P1, b"")
+            if once == False:
+                PRX.ack_payload(RF24_RX_ADDR.P1, b"")
+                once = True
 
             # NOTE: We set the ACK payload to be empty to maximize throughput
             PageID  = frame[0]
@@ -241,6 +244,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # to set the ACK payload to be the checksum of the Burst. The TRX will decide
         # which Burst to send after receiving the checksum
         elif frame[0] == 0xF3:
+            once = False
             PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
             status_bar(f"Sending checksum ({LAST_PAGEID}/{LAST_BURSTID}): {CHECKSUM.hex()}", "SUCC")
         
