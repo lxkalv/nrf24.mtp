@@ -41,6 +41,8 @@ def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[
     chunks_in_burst   = math.ceil(size_of_burst / MAX_PAYLOAD)
     length_last_chunk = size_of_burst % MAX_PAYLOAD if (size_of_burst % MAX_PAYLOAD) != 0 else MAX_PAYLOAD
 
+    INFO(f"Receiving BURST: {PageID:02d}|{BurstID:03d} -> {size_of_burst} B in {chunks_in_burst} CHUNKS")
+
     sizes = list()
 
     if len(STREAM) <= PageID:
@@ -54,7 +56,6 @@ def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[
         else:
             sizes.append(bytes(32))
 
-    INFO(f"Receiving BURST: {PageID:02d}|{BurstID:03d} -> {size_of_burst} B in {chunks_in_burst} CHUNKS")
     return (PageID, BurstID, sizes)
 
 def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
