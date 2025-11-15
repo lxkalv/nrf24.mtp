@@ -34,9 +34,10 @@ MAX_PAYLOAD = 32
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[list[bytes]]]) -> tuple[int, int, list[bytes]]:
     _                 = frame[0]
-    PageID            = frame[1]
-    BurstID           = frame[2]
-    size_of_burst     = int.from_bytes(frame[3:5])
+    _                 = frame[1]
+    PageID            = frame[2]
+    BurstID           = frame[3]
+    size_of_burst     = int.from_bytes(frame[4:6])
 
     chunks_in_burst   = math.ceil(size_of_burst / MAX_PAYLOAD)
     length_last_chunk = size_of_burst % MAX_PAYLOAD if (size_of_burst % MAX_PAYLOAD) != 0 else MAX_PAYLOAD
