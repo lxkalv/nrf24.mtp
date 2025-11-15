@@ -159,7 +159,6 @@ class CustomNRF24(NRF24):
         message_has_been_sent = False
         while not message_has_been_sent:
             
-            # self.flush_rx() NOTE: should not be necessary
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
             
@@ -186,7 +185,6 @@ class CustomNRF24(NRF24):
         message_has_been_sent = False
         while not message_has_been_sent:
         
-            # self.flush_rx() NOTE: Should not be necessary
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
             

@@ -34,7 +34,7 @@ from utils import (
 NUMBER_OF_PAGES  = 10
 BURST_WIDTH      = 7905
 CHUNK_WIDTH      = 31
-CHECKSUM_TIMEOUT = 1
+CHECKSUM_TIMEOUT = .2
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 Inv_checksums = [0]
 
