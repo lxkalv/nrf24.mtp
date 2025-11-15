@@ -317,25 +317,18 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
                 EMPTY = 0xF3.to_bytes(1)
 
-                INFO(f"Sending control message")
                 PTX.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
-                INFO(f"Control message sent and waiting for ACK")
-                #time.sleep(25e-6 * PTX.RETRANSMISSION_DELAY)
-                
                 while not PTX.data_ready(): continue
-                INFO(f"ACK has arrived")
                 ACK = PTX.get_payload()
                 
                 if len(ACK) < 32: continue
 
                 if ACK == CHECKSUMS[PageID][BurstID]:
                     status_bar(f"Received VALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "SUCC")
-
                     BurstID += 1
 
                 else:
                     status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
-
                 break
         
         PageID += 1
