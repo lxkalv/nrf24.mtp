@@ -302,7 +302,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             # NOTE: After we have completed sending a BURST, we send empty frames until we
             # receive a valid CHECKSUM in the auto-ACK of the PRX
             while True:
-                status_bar(f"Waiting for CHECKSUM: {BurstID} | {CHECKSUMS[PageID][BurstID].hex()}", "INFO")
+                # status_bar(f"Waiting for CHECKSUM: {BurstID} | {CHECKSUMS[PageID][BurstID].hex()}", "INFO")
 
                 # Generate and send an EMPTY_FRAME message to trigger the auto-ACK with the
                 # checksum

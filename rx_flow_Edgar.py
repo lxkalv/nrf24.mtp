@@ -212,7 +212,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             and ChunkID == LAST_CHUNKID    
             ): continue
 
-            status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
+            # status_bar(f"Receiving DATA: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}", "INFO")
             STREAM[PageID][BurstID][ChunkID] = bytes(frame)
 
             LAST_PAGEID  = PageID
