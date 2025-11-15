@@ -246,22 +246,23 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             tic = time.time()
             tac = time.time()
 
-            while (tac - tic) < CHECKSUM_TIMEOUT:
+            checksum_received = False
+            while (tac - tic) < CHECKSUM_TIMEOUT and not checksum_received:
                 tac = time.time()
 
                 if not PTX.data_ready():
                     continue
-
+                checksum_received = True
                 received = PTX.get_payload()
+
                 if received == CHECKSUMS[PageID][BurstID]:
                     SUCC(f"BURST {BurstID} transmitted successfully")
                     BurstID += 1
-                    break
 
                 else:
                     Inv_checksums[0] += 1
                     WARN(f"Invalid CHECKSUM received for BURST {BurstID}: {received.hex()}")
-                    break
+                    checksum_received
             
             if (tac - tic) >= CHECKSUM_TIMEOUT:
                 ERROR(f"CHECKSUM timeout for BURST {BurstID}")
