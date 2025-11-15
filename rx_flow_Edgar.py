@@ -154,7 +154,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         if len(frame) > MAX_PAYLOAD:
             #WARN(f"Frame demasiado largo ({len(frame)}B), truncando a {MAX_PAYLOAD}B")
             frame = frame[:MAX_PAYLOAD]
-        INFO(f"Burst sent {frame.hex()}")
+        # INFO(f"Burst sent {frame.hex()}")
         # NOTE: If the first Byte has the format 11110000 then it is a TRANSFER_INFO
         # message. After we have received this type of message we generate the emtpy
         # STREAM structure with all the allocated slots where we will store each
