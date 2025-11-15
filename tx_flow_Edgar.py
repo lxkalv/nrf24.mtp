@@ -35,7 +35,7 @@ NUMBER_OF_PAGES = 10
 BURST_WIDTH     = 7424
 CHUNK_WIDTH     = 29
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
+Inv_checksums = [0]
 
 
 
@@ -328,6 +328,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                     BurstID += 1
 
                 else:
+                    Inv_checksums[0] += 1
                     status_bar(f"Received INVALID checksum for ({PageID}/{BurstID}): {ACK.hex()}", "ERROR")
                 break
         
@@ -348,6 +349,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
     #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
     TRANSFER_FINISH = 0xFA.to_bytes(1)
     PTX.send_CONTROL_message(TRANSFER_FINISH, "TRANSFER_FINISH")
+    INFO(f"Number of invalid checksums {Inv_checksums[0]}")
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
