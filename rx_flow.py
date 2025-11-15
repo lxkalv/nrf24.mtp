@@ -236,7 +236,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                         WARN(f"Missing {ChunkID:03d} in BURST")
                     BURST_HASHER.update(chunk)
                 CHECKSUM = BURST_HASHER.digest()
-                PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM) # XXX
+                PRX.ack_payload(RF24_RX_ADDR.P1, CHECKSUM)
                 
                 INFO(f"Total used chunks {num_chunks}")
                 
