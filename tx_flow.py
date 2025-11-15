@@ -254,6 +254,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 received = PTX.get_payload()
                 if received == CHECKSUMS[PageID][BurstID]:
                     SUCC(f"BURST {BurstID} transmitted successfully")
+                    BurstID += 1
                     break
 
                 else:
