@@ -304,8 +304,6 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             # receive a valid CHECKSUM in the auto-ACK of the PRX
             while True:
                 status_bar(f"Waiting for CHECKSUM: {BurstID} | {CHECKSUMS[PageID][BurstID].hex()}", "INFO")
-                PTX.flush_rx()
-                PTX.flush_tx()
 
                 # Generate and send an EMPTY_FRAME message to trigger the auto-ACK with the
                 # checksum
