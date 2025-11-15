@@ -42,8 +42,6 @@ def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[
     chunks_in_burst   = math.ceil(size_of_burst / MAX_PAYLOAD)
     length_last_chunk = size_of_burst % MAX_PAYLOAD if (size_of_burst % MAX_PAYLOAD) != 0 else MAX_PAYLOAD
 
-    INFO(f"Receiving BURST: {PageID:02d}|{BurstID:03d} -> {size_of_burst} B in {chunks_in_burst} CHUNKS")
-
     sizes = list()
 
     if len(STREAM) <= PageID:
@@ -213,7 +211,7 @@ def RX_TRANSPORT_LAYER(STREAM: list[list[list[bytes]]]) -> list[bytes]:
         compressed_page = bytes()
         for BurstID in range(len(STREAM[PageID])):
             for ChunkID in range(len(STREAM[PageID][BurstID])):
-                compressed_page += STREAM[PageID][BurstID][ChunkID][3:] # NOTE: We ignore the first 3 Bytes as they are the headers
+                compressed_page += STREAM[PageID][BurstID][ChunkID][1:]
         compressed_pages.append(compressed_page)
     
     return compressed_pages
