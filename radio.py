@@ -48,7 +48,7 @@ CHANNEL              = 76                          # NOTE: Select one from [0..1
 DATA_RATE            = RF24_DATA_RATE.RATE_2MBPS   # NOTE: Select one from {250KBPS, 1MBPS, 2MBPS}
 PA_LEVEL             = RF24_PA.MIN                 # NOTE: Select one from {MIN (-18dBm), LOW (-12dBm), HIGH (-6dBm), MAX (0dBm)}
 CRC_BYTES            = RF24_CRC.BYTES_2            # NOTE: Select one from {DISABLED, BYTES_1, BYTES_2}
-PAYLOAD_SIZE         = RF24_PAYLOAD.ACK            # NOTE: Select one from {ACK, DYNAMIC, MIN (1), MAX (32), [1..32]}
+PAYLOAD_SIZE         = RF24_PAYLOAD.DYNAMIC        # NOTE: Select one from {ACK, DYNAMIC, MIN (1), MAX (32), [1..32]}
 RETRANSMISSION_TRIES = 15                          # NOTE: Select one from [1..15]
 RETRANSMISSION_DELAY = 1                           # NOTE: Select one from [1..15], Delay is computed as 250us + (250 * RETRANSMISSION_DELAY)us
 ADDRESS_BYTE_LENGTH  = 3                           # NOTE: Select one from [3..5]
@@ -100,8 +100,6 @@ class CustomNRF24(NRF24):
 
         self.choose_node_role()
         self.choose_address_based_on_role()
-
-        self.ack_payload(RF24_RX_ADDR.P1, b"")
 
         self.show_registers()
         # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -161,7 +159,7 @@ class CustomNRF24(NRF24):
         message_has_been_sent = False
         while not message_has_been_sent:
             
-            self.flush_rx()
+            # self.flush_rx() NOTE: should not be necessary
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
             
@@ -188,7 +186,7 @@ class CustomNRF24(NRF24):
         message_has_been_sent = False
         while not message_has_been_sent:
         
-            self.flush_rx()
+            # self.flush_rx() NOTE: Should not be necessary
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
             

@@ -3,7 +3,6 @@ from pathlib import Path
 from math import ceil
 import hashlib
 import zlib
-import time
 
 from radio import CustomNRF24
 
@@ -32,8 +31,8 @@ from utils import (
 
 # :::: CONSTANTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 NUMBER_OF_PAGES = 10
-BURST_WIDTH     = 7424
-CHUNK_WIDTH     = 29
+BURST_WIDTH     = 7905
+CHUNK_WIDTH     = 31
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 Inv_checksums = [0]
 
@@ -47,15 +46,6 @@ Inv_checksums = [0]
 
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def TX_PRESENTATION_LAYER() -> list[bytes]:
-    """
-    This layer is responsible for the following things:
-    - Find a candidate ".txt" file to transmit, either by looking inside a USB or by
-    looking in the fallback directory "test_files"
-    - Read the contents of the file and split it into PAGES
-    - Compress each PAGE
-    - Provide the compressed PAGES to the layer below
-    """
-    
     # Find a valid .txt file from a USB mount point.
     # NOTE: If no USB mount point is found or if no valid file is found inside the
     # USB, then a fallback file is taken from the "test_files" directory
@@ -115,15 +105,6 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
 
 
 def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], list[list[bytes]]]:
-    """
-    This layer is responsible for the following things:
-    - Split the compressed PAGES into BURSTS of 7424B
-    - Generate and provide a structure containing the Bytes to be transmitted
-    organized by PageID, BurstID and ChunkID
-    - Generate and provide a structure containing the CHECKSUMS of each BURST
-    organized by PageID and BurstID
-    """
-
     # Generate the organized structure containing the DATA to be transmitted organized
     # by PageID, BurstID and ChunkID.
     #
@@ -135,20 +116,20 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], lis
     #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
     #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
     #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
+    #         CHUNK 254: bytes[B0, B1, B2, ..., BXX]
     #     BURST 1:
     #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
     #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
     #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
     #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
+    #         CHUNK 254: bytes[B0, B1, B2, ..., BXX]
     #     ...
     #     BURST Y:
     #         CHUNK 000: bytes[B0, B1, B2, ..., B31]
     #         CHUNK 001: bytes[B0, B1, B2, ..., B31]
     #         CHUNK 002: bytes[B0, B1, B2, ..., B31]
     #         ...
-    #         CHUNK 255: bytes[B0, B1, B2, ..., BXX]
+    #         CHUNK 254: bytes[B0, B1, B2, ..., BXX]
     # PAGE 1:
     #     BURST 0:
     #         ...
@@ -167,7 +148,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], lis
     #     BURST Y:
     #         ...
     #
-    #       PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
+    #       PageID    BurstID   ChunkID    Payload(MessageID + ChunkID + DATA)
     #       ↓         ↓         ↓          ↓
     STREAM: list[     list[     list[      bytes]]] = list()
 
@@ -205,9 +186,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], lis
         STREAM.append(list())
         CHECKSUMS.append(list())
         
-        # Split each compressed PAGE into BURSTS of 7424B
-        # NOTE: The width of 7424B allows to split the BURSTS into 256 CHUNKS of 29B of
-        # DATA, this allows to limit the size of the ChunkID to 1B
+        # Split each compressed PAGE into BURSTS of 7905 B
         BURSTS = [
             PAGE[i : i + BURST_WIDTH]
             for i in range(0, len(PAGE), BURST_WIDTH)
@@ -218,7 +197,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], lis
             STREAM[PageID].append(list())
             CHECKSUMS[PageID].append(bytes())
 
-            # Split the BURST into CHUNKS of 29B
+            # Split the BURST into CHUNKS of 31 B
             CHUNKS = [
                 BURST[i : i + CHUNK_WIDTH]
                 for i in range(0, len(BURST), CHUNK_WIDTH)
@@ -227,20 +206,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[list[bytes]]], lis
             BURST_hasher = hashlib.sha256()
             for ChunkID, CHUNK in enumerate(CHUNKS):
 
-                # NOTE: The structure of our DATA message looks like this:
-                #
-                # ┌────────────────────┬─────────┬─────────┬──────┐
-                # │ MessageID + PageID │ BurstID │ ChunkID │ DATA │
-                # └────────────────────┴─────────┴─────────┴──────┘
-                #   ↑           ↑        ↑         ↑         ↑
-                #   │           │        │         │         29B: The data to be sent
-                #   │           │        │         1B: Identifies a CHUNK inside a BURST, starts from 0 at every BURST: [0 - 255]
-                #   │           │        1B: Identifies a BURST inside a PAGE, starts from 0 at every PAGE: [0 - 255]
-                #   │           4b: Identifies a PAGE inside a TRANSFER: [0 - 15]
-                #   4b: Identifies the kind of message that we are sending: "0000" for DATA messages
                 STREAM[PageID][BurstID].append(bytes())
-                STREAM[PageID][BurstID][ChunkID] +=  PageID.to_bytes(1) # NOTE: as there are 10 pages, converting the PageID to bytes directly is correct because the first 4 bits will be set to 0
-                STREAM[PageID][BurstID][ChunkID] += BurstID.to_bytes(1)
                 STREAM[PageID][BurstID][ChunkID] += ChunkID.to_bytes(1)
                 STREAM[PageID][BurstID][ChunkID] += CHUNK
                 
@@ -363,6 +329,16 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
 def FULL_TX_MODE(ptx: CustomNRF24) -> None:
     compressed_pages  = TX_PRESENTATION_LAYER()
     STREAM, CHECKSUMS = TX_TRANSPORT_LAYER(compressed_pages)
+
+    with open("STREAM.txt", "w") as f:
+        for PageID, PAGE in enumerate(STREAM):
+            f.write(f"PAGE {PageID:02d}:\n")
+            for BurstID, BURST in enumerate(PAGE):
+                f.write(f"    BURST {PageID:03d}:\n")
+                for ChunkID, CHUNK in enumerate(BURST):
+                    f.write(f"        CHUNK {ChunkID:03d}: {CHUNK.hex()}\n")
+
+    return
     TX_LINK_LAYER(ptx, STREAM, CHECKSUMS)
 
     return
