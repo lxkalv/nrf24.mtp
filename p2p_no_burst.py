@@ -3,7 +3,7 @@ import os
 
 os.system("cls")
 
-from radio import (
+from radio_noburst import (
     Role,
 
     radio,
