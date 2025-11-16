@@ -152,6 +152,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[bytes]], CHECKSUMS: list[b
         PAGE_INFO += 0xF0.to_bytes(1)                                              # PAGE_INFO sub-message header
         PAGE_INFO += PageID.to_bytes(1)                                             # PageID header
         PAGE_INFO += (sum(len(chunk) for chunk in STREAM[PageID])).to_bytes(3)      # ammount of bytes in the BURST
+        INFO(f"SIZE PAGE {(sum(len(chunk) for chunk in STREAM[PageID])).to_bytes(3)}")
         PTX.send_CONTROL_message(PAGE_INFO, "PAGE_INFO")    
 
         while ChunkID < len(STREAM[PageID]):

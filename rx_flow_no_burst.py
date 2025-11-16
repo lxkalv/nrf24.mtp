@@ -165,7 +165,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 continue
 
             INFO(f"ChunkID = {ChunkID:03d}")
-            INFO(f"len sizes = {len(frame)}")
+            INFO(f"len sizes = {len(sizes)}")
             STREAM[PageID][ChunkID] = frame
 
             if ChunkID == len(sizes) - 1:
