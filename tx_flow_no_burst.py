@@ -5,7 +5,7 @@ import hashlib
 import zlib
 import time
 
-from radio import CustomNRF24
+from radio_noburst import CustomNRF24
 
 from utils import (
     ERROR,
@@ -133,7 +133,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[bytes]], list[byte
                 
             PAGE_hasher.update(STREAM[PageID][ChunkID])
 
-            CHECKSUMS.append(PAGE_hasher.digest())
+        CHECKSUMS.append(PAGE_hasher.digest())
 
     return (STREAM, CHECKSUMS)
 
@@ -144,47 +144,42 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[bytes]], list[byte
 def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[bytes]], CHECKSUMS: list[bytes]) -> None:
     PageID = 0
     while PageID < len(STREAM):
-        BurstID = 0
-        while BurstID < len(STREAM[PageID]):
-            ChunkID = 0
-            INFO(f"Sending BURST {BurstID} expected CHECKSUM: {CHECKSUMS[PageID][BurstID].hex()}")
+        ChunkID = 0
+        INFO(f"Sending PAGE {PageID} expected CHECKSUM: {CHECKSUMS[PageID].hex()}")
 
-            BURST_INFO  = bytes()
-            BURST_INFO += 0xFF.to_bytes(1)                                                   # INFO message header
-            BURST_INFO += 0xF0.to_bytes(1)                                                   # BURST_INFO sub-message header
-            BURST_INFO += PageID.to_bytes(1)                                                 # PageID header
-            BURST_INFO += BurstID.to_bytes(1)                                                # BurstID header (should always fit)
-            BURST_INFO += (sum(len(chunk) for chunk in STREAM[PageID][BurstID])).to_bytes(2) # ammount of bytes in the BURST
-            PTX.send_CONTROL_message(BURST_INFO, "BURST_INFO")
+        PAGE_INFO = bytes()                                                         
+        PAGE_INFO += 0xFF.to_bytes(1)                                               # INFO message header
+        PAGE_INFO += 0xF0.to_bytes(1)                                              # PAGE_INFO sub-message header
+        PAGE_INFO += PageID.to_bytes(1)                                             # PageID header
+        PAGE_INFO += (sum(len(chunk) for chunk in STREAM[PageID])).to_bytes(3)      # ammount of bytes in the BURST
+        PTX.send_CONTROL_message(PAGE_INFO, "PAGE_INFO")    
 
-            while ChunkID < len(STREAM[PageID][BurstID]):
-                PTX.send_DATA_message(STREAM[PageID][BurstID][ChunkID], PageID, BurstID, ChunkID)
-                ChunkID += 1
+        while ChunkID < len(STREAM[PageID]):
+            PTX.send_DATA_message(STREAM[PageID][ChunkID], PageID, ChunkID)
+            ChunkID += 1
 
-            PTX.power_up_rx()
-            tic = time.time()
+        PTX.power_up_rx()
+        tic = time.time()
+        tac = time.time()
+
+        checksum_received = False
+        while (tac - tic) < CHECKSUM_TIMEOUT and not checksum_received:
             tac = time.time()
 
-            checksum_received = False
-            while (tac - tic) < CHECKSUM_TIMEOUT and not checksum_received:
-                tac = time.time()
+            if not PTX.data_ready():
+                continue
+            checksum_received = True
+            received = PTX.get_payload()
 
-                if not PTX.data_ready():
-                    continue
-                checksum_received = True
-                received = PTX.get_payload()
+            if received == CHECKSUMS[PageID]:
+                SUCC(f"PAGE {PageID} transmitted successfully")
+                PageID += 1
 
-                if received == CHECKSUMS[PageID][BurstID]:
-                    SUCC(f"BURST {BurstID} transmitted successfully")
-                    BurstID += 1
-
-                else:
-                    WARN(f"Invalid CHECKSUM received for BURST {BurstID}: {received.hex()}")
-            
-            if (tac - tic) >= CHECKSUM_TIMEOUT:
-                ERROR(f"CHECKSUM timeout for BURST {BurstID}")
-            
-        PageID += 1
+            else:
+                WARN(f"Invalid CHECKSUM received for PAGE {PageID}: {received.hex()}")
+        
+        if (tac - tic) >= CHECKSUM_TIMEOUT:
+            ERROR(f"CHECKSUM timeout for PAGE {PageID}")
 
     TRANSFER_FINISH  = bytes()
     TRANSFER_FINISH += 0xFF.to_bytes(1)  # INFO message header
