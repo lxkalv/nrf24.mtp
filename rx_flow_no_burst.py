@@ -133,7 +133,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Burst INFO
         if (frame[0] == 0xFF) and (frame[1] == 0xF0):
-            INFO(f"First IF")
             PageID, sizes = generate_STREAM_section_based_on_BURST_INFO(frame, STREAM)
 
             if not TX_HAS_STARTED:
@@ -142,7 +141,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Transfer FINISH
         elif (frame[0] == 0xFF) and (frame[1] == 0x0F):
-            INFO(f"Second IF")
             TRANSFER_HAS_ENDED = True
             THROUGHPUT_TAC = time.time()
 
@@ -167,6 +165,8 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 WARN(f"Invalid message received: {ChunkID:03d} -> {len(frame)} B")
                 continue
 
+            INFO(f"ChunkID = {ChunkID}")
+            INFO(f"len sizes = {len(sizes) - 1}")
             STREAM[PageID][ChunkID] = frame
 
             if ChunkID == len(sizes) - 1:
