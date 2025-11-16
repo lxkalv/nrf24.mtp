@@ -49,7 +49,7 @@ def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[
     chunks_in_page   = math.ceil(size_of_page / MAX_PAYLOAD)
     length_last_chunk = size_of_page % MAX_PAYLOAD if (size_of_page % MAX_PAYLOAD) != 0 else MAX_PAYLOAD
 
-    INFO(f"Receiving CHUNKS: {PageID:02d} -> {size_of_page} B in {chunks_in_page} CHUNKS")
+    INFO(f"Receiving CHUNKS from PAGE: {PageID:02d} -> {size_of_page} B in {chunks_in_page} CHUNKS")
 
     sizes = list()
 
@@ -133,6 +133,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Burst INFO
         if (frame[0] == 0xFF) and (frame[1] == 0xF0):
+            INFO(f"First IF")
             PageID, sizes = generate_STREAM_section_based_on_BURST_INFO(frame, STREAM)
 
             if not TX_HAS_STARTED:
@@ -141,6 +142,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Transfer FINISH
         elif (frame[0] == 0xFF) and (frame[1] == 0x0F):
+            INFO(f"Second IF")
             TRANSFER_HAS_ENDED = True
             THROUGHPUT_TAC = time.time()
 
@@ -154,6 +156,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             INFO(f"Transfer finished successfully | Throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
             
         else:
+            INFO(f"Third IF")
             ChunkID = frame[0]
 
             # If the header information is invalid we discard the frame
