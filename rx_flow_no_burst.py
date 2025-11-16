@@ -155,7 +155,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             
         else:
             ChunkID = frame[1]
-            INFO(f"CHUNK ID {ChunkID}")
+            INFO(f"CHUNK ID {ChunkID:03d}")
             # If the header information is invalid we discard the frame
             if (
                ChunkID > len(sizes) - 1
