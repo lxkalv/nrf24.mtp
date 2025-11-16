@@ -171,7 +171,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 for ChunkID, chunk in enumerate(STREAM[PageID]):
                     if not chunk: WARN(f"Missing {ChunkID:03d} in PAGE")
                     PAGE_HASHER.update(chunk)
-                CHECKSUM = BURST_HASHER.digest()
+                CHECKSUM = PAGE_HASHER.digest()
                 
                 tic = time.time()
                 tac = time.time()
@@ -214,7 +214,7 @@ def RX_TRANSPORT_LAYER(STREAM: list[list[list[bytes]]]) -> list[bytes]:
     for PageID in range(len(STREAM)):
         compressed_page = bytes()
         for ChunkID in range(len(STREAM[PageID])):
-            compressed_page += STREAM[PageID][ChunkID][1:] # NOTE: We ignore the first 3 Bytes as they are the headers
+            compressed_page += STREAM[PageID][ChunkID][2:] # NOTE: We ignore the first 3 Bytes as they are the headers
         compressed_pages.append(compressed_page)
     
     return compressed_pages
