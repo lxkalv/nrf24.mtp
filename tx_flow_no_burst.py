@@ -156,7 +156,6 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[bytes]], CHECKSUMS: list[b
 
         while ChunkID < len(STREAM[PageID]):
             PTX.send_DATA_message(STREAM[PageID][ChunkID], PageID, ChunkID)
-            INFO(f"Frame sent  {STREAM[PageID][ChunkID]}")
             ChunkID += 1
 
         PTX.power_up_rx()

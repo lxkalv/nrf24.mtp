@@ -130,7 +130,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Pull the received frame from the FIFO
         frame: bytes = PRX.get_payload()
-        INFO(f"Frame received  {frame}")
         # Burst INFO
         if (frame[0] == 0xFF) and (frame[1] == 0xF0):
             PageID, sizes = generate_STREAM_section_based_on_BURST_INFO(frame, STREAM)
