@@ -174,7 +174,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 
 
                 PRX.send_CONTROL_message(CHECKSUM, f"CHECKSUM for PAGE {PageID:02d}")
-
+                PRX.power_up_rx()
                 # tic = time.time()
                 # tac = time.time()
 
