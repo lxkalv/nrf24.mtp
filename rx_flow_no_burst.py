@@ -172,14 +172,8 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                     PAGE_HASHER.update(chunk)
                 CHECKSUM = PAGE_HASHER.digest()
                 
-                PRX.reset_packages_lost()
-                PRX.send(CHECKSUM)
-                try:
-                    PRX.wait_until_sent()
-                    SUCC(f"CHECKSUM for PAGE {PageID:02d} sent successfully: {CHECKSUM.hex()}")
-                except TimeoutError:
-                    ERROR(f"Time-out while sending CHECKSUM for PAGE {PageID:02d} (TX will retry page)")
 
+                PRX.send_CONTROL_message(CHECKSUM, f"CHECKSUM for PAGE {PageID:02d}")
 
                 # tic = time.time()
                 # tac = time.time()
