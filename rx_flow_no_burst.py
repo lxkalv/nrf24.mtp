@@ -154,7 +154,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             INFO(f"Transfer finished successfully | Throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
             
         else:
-            INFO(f"Third IF")
             ChunkID = frame[2]
 
             # If the header information is invalid we discard the frame
@@ -165,7 +164,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 WARN(f"Invalid message received: {ChunkID:03d} -> {len(frame)} B")
                 continue
 
-            INFO(f"ChunkID = {ChunkID}")
+            INFO(f"ChunkID = {ChunkID:03d}")
             INFO(f"len sizes = {len(sizes) - 1}")
             STREAM[PageID][ChunkID] = frame
 
