@@ -128,7 +128,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[bytes]], list[byte
         for ChunkID, CHUNK in enumerate(CHUNKS):
 
             STREAM[PageID].append(bytes())
-            STREAM[PageID][ChunkID] += ChunkID.to_bytes(2) # The first 4 bites should always be 0
+            STREAM[PageID][ChunkID] += ChunkID.to_bytes(3) # The first 4 bites should always be 0
             STREAM[PageID][ChunkID] += CHUNK
                 
             PAGE_hasher.update(STREAM[PageID][ChunkID])
@@ -152,7 +152,6 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[bytes]], CHECKSUMS: list[b
         PAGE_INFO += 0xF0.to_bytes(1)                                              # PAGE_INFO sub-message header
         PAGE_INFO += PageID.to_bytes(1)                                             # PageID header
         PAGE_INFO += (sum(len(chunk) for chunk in STREAM[PageID])).to_bytes(3)      # ammount of bytes in the BURST
-        INFO(f"SIZE PAGE {(sum(len(chunk) for chunk in STREAM[PageID])).to_bytes(3)}")
         PTX.send_CONTROL_message(PAGE_INFO, "PAGE_INFO")    
 
         while ChunkID < len(STREAM[PageID]):
