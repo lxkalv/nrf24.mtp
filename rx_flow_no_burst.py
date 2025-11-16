@@ -163,8 +163,6 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 WARN(f"Invalid message received: {ChunkID:03d} -> {len(frame)} B")
                 continue
 
-            INFO(f"ChunkID = {ChunkID:03d}")
-            INFO(f"len sizes = {len(sizes)}")
             STREAM[PageID][ChunkID] = frame
 
             if ChunkID == len(sizes) - 1:

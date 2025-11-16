@@ -135,11 +135,6 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[bytes]], list[byte
 
         CHECKSUMS.append(PAGE_hasher.digest())
 
-    for PageID, PAGE in enumerate(PAGES):
-        INFO(f"Page {PageID}")
-        for ChunkID, CHUNK in enumerate(CHUNKS):
-            INFO(f"Chunk number {ChunkID} {STREAM[PageID][ChunkID]}")
-
     return (STREAM, CHECKSUMS)
 
 
@@ -161,6 +156,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[bytes]], CHECKSUMS: list[b
 
         while ChunkID < len(STREAM[PageID]):
             PTX.send_DATA_message(STREAM[PageID][ChunkID], PageID, ChunkID)
+            INFO(f"Frame sent  {STREAM[PageID][ChunkID]}")
             ChunkID += 1
 
         PTX.power_up_rx()
