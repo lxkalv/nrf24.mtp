@@ -97,6 +97,10 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
             finished_status = len(PAGES)
         )
     
+    for PageID, PAGE in enumerate(PAGES):
+        INFO(f"Page {PageID}")
+        for ChunkID, CHUNK in enumerate(CHUNKS):
+            INFO(f"Chunk number {ChunkID} {STREAM[PageID][ChunkID]}")
     # Provide the PAGES to the next layer
     return compressed_PAGES
 
@@ -186,10 +190,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[bytes]], CHECKSUMS: list[b
     TRANSFER_FINISH += 0x0F.to_bytes(1)  # TRANSFER_FINISH sub-message header
     PTX.send_CONTROL_message(TRANSFER_FINISH, "TRANSFER_FINISH")   
 
-    for PageID, PAGE in enumerate(PAGES):
-        INFO(f"Page {PageID}")
-        for ChunkID, CHUNK in enumerate(CHUNKS):
-            INFO(f"Chunk number {ChunkID} {STREAM[PageID][ChunkID]}")
+
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
