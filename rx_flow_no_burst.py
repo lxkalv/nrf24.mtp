@@ -5,7 +5,7 @@ import zlib
 import time
 import math
 
-from radio import CustomNRF24
+from radio_noburst import CustomNRF24
 
 from utils import (
     ERROR,
