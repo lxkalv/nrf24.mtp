@@ -128,7 +128,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[bytes]], list[byte
         for ChunkID, CHUNK in enumerate(CHUNKS):
 
             STREAM[PageID].append(bytes())
-            STREAM[PageID][ChunkID] += ChunkID.to_bytes(3) # The first 4 bites should always be 0
+            STREAM[PageID][ChunkID] += ChunkID.to_bytes(2) # The first 4 bites should always be 0
             STREAM[PageID][ChunkID] += CHUNK
                 
             PAGE_hasher.update(STREAM[PageID][ChunkID])
