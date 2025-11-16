@@ -23,8 +23,16 @@ from nrf24 import (
 )
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-CHECKSUM_TIMEOUT = 0.5
+# :::: CONSTANTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+CHUNK_WIDTH      = 30
+CHECKSUM_TIMEOUT = 1
+
+#CHECKSUM_TIMEOUT = 0.5
 MAX_PAYLOAD = 32
+# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+
+
 
 
 
@@ -32,32 +40,29 @@ MAX_PAYLOAD = 32
 
 
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[list[bytes]]]) -> tuple[int, int, list[bytes]]:
+def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[bytes]]) -> tuple[int, list[bytes]]:
     _                 = frame[0]
     _                 = frame[1]
     PageID            = frame[2]
-    BurstID           = frame[3]
-    size_of_burst     = int.from_bytes(frame[4:6])
+    size_of_page     = int.from_bytes(frame[3:6])
 
-    chunks_in_burst   = math.ceil(size_of_burst / MAX_PAYLOAD)
-    length_last_chunk = size_of_burst % MAX_PAYLOAD if (size_of_burst % MAX_PAYLOAD) != 0 else MAX_PAYLOAD
+    chunks_in_page   = math.ceil(size_of_page / MAX_PAYLOAD)
+    length_last_chunk = size_of_page % MAX_PAYLOAD if (size_of_page % MAX_PAYLOAD) != 0 else MAX_PAYLOAD
 
-    INFO(f"Receiving BURST: {PageID:02d}|{BurstID:03d} -> {size_of_burst} B in {chunks_in_burst} CHUNKS")
+    INFO(f"Receiving CHUNKS: {PageID:02d} -> {size_of_page} B in {chunks_in_page} CHUNKS")
 
     sizes = list()
 
     if len(STREAM) <= PageID:
         STREAM.append(list())
-    if len(STREAM[PageID]) <= BurstID:
-        STREAM[PageID].append(list())
-    for ChunkID in range(chunks_in_burst):
-        STREAM[PageID][BurstID].append(bytes())
-        if ChunkID == chunks_in_burst - 1:
+    for ChunkID in range(chunks_in_page):
+        STREAM[PageID].append(bytes())
+        if ChunkID == chunks_in_page - 1:
             sizes.append(bytes(length_last_chunk))
         else:
             sizes.append(bytes(32))
 
-    return (PageID, BurstID, sizes)
+    return (PageID, sizes)
 
 def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     # Generate the organized structure containing the DATA to be transmitted organized
@@ -103,9 +108,9 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     #     BURST Y:
     #         ...
     #
-    #       PageID    BurstID   ChunkID    Payload(MessageID + PageID + BurstID + ChunkID + DATA)
-    #       ↓         ↓         ↓          ↓
-    STREAM: list[     list[     list[      bytes]]] = list()
+    #       PageID      ChunkID    Payload(MessageID + PageID + ChunkID + DATA)
+    #       ↓           ↓          ↓
+    STREAM: list[     list[     bytes]] = list()
 
     # NOTE: The flow of the PRX is as follows, we keep receiving frames until the
     # transmission has finished. We do not care about the order of the frames as we
