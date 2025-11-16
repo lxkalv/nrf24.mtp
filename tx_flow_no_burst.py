@@ -97,10 +97,6 @@ def TX_PRESENTATION_LAYER() -> list[bytes]:
             finished_status = len(PAGES)
         )
     
-    for PageID, PAGE in enumerate(PAGES):
-        INFO(f"Page {PageID}")
-        for ChunkID, CHUNK in enumerate(CHUNKS):
-            INFO(f"Chunk number {ChunkID} {STREAM[PageID][ChunkID]}")
     # Provide the PAGES to the next layer
     return compressed_PAGES
 
@@ -138,6 +134,11 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[bytes]], list[byte
             PAGE_hasher.update(STREAM[PageID][ChunkID])
 
         CHECKSUMS.append(PAGE_hasher.digest())
+
+    for PageID, PAGE in enumerate(PAGES):
+        INFO(f"Page {PageID}")
+        for ChunkID, CHUNK in enumerate(CHUNKS):
+            INFO(f"Chunk number {ChunkID} {STREAM[PageID][ChunkID]}")
 
     return (STREAM, CHECKSUMS)
 
