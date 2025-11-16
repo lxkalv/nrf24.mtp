@@ -184,7 +184,12 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[bytes]], CHECKSUMS: list[b
     TRANSFER_FINISH  = bytes()
     TRANSFER_FINISH += 0xFF.to_bytes(1)  # INFO message header
     TRANSFER_FINISH += 0x0F.to_bytes(1)  # TRANSFER_FINISH sub-message header
-    PTX.send_CONTROL_message(TRANSFER_FINISH, "TRANSFER_FINISH")        
+    PTX.send_CONTROL_message(TRANSFER_FINISH, "TRANSFER_FINISH")   
+
+    for PageID, PAGE in enumerate(PAGES):
+        INFO(f"Page {PageID}")
+        for ChunkID, CHUNK in enumerate(CHUNKS):
+            INFO(f"Chunk number {ChunkID} {STREAM[PageID][ChunkID]}")
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
