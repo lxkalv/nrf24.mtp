@@ -133,7 +133,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Burst INFO
         if (frame[0] == 0xFF) and (frame[1] == 0xF0):
-            PageID, BurstID, sizes = generate_STREAM_section_based_on_BURST_INFO(frame, STREAM)
+            PageID, sizes = generate_STREAM_section_based_on_BURST_INFO(frame, STREAM)
 
             if not TX_HAS_STARTED:
                 THROUGHPUT_TIC = time.time()
@@ -146,10 +146,9 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
             tx_time = THROUGHPUT_TAC - THROUGHPUT_TIC
             tx_data = sum(
-                len(STREAM[PageID][BurstID][ChunkID])
+                len(STREAM[PageID][ChunkID])
                 for PageID in range(len(STREAM))
-                for BurstID in range(len(STREAM[PageID]))
-                for ChunkID in range(len(STREAM[PageID][BurstID]))
+                for ChunkID in range(len(STREAM[PageID]))
             )
 
             INFO(f"Transfer finished successfully | Throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
@@ -165,14 +164,14 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 WARN(f"Invalid message received: {ChunkID:03d} -> {len(frame)} B")
                 continue
 
-            STREAM[PageID][BurstID][ChunkID] = frame
+            STREAM[PageID][ChunkID] = frame
 
             if ChunkID == len(sizes) - 1:
-                SUCC(f"Completed BURST: {PageID:02d}|{BurstID:03d}")
-                BURST_HASHER = hashlib.sha256()
-                for ChunkID, chunk in enumerate(STREAM[PageID][BurstID]):
-                    if not chunk: WARN(f"Missing {ChunkID:03d} in BURST")
-                    BURST_HASHER.update(chunk)
+                SUCC(f"Completed PAGE: {PageID:02d}")
+                PAGE_HASHER = hashlib.sha256()
+                for ChunkID, chunk in enumerate(STREAM[PageID]):
+                    if not chunk: WARN(f"Missing {ChunkID:03d} in PAGE")
+                    PAGE_HASHER.update(chunk)
                 CHECKSUM = BURST_HASHER.digest()
                 
                 tic = time.time()
@@ -187,18 +186,18 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                     try:
                         PRX.wait_until_sent()
                     except TimeoutError:
-                        ERROR(f"Time-out while sending CHECKSUM for BURST {PageID:02d}|{BurstID:03d}, retrying")
+                        ERROR(f"Time-out while sending CHECKSUM for PAGE {PageID:02d}, retrying")
                         continue
 
                     if PRX.get_packages_lost() > 0:
-                        ERROR(f"Packages lost while sending CHECKSUM for BURST {PageID:02d}|{BurstID:03d}, retrying")
+                        ERROR(f"Packages lost while sending CHECKSUM for PAGE {PageID:02d}, retrying")
                         continue
 
-                    SUCC(f"CHECKSUM for BURST {PageID:02d}|{BurstID:03d} sent successfully: {CHECKSUM.hex()}")
+                    SUCC(f"CHECKSUM for PAGE {PageID:02d} sent successfully: {CHECKSUM.hex()}")
                     break
 
                 if (tac - tic) >= CHECKSUM_TIMEOUT:
-                    ERROR(f"CHECKSUM timeout for BURST {PageID:02d}|{BurstID:03d}, retrying") 
+                    ERROR(f"CHECKSUM timeout for PAGE {PageID:02d}, retrying") 
 
     return STREAM
 
@@ -215,9 +214,8 @@ def RX_TRANSPORT_LAYER(STREAM: list[list[list[bytes]]]) -> list[bytes]:
     compressed_pages = []
     for PageID in range(len(STREAM)):
         compressed_page = bytes()
-        for BurstID in range(len(STREAM[PageID])):
-            for ChunkID in range(len(STREAM[PageID][BurstID])):
-                compressed_page += STREAM[PageID][BurstID][ChunkID][1:] # NOTE: We ignore the first 3 Bytes as they are the headers
+        for ChunkID in range(len(STREAM[PageID])):
+            compressed_page += STREAM[PageID][ChunkID][1:] # NOTE: We ignore the first 3 Bytes as they are the headers
         compressed_pages.append(compressed_page)
     
     return compressed_pages

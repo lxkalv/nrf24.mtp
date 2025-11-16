@@ -133,7 +133,7 @@ def TX_TRANSPORT_LAYER(PAGES: list[bytes]) -> tuple[list[list[bytes]], list[byte
                 
             PAGE_hasher.update(STREAM[PageID][ChunkID])
 
-            CHECKSUMS.append(PAGE_hasher.digest())
+        CHECKSUMS.append(PAGE_hasher.digest())
 
     return (STREAM, CHECKSUMS)
 
