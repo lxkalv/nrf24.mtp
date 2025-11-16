@@ -154,7 +154,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             INFO(f"Transfer finished successfully | Throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
             
         else:
-            ChunkID = frame[1]
+            ChunkID = int.from_bytes(frame[0:2], 'big')
             INFO(f"CHUNK ID {ChunkID:03d}")
             # If the header information is invalid we discard the frame
             if (
