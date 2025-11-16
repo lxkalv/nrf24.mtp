@@ -9,8 +9,8 @@ from radio import (
     radio,
 )
 
-from tx_flow import FULL_TX_MODE
-from rx_flow import FULL_RX_MODE
+from tx_flow_no_burst import FULL_TX_MODE
+from rx_flow_no_burst import FULL_RX_MODE
 
 from utils import INFO
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
