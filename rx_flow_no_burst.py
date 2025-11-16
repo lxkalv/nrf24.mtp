@@ -172,30 +172,39 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                     PAGE_HASHER.update(chunk)
                 CHECKSUM = PAGE_HASHER.digest()
                 
-                tic = time.time()
-                tac = time.time()
-
-                while (tac - tic) < CHECKSUM_TIMEOUT:
-                    tac = time.time()
-
-                    PRX.reset_packages_lost()
-                    PRX.send(CHECKSUM)
-
-                    try:
-                        PRX.wait_until_sent()
-                    except TimeoutError:
-                        ERROR(f"Time-out while sending CHECKSUM for PAGE {PageID:02d}, retrying")
-                        continue
-
-                    if PRX.get_packages_lost() > 0:
-                        ERROR(f"Packages lost while sending CHECKSUM for PAGE {PageID:02d}, retrying")
-                        continue
-
+                PRX.reset_packages_lost()
+                PRX.send(CHECKSUM)
+                try:
+                    PRX.wait_until_sent()
                     SUCC(f"CHECKSUM for PAGE {PageID:02d} sent successfully: {CHECKSUM.hex()}")
-                    break
+                except TimeoutError:
+                    ERROR(f"Time-out while sending CHECKSUM for PAGE {PageID:02d} (TX will retry page)")
 
-                if (tac - tic) >= CHECKSUM_TIMEOUT:
-                    ERROR(f"CHECKSUM timeout for PAGE {PageID:02d}, retrying") 
+
+                # tic = time.time()
+                # tac = time.time()
+
+                # while (tac - tic) < CHECKSUM_TIMEOUT:
+                #     tac = time.time()
+
+                #     PRX.reset_packages_lost()
+                #     PRX.send(CHECKSUM)
+
+                #     try:
+                #         PRX.wait_until_sent()
+                #     except TimeoutError:
+                #         ERROR(f"Time-out while sending CHECKSUM for PAGE {PageID:02d}, retrying")
+                #         continue
+
+                #     if PRX.get_packages_lost() > 0:
+                #         ERROR(f"Packages lost while sending CHECKSUM for PAGE {PageID:02d}, retrying")
+                #         continue
+
+                #     SUCC(f"CHECKSUM for PAGE {PageID:02d} sent successfully: {CHECKSUM.hex()}")
+                #     break
+
+                # if (tac - tic) >= CHECKSUM_TIMEOUT:
+                #     ERROR(f"CHECKSUM timeout for PAGE {PageID:02d}, retrying") 
 
     return STREAM
 
