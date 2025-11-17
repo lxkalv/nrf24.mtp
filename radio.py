@@ -61,7 +61,7 @@ class CustomNRF24(NRF24):
     modifying the library itself
     """
     
-    def __init__(self: "CustomNRF24", spi_speed: float = 10_000_000) -> None:
+    def __init__(self: "CustomNRF24", spi_speed: float = 5_000_000) -> None:
         # :::: CONFIGURE PIGPIO :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
         self.hostname = "localhost"
         self.port     = 8888
