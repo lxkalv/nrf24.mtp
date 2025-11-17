@@ -263,15 +263,15 @@ nrf = NRF24(pi, ce = CE_PIN, spi_speed = 10e6)
 
 
 # radio channel
-nrf.set_channel(76)
-
+#nrf.set_channel(76)
+nrf.set_channel(6)
 
 # data rate
 nrf.set_data_rate(RF24_DATA_RATE.RATE_2MBPS)
 
 
 # Tx/Rx power
-nrf.set_pa_level(RF24_PA.HIGH)
+nrf.set_pa_level(RF24_PA.LOW)
 
 
 # CRC
