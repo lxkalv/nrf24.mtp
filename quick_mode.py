@@ -263,8 +263,8 @@ nrf = NRF24(pi, ce = CE_PIN, spi_speed = 10e6)
 
 
 # radio channel
-#nrf.set_channel(76)
-nrf.set_channel(6)
+nrf.set_channel(76)
+#nrf.set_channel(6)
 
 # data rate
 nrf.set_data_rate(RF24_DATA_RATE.RATE_2MBPS)
@@ -377,7 +377,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         except TimeoutError:
             ERROR("Timeout while sending header")
 
-
+        total_retries = 0
         # send the rest of the frames
         for idx in range(chunks_len):
 
@@ -406,8 +406,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
                 else:
                     ERROR(f"Lost packet {idx}, retrying...")
+                    retries_now = nrf.get_retries()
                     num_retries += nrf.get_retries()
-
+                    total_retries += retries_now
+        INFO(f"Transmision finalized. Total retries: {total_retries}")
     except KeyboardInterrupt:
         ERROR("Process interrupted by user")
 
