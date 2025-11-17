@@ -294,7 +294,7 @@ nrf = CustomNRF24(pi = pi, ce = CE_PIN, spi_speed = 10_000_000)
 
 
 # radio channel
-nrf.set_channel(76)
+nrf.set_channel(5)
 
 
 # data rate
