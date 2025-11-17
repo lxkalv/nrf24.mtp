@@ -314,7 +314,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
                 #   4b: Identifies the kind of message that we are sending: "1111" for CONTROL message
                 EMPTY = 0xF3.to_bytes(1)
 
-                PTX.send_CONTROL_message(EMPTY, "EMPTY", progress = False)
+                PTX.send_CONTROL_message(EMPTY, "EMPTY")
                 while not PTX.data_ready(): continue
                 ACK = PTX.get_payload()
                 

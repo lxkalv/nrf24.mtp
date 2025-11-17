@@ -206,7 +206,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 PageID  >= len(SIZES)
             or  BurstID >= len(SIZES[PageID])
             or  ChunkID >= len(SIZES[PageID][BurstID])
-            or len(frame[3:]) != len(SIZES[PageID][BurstID][ChunkID])
+            or len(frame) != len(SIZES[PageID][BurstID][ChunkID])
             ):
                 WARN(f"Invalid header information received: {PageID:02d}|{BurstID:03d}|{ChunkID:03d} -> {len(frame[3:])} B")
                 continue
