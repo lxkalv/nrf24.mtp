@@ -381,7 +381,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         ack_message=nrf.get_payload()
         #still check writted ACK
 
-        
+
         # store the encoded bytes
         packets = []
         for chunk in chunks:
@@ -399,13 +399,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet):
                     if p_idx == WINDOW_SIZE-1:
-                        nrf.send(pkt)
-                        try:
-                            self.wait_until_sent()
-                        except TimeoutError:
-                            WARN(f"Time-out while sending last Window Data Message")
-                        continue
-                        ack_package=self.get_packages_lost()
+                        nrf.send_DATA_message(pkt)
                     else:
                         nrf.send_no_ack(pkt)
                     time.sleep(0.001)  # Small delay between packets
