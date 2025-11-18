@@ -218,7 +218,7 @@ def enable_noack_command():
     nrf._nrf_write_reg(nrf.FEATURE, feature)
 enable_noack_command()
 
-def send_no_ack(self, data):
+def send_no_ack(data):
         # We expect a list of byte values to be sent.  However, popular types
         # such as string, integer, bytes, and bytearray are handled automatically using
         # this conversion code.
@@ -231,15 +231,15 @@ def send_no_ack(self, data):
                 data = list(data)
         
         # Flush TX if buffers are full or max retries is set.
-        status = self.get_status()
-        if status & (self.TX_FULL | self.MAX_RT):
-            self.flush_tx()
+        status = nrf.get_status()
+        if status & (nrf.TX_FULL | nrf.MAX_RT):
+            nrf.flush_tx()
 
-        if self._payload_size >= RF24_PAYLOAD.MIN:  # fixed payload
-            data = self._make_fixed_width(data, self._payload_size, self._padding)
+        if nrf._payload_size >= RF24_PAYLOAD.MIN:  # fixed payload
+            data = nrf._make_fixed_width(data, nrf._payload_size, nrf._padding)
 
-        self._nrf_command([self.W_TX_PAYLOAD_NO_ACK] + data)
-        self.power_up_tx()
+        nrf._nrf_command([nrf.W_TX_PAYLOAD_NO_ACK] + data)
+        nrf.power_up_tx()
 
 # =================================================================================
 
@@ -306,7 +306,7 @@ def send_DATA_message(DATA_MESSAGE : bytes, message_type) -> None:
             # status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
             
             nrf.flush_rx()
-            # self.flush_tx()
+            # nrf.flush_tx()
             nrf.reset_packages_lost()
             nrf.send(DATA_MESSAGE)
             
@@ -322,7 +322,7 @@ def send_DATA_message(DATA_MESSAGE : bytes, message_type) -> None:
                 message_has_been_sent = True
             
             else:
-                #time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
+                #time.sleep(250e-6 * nrf.RETRANSMISSION_DELAY)
                 packets_lost += 1
 
         return
@@ -400,9 +400,9 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet):
                     if p_idx == WINDOW_SIZE-1:
-                        nrf.send_DATA_message(pkt)
+                        send_DATA_message(pkt, current_window)
                     else:
-                        nrf.send_no_ack(pkt)
+                        send_no_ack(pkt)
                     time.sleep(0.001)  # Small delay between packets
                 try:
                     nrf.power_up_rx() 
