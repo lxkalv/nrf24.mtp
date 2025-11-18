@@ -209,13 +209,13 @@ nrf.set_address_bytes(4) # [2 - 5] Bytes
 
  #   nrf_obj.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
 
-def enable_noack_command(self):
+def enable_noack_command():
     # Read feature
-    feature = self._nrf_read_reg(self.FEATURE, 1)[0]
+    feature = nrf._nrf_read_reg(nrf.FEATURE, 1)[0]
     # Put 1 to the bit EN_DYN_ACK 
-    feature |= self.EN_DYN_ACK
+    feature |= nrf.EN_DYN_ACK
     # Escribir de nuevo FEATURE
-    self._nrf_write_reg(self.FEATURE, feature)
+    nrf._nrf_write_reg(nrf.FEATURE, feature)
 
 def send_no_ack(self, data):
         # We expect a list of byte values to be sent.  However, popular types
@@ -294,7 +294,7 @@ def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
         data = pkt[ID_CHUNK_BYTES:]
         return extracted_window, extracted_chunk, data
 
-def send_DATA_message(DATA_MESSAGE : bytes) -> None:
+def send_DATA_message(DATA_MESSAGE : bytes, message_type) -> None:
         """
         Continuously send a given data message until we receive the expected ACK
         """
@@ -313,7 +313,7 @@ def send_DATA_message(DATA_MESSAGE : bytes) -> None:
                 nrf.wait_until_sent()
             
             except TimeoutError:
-                WARN(f"Time-out while sending DATA message Page {PageID} Burst {BurstID} Chunk {ChunkID}, retrying")
+                INFO(f"Time-out while sending DATA message {message_type}, retrying")
                 packets_lost += 1
                 continue
 
@@ -373,7 +373,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         last_window_size = chunk_id % WINDOW_SIZE if (chunk_id % WINDOW_SIZE) != 0 else WINDOW_SIZE
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
 
-        nrf.send_DATA_message(struct.pack(f"<{len(header)}s", header))
+        nrf.send_DATA_message(struct.pack(f"<{len(header)}s", header), "HEADER")
 
         while not nrf.data_ready():
             pass
