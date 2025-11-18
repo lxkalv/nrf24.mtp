@@ -284,7 +284,7 @@ def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
             
             try:
                 nrf.wait_until_sent()
-            
+                print("Passed the wait Until sent")
             except TimeoutError:
                 INFO(f"Time-out while sending DATA message {message_type}, retrying")
                 packets_lost += 1
@@ -545,7 +545,7 @@ def main():
 
     role = choose_node_role()
     choose_address_based_on_role(role, nrf)
-    #enable_noack_command()
+    enable_noack_command()
     INFO("EN_AA after disabling again:")
     nrf.show_registers()  # opcional, para comprobar que EN_AA=0
 
