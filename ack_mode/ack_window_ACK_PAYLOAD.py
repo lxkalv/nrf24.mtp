@@ -545,7 +545,7 @@ def main():
 
     role = choose_node_role()
     choose_address_based_on_role(role, nrf)
-    _able_auto_ack()
+    _able_auto_ack(nrf)
     enable_noack_command()
     INFO("EN_AA after disabling again:")
     nrf.show_registers()  # opcional, para comprobar que EN_AA=0
