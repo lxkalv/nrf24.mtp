@@ -239,6 +239,7 @@ def send_no_ack(data):
 
         nrf._nrf_command([nrf.W_TX_PAYLOAD_NO_ACK] + data)
         nrf.power_up_tx()
+        print("No ACK Message sent")
 
 # =================================================================================
 
@@ -251,36 +252,7 @@ def send_no_ack(data):
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-def _send_ack_packet(extracted_window: int) -> None:
-    ack = extracted_window.to_bytes(ID_WIND_BYTES, "big")                                    # build 32B: "ACK" 
-    nrf.send(ack)
-    print(f"Sent ACK for window {extracted_window}")
 
-
-def _wait_for_ack(timeout_s: float, current_window: int) -> bool:
-    t0 = time.monotonic() 
-    while (time.monotonic() - t0) < timeout_s: 
-        if nrf.data_ready():
-            pkt = nrf.get_payload()
-
-            try:
-                extracted_window = int.from_bytes(pkt[0:ID_WIND_BYTES], "big")
-
-            except Exception as e:
-                ERROR(f"ACK corrupto o inválido: {e}. Descartando.")
-                continue 
-
-            print(f"Received ACK for window {extracted_window}")
-
-            if extracted_window == current_window:
-                print(f'Recieved the correct ACK') 
-                return True
-
-            else: 
-                print(f'Expected ACK for {current_window}, got {extracted_window}. Discarding.')
-        else:
-            time.sleep(0.0001)
-    return False
 
 # --- helpers arriba de BEGIN_RECEIVER_MODE ---
 def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
@@ -308,6 +280,7 @@ def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
             # nrf.flush_tx()
             nrf.reset_packages_lost()
             nrf.send(DATA_MESSAGE)
+            print("ACK Message sent")
             
             try:
                 nrf.wait_until_sent()
