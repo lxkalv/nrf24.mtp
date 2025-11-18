@@ -294,7 +294,7 @@ def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
         data = pkt[ID_CHUNK_BYTES:]
         return extracted_window, extracted_chunk, data
 
-def send_DATA_message(data) -> None:
+def send_DATA_message(DATA_MESSAGE : bytes) -> None:
         """
         Continuously send a given data message until we receive the expected ACK
         """
@@ -304,26 +304,26 @@ def send_DATA_message(data) -> None:
         while not message_has_been_sent:
             # status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
             
-            self.flush_rx()
+            nrf.flush_rx()
             # self.flush_tx()
-            self.reset_packages_lost()
-            self.send(DATA_MESSAGE)
+            nrf.reset_packages_lost()
+            nrf.send(DATA_MESSAGE)
             
             try:
-                self.wait_until_sent()
+                nrf.wait_until_sent()
             
             except TimeoutError:
                 WARN(f"Time-out while sending DATA message Page {PageID} Burst {BurstID} Chunk {ChunkID}, retrying")
                 packets_lost += 1
                 continue
 
-            if self.get_packages_lost() == 0:
+            if nrf.get_packages_lost() == 0:
                 message_has_been_sent = True
             
             else:
                 #time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
                 packets_lost += 1
-        
+
         return
 
 
@@ -334,7 +334,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     Transmits the first txt file found in the mounted USB
     """
 
-    INFO('Starting transmission (auto ACK)')
+    INFO('Starting transmission (manual ACK)')
     try:
         # open the file to read
         with open("lorem.txt", "rb") as file:
@@ -342,7 +342,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         content_len = len(content)
         INFO(f'Read {content_len} raw bytes read from file_to_send.txt: {content}')
-        k=0
+        k=0;
         # split the contents into chunks
         chunks = []
         start_val = 0
@@ -373,16 +373,15 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         last_window_size = chunk_id % WINDOW_SIZE if (chunk_id % WINDOW_SIZE) != 0 else WINDOW_SIZE
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
 
-        got_ack_id = False
+        nrf.send_DATA_message(struct.pack(f"<{len(header)}s", header))
 
-        while not got_ack_id:
-            nrf.send(struct.pack(f"<{len(header)}s", header))
-            ...
-        INFO(f"Received ACK for frame")
+        while not nrf.data_ready():
+            pass
 
+        ack_message=nrf.get_payload()
+        #still check writted ACK
 
-
-
+        
         # store the encoded bytes
         packets = []
         for chunk in chunks:
