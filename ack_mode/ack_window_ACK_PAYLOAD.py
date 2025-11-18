@@ -217,16 +217,6 @@ def enable_noack_command(self):
     # Escribir de nuevo FEATURE
     self._nrf_write_reg(self.FEATURE, feature)
 
-def enable_ack_payload(self) -> None:
-
-    self.enable_dynamic_payloads() 
-    feature = self._nrf_read_reg(self.FEATURE, 1)[0]
-    feature |= self.EN_ACK_PAY | self.EN_DPL
-    self._nrf_write_reg(self.FEATURE, feature)
-    nrf_obj.enable_auto_ack(RF24_RX_ADDR.P1)
-    
-    INFO("ACK Payload and Dynamic Payloads enabled on pipe 1 (P1)")
-
 def send_no_ack(self, data):
         # We expect a list of byte values to be sent.  However, popular types
         # such as string, integer, bytes, and bytearray are handled automatically using
@@ -382,6 +372,12 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 for p_idx, pkt in enumerate(window_packet):
                     if p_idx == WINDOW_SIZE-1:
                         nrf.send(pkt)
+                        try:
+                            self.wait_until_sent()
+                        except TimeoutError:
+                            WARN(f"Time-out while sending last Window Data Message")
+                        continue
+                        ack_package=self.get_packages_lost()
                     else:
                         nrf.send_no_ack(pkt)
                     time.sleep(0.001)  # Small delay between packets
