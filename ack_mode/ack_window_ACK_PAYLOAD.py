@@ -398,8 +398,11 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             while attempt <= MAX_ATTEMPTS:          # Manual attempts
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet):
-                    if p_idx == WINDOW_SIZE-1:
+                    if (p_idx == WINDOW_SIZE-1) or  (current_window==total_wind-1 and p_idx == last_window_size-1):
                         send_DATA_message(pkt, current_window)
+                        ack_message=nrf.get_payload()
+                        #still check writted ACK
+                        
                     else:
                         send_no_ack(pkt)
                     time.sleep(0.001)  # Small delay between packets
