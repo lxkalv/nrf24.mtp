@@ -294,7 +294,7 @@ def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
         data = pkt[ID_CHUNK_BYTES:]
         return extracted_window, extracted_chunk, data
 
-def send_DATA_message(nrf,nrf, DATA_MESSAGE : bytes, message_type) -> None:
+def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
         """
         Continuously send a given data message until we receive the expected ACK
         """
