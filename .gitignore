@@ -1,6 +1,5 @@
 **/tests/**
 **/examples/**
-test*
 tests*
 *.egg-info/
 *.egg-info
