@@ -216,6 +216,7 @@ def enable_noack_command():
     feature |= nrf.EN_DYN_ACK
     # Escribir de nuevo FEATURE
     nrf._nrf_write_reg(nrf.FEATURE, feature)
+enable_noack_command()
 
 def send_no_ack(self, data):
         # We expect a list of byte values to be sent.  However, popular types
