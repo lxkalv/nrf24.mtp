@@ -185,7 +185,7 @@ nrf.set_crc_bytes(2)
 
 
 # global payload 
-nrf.set_payload_size(0) # [1 - 32] Bytes, NOTE: 0 is dynamic
+nrf.set_payload_size(-1) # [1 - 32] Bytes, NOTE: 0 is dynamic
 payload:list[bytes] = []
 
 
