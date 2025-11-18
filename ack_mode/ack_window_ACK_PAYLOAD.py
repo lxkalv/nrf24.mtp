@@ -191,7 +191,7 @@ payload:list[bytes] = []
 
 
 # auto-retries
-# nrf.set_retransmission(1, 15) # Retransmitting (1+1)*250ms and just 15 times will try it. Automatic ACKs
+nrf.set_retransmission(1, 15) # Retransmitting (1+1)*250ms and just 15 times will try it. Automatic ACKs
 
 
 # Tx/Rx addresses
@@ -202,12 +202,10 @@ nrf.set_address_bytes(4) # [2 - 5] Bytes
 
 
 # === DISABLE HARDWARE AUTO-ACK (EN_AA=0) TO MAKE MANUAL ACKs =========
-#def _disable_auto_ack(nrf_obj):
-#   nrf_obj.unset_ce()
-#   nrf_obj._nrf_write_reg(nrf_obj.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
-#   nrf_obj.set_ce()
-
- #   nrf_obj.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
+def _able_auto_ack(nrf_obj):
+    nrf_obj.unset_ce()
+    nrf_obj._nrf_write_reg(nrf_obj.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
+    nrf_obj.set_ce()
 
 def enable_noack_command():
     # Read feature
@@ -289,7 +287,7 @@ def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
                 INFO(f"Time-out while sending DATA message {message_type}, retrying")
                 packets_lost += 1
                 continue
-
+            
             if nrf.get_packages_lost() == 0:
                 message_has_been_sent = True
             
@@ -368,8 +366,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         
                         print(f"We are at the matha poulet last chunck of the window message {p_idx}")
                         send_DATA_message(nrf, pkt, current_window)
+                        print("Send data")
                         while not nrf.data_ready() :
                             pass
+                        print("Passed nrfdataready")
                         ack_message=nrf.get_payload()
 
                         print(f"I have sent all the fucking message {ack_message}")
@@ -545,6 +545,7 @@ def main():
 
     role = choose_node_role()
     choose_address_based_on_role(role, nrf)
+    _able_auto_ack()
     enable_noack_command()
     INFO("EN_AA after disabling again:")
     nrf.show_registers()  # opcional, para comprobar que EN_AA=0
