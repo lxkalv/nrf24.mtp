@@ -392,17 +392,19 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet):
                     if (p_idx == WINDOW_SIZE-1) or  (current_window==total_wind-1 and p_idx == last_window_size-1):
+                        print("Estamos enviando ultima ventana")
                         send_DATA_message(nrf, pkt, current_window)
                         while not nrf.data_ready() :
                             pass
                         ack_message=nrf.get_payload()
 
                     else:
+                        print("Estamos enviando una ventana normal pullet")
                         send_no_ack(pkt)
                         time.sleep(0.001)  # Small delay between packets
 
-
-                if ack_message != b"ERROR": 
+                print(f"I have sent all the fucking message {ack_message}")
+                if ack_message == b"OK": 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt-1} | rtt={ack_rtt_ms:.2f} ms")
                     break
@@ -411,7 +413,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     attempt += 1
 
 
-            if ack_message == b"OK":
+            if ack_message == b"ERROR":
                 ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
                 break
 
