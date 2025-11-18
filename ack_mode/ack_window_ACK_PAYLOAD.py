@@ -393,7 +393,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 for p_idx, pkt in enumerate(window_packet):
                     if (p_idx == WINDOW_SIZE-1) or  (current_window==total_wind-1 and p_idx == last_window_size-1):
                         
-                        print("fWe are at the matha poulet last chunck of the window message {p_idx}")
+                        print(f"We are at the matha poulet last chunck of the window message {p_idx}")
                         send_DATA_message(nrf, pkt, current_window)
                         while not nrf.data_ready() :
                             pass
