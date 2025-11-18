@@ -84,7 +84,7 @@ class TRX(NRF24):
         self.set_channel(self.CHANNEL)
         self.set_data_rate(self.DATA_RATE)
         self.set_pa_level(self.PA_LEVEL)
-        self.set_crc_length(self.CRC_BYTES)
+        self.set_crc_bytes(self.CRC_BYTES)
         self.set_payload_size(self.PAYLOAD_SIZE)
         self.set_retransmission(self.RETRANSMISSION_DELAY, self.RETRANSMISSION_TRIES)
         self.set_address_bytes(self.ADDRESS_BYTE_LENGTH)
