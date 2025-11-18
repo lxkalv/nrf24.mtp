@@ -375,12 +375,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         nrf.send_DATA_message(struct.pack(f"<{len(header)}s", header), "HEADER")
 
-        while not nrf.data_ready():
-            pass
-
-        ack_message=nrf.get_payload()
-        #still check writted ACK
-
 
         # store the encoded bytes
         packets = []
@@ -393,38 +387,31 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         while current_window < total_wind:
             start = time.monotonic()
             attempt = 1
-            sent_ok = False
             window_packet = packets[current_chunk:current_chunk+WINDOW_SIZE]
             while attempt <= MAX_ATTEMPTS:          # Manual attempts
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet):
                     if (p_idx == WINDOW_SIZE-1) or  (current_window==total_wind-1 and p_idx == last_window_size-1):
                         send_DATA_message(pkt, current_window)
+                        while not nrf.data_ready() :
+                            pass
                         ack_message=nrf.get_payload()
-                        #still check writted ACK
-                        
+
                     else:
                         send_no_ack(pkt)
-                    time.sleep(0.001)  # Small delay between packets
-                try:
-                    nrf.power_up_rx() 
-                    got_ack = _wait_for_ack(ACK_TIMEOUT_S, current_window)    # Listen to RX for ACK
-                except TimeoutError:
-                    ERROR(f"Timeout while transmitting packet in window at local index {current_chunk+p_idx}")
-                # Wait for the reception of the ACK. Cumulative ACK of the last seq_id
+                        time.sleep(0.001)  # Small delay between packets
 
 
-                if got_ack: 
+                if ack_message != "ERROR": 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt-1} | rtt={ack_rtt_ms:.2f} ms")
-                    sent_ok = True
                     break
                 else:
                     ERROR(f"No manual ACK for the window seq={current_window}")
                     attempt += 1
 
 
-            if not sent_ok:
+            if ack_message == "ERROR":
                 ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
                 break
 
@@ -471,11 +458,6 @@ def BEGIN_RECEIVER_MODE() -> None:
 
             print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
 
-            time.sleep(ACK_WAIT )
-            _send_ack_packet(0)
-            nrf.power_up_rx()
-
-            print(f"ACK sent for header packet")
             tic = time.monotonic()
             break
 
@@ -505,47 +487,42 @@ def BEGIN_RECEIVER_MODE() -> None:
                     window_chunks.append(chunk)
                     SUCC(f"Received chunk {extracted_chunk + 1}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {expected_window}")
 
-                    if (extracted_window!=expected_window) and ((expected_chunk_in_window == WINDOW_SIZE) or ((extracted_window == total_wind-1) and (expected_chunk_in_window == last_window_size))):        
+                    if len(window_chunks) == WINDOW_SIZE or ((expected_window == total_wind-1) and (len(window_chunks) == last_window_size)):
                         # --- SEND ACK --------------------------------  
-                        time.sleep(ACK_WAIT)         
-                        _send_ack_packet(extracted_window)                  
-                        nrf.power_up_rx()                 
+                        nrf.ack_payload(f"OK for {extracted_window}")               
                         # ---------------------------------------------
-                        window_chunks.clear()
-                        SUCC(f"ACK send for window {extracted_window} / {total_wind} we wait for window {expected_window}")
-                        expected_chunk_in_window = 0
-                    # if window completed
-                    elif (expected_window != total_wind-1) and (expected_chunk_in_window == WINDOW_SIZE):                
-                        # --- SEND ACK --------------------------------  
-                        time.sleep(ACK_WAIT )                
-                        _send_ack_packet(extracted_window)                  
-                        nrf.power_up_rx()                 
-                        # ---------------------------------------------
-                        SUCC(f"ACK send for window {expected_window} / {total_wind}")
 
-                        expected_window +=1
-                        chunks.extend(window_chunks)
-                        window_chunks.clear()
+                        # if we already recieved the complete window
+                        if (extracted_window!=expected_window):        
+                            
+                            window_chunks.clear()
+                            SUCC(f"ACK send for window {extracted_window} / {total_wind} we wait for window {expected_window}")
+                            expected_chunk_in_window = 0
 
+                        # last window completed
+                        elif (expected_window == total_wind-1) :
+                            
+                            expected_window +=1
+                            chunks.extend(window_chunks)
+                            SUCC(f"ACK send for last window ({expected_window} / {total_wind})")
+                            break
 
-                        expected_chunk_in_window = 0
-                    # last window completed
-                    elif (expected_window == total_wind-1) and (expected_chunk_in_window == last_window_size) :
-                        # --- SEND ACK --------------------------------                 
-                        # --- SEND ACK --------------------------------     
-                        time.sleep(ACK_WAIT)            
-                        _send_ack_packet(extracted_window)                  
-                        nrf.power_up_rx()                 
-                        # ---------------------------------------------
-                        expected_window +=1
-                        chunks.extend(window_chunks)
-                        SUCC(f"ACK send for last window ({expected_window} / {total_wind})")
-                        break
+                        # if window completed
+                        else:                
+                        
+                            SUCC(f"ACK send for window {expected_window} / {total_wind}")
+
+                            expected_window +=1
+                            chunks.extend(window_chunks)
+                            window_chunks.clear()
+                            expected_chunk_in_window = 0
+
                     tic = time.monotonic()
 
                 else:
                     ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
+                    nrf.ack_payload("ERROR")
                     tic = time.monotonic()
 
 
