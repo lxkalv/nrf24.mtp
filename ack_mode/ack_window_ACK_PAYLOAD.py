@@ -304,7 +304,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
     Transmits the first txt file found in the mounted USB
     """
 
-    INFO('Starting transmission (manual ACK)')
+    INFO('Starting transmission (auto ACK)')
     try:
         # open the file to read
         with open("lorem.txt", "rb") as file:
@@ -312,7 +312,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         content_len = len(content)
         INFO(f'Read {content_len} raw bytes read from file_to_send.txt: {content}')
-        k=0;
+        k=0
         # split the contents into chunks
         chunks = []
         start_val = 0
@@ -347,8 +347,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         while not got_ack_id:
             nrf.send(struct.pack(f"<{len(header)}s", header))
-            nrf.power_up_rx() 
-            got_ack_id = _wait_for_ack(ACK_TIMEOUT_S,0)
+            ...
         INFO(f"Received ACK for frame")
 
 
