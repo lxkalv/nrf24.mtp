@@ -175,8 +175,6 @@ def parse_arguments(mode_name: str) -> dict | None:
             Logger.ERROR(f"Invalid channel \"{args.channel}\". Must in the range 0..125")
             return None
 
-
-
     if args.data_rate == "250KBPS":
         args.data_rate = RF24_DATA_RATE.RATE_250KBPS
     elif args.data_rate == "1MBPS":
