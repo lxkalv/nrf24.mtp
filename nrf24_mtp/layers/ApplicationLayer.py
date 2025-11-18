@@ -58,14 +58,14 @@ class Mode(Enum):
 
 
 
-def parse_arguments(mode_name: str) -> dict:
+def parse_arguments(mode_name: str) -> dict | None:
     """
     Parses the user input to configure the radio object and the transfer parameters
     """
 
-    parser = argparse.ArgumentParser(description = mode_name)
+    parser = argparse.ArgumentParser(description = f"{mode_name} Mode")
 
-    # configure the possible communication arguments
+    # Definition of each of the possible configuration arguments
     parser.add_argument(
         "--mode",
         type     = str,
@@ -91,17 +91,15 @@ def parse_arguments(mode_name: str) -> dict:
     parser.add_argument(
         "--ce-pin",
         type    = int,
-        choices = range(32),
         default = 22,
-        help    = "Sets the GPIO pin used for CE (default: 22)",
+        help    = "Sets the GPIO pin used for CE (0..31, default: 22)",
     )
 
     parser.add_argument(
         "--channel",
         type    = int,
         default = 76,
-        choices = range(126),
-        help    = "Sets the RF channel to be used (default: 76)",
+        help    = "Sets the RF channel to be used (0..125, default: 76)",
     )
 
     parser.add_argument(
@@ -123,25 +121,22 @@ def parse_arguments(mode_name: str) -> dict:
     parser.add_argument(
         "--crc-bytes",
         type    = int,
-        choices = [0, 1, 2],
         default = 2,
-        help    = "Sets the number of CRC bytes (default: 2)",
+        help    = "Sets the number of CRC bytes (0..2, default: 2)",
     )
 
     parser.add_argument(
         "--retransmission-tries",
         type    = int,
-        choices = range(16),
         default = 15,
-        help    = "Sets the number of retransmission tries (default: 15)",
+        help    = "Sets the number of retransmission tries (0..15, default: 15)",
     )
 
     parser.add_argument(
         "--retransmission-delay",
         type    = int,
-        choices = range(16),
         default = 2,
-        help    = "Sets the retransmission delay (default: 2)",
+        help    = "Sets the retransmission delay (0..15, default: 2)",
     )
 
     parser.add_argument(
@@ -156,10 +151,12 @@ def parse_arguments(mode_name: str) -> dict:
         help   = "If set, the radio configuration will be printed before starting",
     )
 
-    # parse the user input
+
+    # Parse the user input
     args = parser.parse_args()
 
-    # NOTE: some arguments require processing before generating the radio object
+
+    # Process and validate the arguments that need it
     args.mode = Mode(args.mode)
 
     if args.file_path_tx:
@@ -167,6 +164,19 @@ def parse_arguments(mode_name: str) -> dict:
 
     if args.file_path_rx:
         args.file_path_rx = Path(args.file_path_rx).resolve()
+
+    if args.ce_pin:
+        if not (0 <= args.ce_pin and args.ce_pin <= 31):
+            Logger.ERROR(f"Invalid CE pin \"{args.ce_pin}\". Must in the range 0..31")
+            return None
+            
+
+    if args.channel:
+        if not (0 <= args.channel and args.channel <= 125):
+            Logger.ERROR(f"Invalid channel \"{args.channel}\". Must in the range 0..125")
+            return None
+
+
 
     if args.data_rate == "250KBPS":
         args.data_rate = RF24_DATA_RATE.RATE_250KBPS
@@ -190,7 +200,20 @@ def parse_arguments(mode_name: str) -> dict:
         args.crc_bytes = RF24_CRC.BYTES_1
     elif args.crc_bytes == 2:
         args.crc_bytes = RF24_CRC.BYTES_2
-
+    else:
+        Logger.ERROR(f"Invalid CRC Bytes \"{args.crc_bytes}\". Must in the range 0..2")
+        return None
+    
+    if args.retransmission_tries:
+        if not (0 <= args.retransmission_tries and args.retransmission_tries <= 15):
+            Logger.ERROR(f"Invalid Retransmission Tries \"{args.retransmission_tries}\". Must in the range 0..15")
+            return None
+    
+    if args.retransmission_delay:
+        if not (0 <= args.retransmission_delay and args.retransmission_delay <= 15):
+            Logger.ERROR(f"Invalid Retransmission Delay \"{args.retransmission_delay}\". Must in the range 0..15")
+            return None
+    
     if args.print_config:
         Logger.INFO(f"Radio Configuration:")
         Logger.INFO(f"Operation Mode: {args.mode}")
