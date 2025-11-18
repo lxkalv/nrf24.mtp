@@ -294,7 +294,7 @@ def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
         data = pkt[ID_CHUNK_BYTES:]
         return extracted_window, extracted_chunk, data
 
-def send_DATA_message(DATA_MESSAGE : bytes, message_type) -> None:
+def send_DATA_message(nrf,nrf, DATA_MESSAGE : bytes, message_type) -> None:
         """
         Continuously send a given data message until we receive the expected ACK
         """
@@ -373,7 +373,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         last_window_size = chunk_id % WINDOW_SIZE if (chunk_id % WINDOW_SIZE) != 0 else WINDOW_SIZE
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
 
-        nrf.send_DATA_message(struct.pack(f"<{len(header)}s", header), "HEADER")
+        send_DATA_message(nrf,struct.pack(f"<{len(header)}s", header), "HEADER")
 
 
         # store the encoded bytes
@@ -392,7 +392,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet):
                     if (p_idx == WINDOW_SIZE-1) or  (current_window==total_wind-1 and p_idx == last_window_size-1):
-                        send_DATA_message(pkt, current_window)
+                        send_DATA_message(nrf, pkt, current_window)
                         while not nrf.data_ready() :
                             pass
                         ack_message=nrf.get_payload()
