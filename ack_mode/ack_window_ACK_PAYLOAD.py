@@ -402,7 +402,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         time.sleep(0.001)  # Small delay between packets
 
 
-                if ack_message != "ERROR": 
+                if ack_message != b"ERROR": 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt-1} | rtt={ack_rtt_ms:.2f} ms")
                     break
@@ -411,7 +411,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     attempt += 1
 
 
-            if ack_message == "ERROR":
+            if ack_message == b"OK":
                 ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
                 break
 
@@ -489,7 +489,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                     if len(window_chunks) == WINDOW_SIZE or ((expected_window == total_wind-1) and (len(window_chunks) == last_window_size)):
                         # --- SEND ACK --------------------------------  
-                        nrf.ack_payload(f"OK for {extracted_window}")               
+                        nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")               
                         # ---------------------------------------------
 
                         # if we already recieved the complete window
@@ -522,7 +522,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 else:
                     ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
-                    nrf.ack_payload("ERROR")
+                    nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
                     tic = time.monotonic()
 
 
