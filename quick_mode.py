@@ -13,6 +13,10 @@ import struct
 import shutil
 import time
 import sys
+import os
+
+os.system("clear")
+os.system("sudo pigpiod")
 
 from enum import Enum
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -27,9 +31,6 @@ CE_PIN = 22
 RECEIVER_TIMEOUT_S = 20
 
 USB_MOUNT_PATH = Path("/media")
-
-spinner     = "⣾⣽⣻⢿⡿⣟⣯⣷"
-IDX_SPINNER = [0]
 
 DATA_SIZE = 32
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -100,45 +101,6 @@ def INFO(message: str, end = "\n") -> None:
     Prints a message to the console with the blue prefix `[INFO]:`
     """
     print(f"{BLUE('[INFO]:')} {message}", end = end)
-
-
-
-def reset_line() -> None:
-    """
-    Delete the last CMD line
-    """
-
-    print("\x1b[2K\r", end = "")
-    
-    return
-
-
-
-def progress_bar(active_msg: str, finished_msg: str, current_status: int, max_status: int) -> None:
-    """
-    Create a progress bar that gets updated everytime this function is called
-    """
-    
-    terminal_width  = shutil.get_terminal_size().columns
-    IDX_SPINNER[0] += 1
-    spin            = spinner[IDX_SPINNER[0] % len(spinner)]
-    progress        = f"({current_status}/{max_status}) {spin}"
-
-    if current_status < max_status:
-        progress = f"({current_status}/{max_status}) {spin}"
-
-        reset_line()
-        INFO(f"{active_msg} {progress.rjust(terminal_width - 8 - len(active_msg) - 2)}", end = "")
-        sys.stdout.flush()
-        
-    
-    else:
-        progress = f"({current_status}/{max_status}) █"
-
-        reset_line()
-        SUCC(f"{finished_msg} {progress.rjust(terminal_width - 8 - len(finished_msg) - 2)}")
-    
-    return
 
 
 
@@ -339,83 +301,67 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
     INFO("Starting transmission")
 
+    file_path = find_usb_txt_file()
+    
+    # open the file to read
+    with open(file_path, "rb") as file:
+        content = file.read()
+
+    content_len = len(content)
+    INFO(f"Read {content_len} raw bytes read from {file_path}")
+
+
+    # split the contents into chunks
+    chunks = [
+        content[i:i+DATA_SIZE]
+        for i in range(0, content_len, DATA_SIZE)
+    ]
+    chunks_len = len(chunks)
+
+
+    # store the encoded bytes
+    packets = []
+    for chunk in chunks:
+        packets.append(struct.pack(f"<{len(chunk)}s", chunk))
+
+
+    # send and information message containing the expected number of frames
+    frame = struct.pack("i", chunks_len)
+
+    nrf.reset_packages_lost()
+    nrf.send(frame)
+
+    # TODO: maybe we should wrap this in an infinite loop
     try:
-        file_path = find_usb_txt_file()
+        nrf.wait_until_sent()
+        SUCC("Header sent successfully")
+    except TimeoutError:
+        ERROR("Timeout while sending header")
+
+    # send the rest of the frames
+    for idx in range(chunks_len):
         
-        # open the file to read
-        with open(file_path, "rb") as file:
-            content = file.read()
+        # NOTE: we try to send the same frame until it gets sent correctly
+        while True:
+            if idx % 100 == 0:
+                INFO(f"Sending frame {idx}")
 
-        content_len = len(content)
-        INFO(f"Read {content_len} raw bytes read from {file_path}")
+            nrf.reset_packages_lost()
+            nrf.send(packets[idx])
 
+            try:
+                nrf.wait_until_sent()
+                
+            except TimeoutError:
+                ERROR("Timeout while transmitting")
 
-        # split the contents into chunks
-        chunks = [
-            content[i:i+DATA_SIZE]
-            for i in range(0, content_len, DATA_SIZE)
-        ]
-        chunks_len = len(chunks)
+            if nrf.get_packages_lost() == 0:
+                break
 
+            else:
+                ERROR(f"Lost packet {idx}, retrying...")
 
-        # store the encoded bytes
-        packets = []
-        for chunk in chunks:
-            packets.append(struct.pack(f"<{len(chunk)}s", chunk))
-
-
-        # send and information message containing the expected number of frames
-        frame = struct.pack("i", chunks_len)
-
-        nrf.reset_packages_lost()
-        nrf.send(frame)
-
-        # TODO: maybe we should wrap this in an infinite loop
-        try:
-            nrf.wait_until_sent()
-            SUCC("Header sent successfully")
-        except TimeoutError:
-            ERROR("Timeout while sending header")
-
-        total_retries = 0
-        # send the rest of the frames
-        for idx in range(chunks_len):
-
-            num_retries = 0
-            
-            # NOTE: we try to send the same frame until it gets sent correctly
-            while True:
-                progress_bar(
-                    active_msg     = f"Sending frame {idx}, retries {num_retries}",
-                    finished_msg   = f"All frames sent",
-                    current_status = idx + 1,
-                    max_status     = chunks_len,
-                )
-
-                nrf.reset_packages_lost()
-                nrf.send(packets[idx])
-
-                try:
-                    nrf.wait_until_sent()
-                    
-                except TimeoutError:
-                    ERROR("Timeout while transmitting")
-
-                if nrf.get_packages_lost() == 0:
-                    break
-
-                else:
-                    ERROR(f"Lost packet {idx}, retrying...")
-                    retries_now = nrf.get_retries()
-                    num_retries += nrf.get_retries()
-                    total_retries += retries_now
-        INFO(f"Transmision finalized. Total retries: {total_retries}")
-    except KeyboardInterrupt:
-        ERROR("Process interrupted by user")
-
-    finally:
-        nrf.power_down()
-        pi.stop()
+    SUCC(f"Transmision finalized")
     
     return
 
@@ -449,102 +395,89 @@ def BEGIN_RECEIVER_MODE() -> None:
 
     INFO(f"Starting reception: {RECEIVER_TIMEOUT_S} seconds time-out")
 
-    try:
-        # list that will contain all the received chunks
-        chunks:list[str] = []
+    # list that will contain all the received chunks
+    chunks:list[str] = []
 
 
-        # wait for the first frame of the communication containing the expected number
-        # of frames and extract its contents
-        INFO("Waiting for header packet...")
-        while not nrf.data_ready():
-            pass
+    # wait for the first frame of the communication containing the expected number
+    # of frames and extract its contents
+    INFO("Waiting for header packet...")
+    while not nrf.data_ready():
+        pass
 
-        header_packet = nrf.get_payload()
-        total_chunks  = struct.unpack("i", header_packet[:4])[0] # NOTE: the default size of an int is 4 bytes
-        SUCC(f"Header received: expecting {total_chunks} chunks")
+    header_packet = nrf.get_payload()
+    total_chunks  = struct.unpack("i", header_packet[:4])[0] # NOTE: the default size of an int is 4 bytes
+    SUCC(f"Header received: expecting {total_chunks} chunks")
 
 
-        # start listening for frames
-        received_chunks   = 0 # NOTE: not the ID
-        timer_has_started = False
+    # start listening for frames
+    received_chunks   = 0 # NOTE: not the ID
+    timer_has_started = False
 
-        tic = time.monotonic()
+    tic = time.monotonic()
+    tac = time.monotonic()
+    while received_chunks < total_chunks and (tac - tic) < RECEIVER_TIMEOUT_S:
         tac = time.monotonic()
-        while received_chunks < total_chunks and (tac - tic) < RECEIVER_TIMEOUT_S:
-            tac = time.monotonic()
 
-            # check if there are frames
-            while nrf.data_ready():
+        # check if there are frames
+        while nrf.data_ready():
 
-                if not timer_has_started:
-                    throughput_tic = time.monotonic()
-                    timer_has_started = True
+            if not timer_has_started:
+                throughput_tic = time.monotonic()
+                timer_has_started = True
 
-                packet = nrf.get_payload()
+            packet = nrf.get_payload()
 
-                chunk = struct.unpack(f"<{len(packet)}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
-                chunks.append(chunk)
-                
+            chunk = struct.unpack(f"<{len(packet)}s", packet)[0] # NOTE: the struct.unpack method returs more things than just the data
+            chunks.append(chunk)
+            received_chunks += 1
 
-                # display the progress of the transmission
-                received_chunks += 1
-                progress_bar(
-                    active_msg     = f"Receiving chunks",
-                    finished_msg   = f"All chunks received",
-                    current_status = received_chunks,
-                    max_status     = total_chunks,
-                )
-            
-                tic = time.monotonic()
-            
-        throughput_tac = time.monotonic()
-        if tac - tic < RECEIVER_TIMEOUT_S:
-            total_time = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
-        else:
-            total_time = throughput_tac - throughput_tic
-        chunks_len     = len(chunks)
-
-
-        if received_chunks != total_chunks:
-            WARN("Connection timed-out")
+            # display the progress of the transmission
+            if received_chunks % 100 == 0:
+                INFO(f"Receiving frame {received_chunks}")
         
-
-        if chunks_len == 0:
-            ERROR("Did not receive anything")
-            return
+            tic = time.monotonic()
         
+    throughput_tac = time.monotonic()
+    if tac - tic < RECEIVER_TIMEOUT_S:
+        total_time = throughput_tac - throughput_tic - RECEIVER_TIMEOUT_S
+    else:
+        total_time = throughput_tac - throughput_tic
+    chunks_len     = len(chunks)
 
-        # merge all the received bytes
-        INFO("Constructing file...")
-        content = b"".join(chunks)        
-        
-        # get the location where the file is going to be stored
-        usb_mount_point = find_usb_mount_point()
 
-        if usb_mount_point:
-            file_path = usb_mount_point / "received_file.txt"
-        else:
-            file_path = "received_file.txt"
-        
-
-        # store the file
-        with open(file_path, "wb") as f:
-            f.write(content)
-        content_len = len(content)
-        INFO(f"Saved {content_len} bytes to: {file_path}")
-        
-
-        # show a last information message with the througput
-        INFO(f"Process finished in {total_time:.2f} seconds | Computed throughput: {((content_len / 1024) / total_time):.2f} KBps")
+    if received_chunks != total_chunks:
+        WARN("Connection timed-out")
     
-    except KeyboardInterrupt:
-        ERROR("Process interrupted by user")
 
-    finally:
-        nrf.power_down()
-        pi.stop()
+    if chunks_len == 0:
+        ERROR("Did not receive anything")
+        return
+    
 
+    # merge all the received bytes
+    INFO("Constructing file...")
+    content = b"".join(chunks)        
+    
+    # get the location where the file is going to be stored
+    usb_mount_point = find_usb_mount_point()
+
+    if usb_mount_point:
+        file_path = usb_mount_point / "received_file.txt"
+    else:
+        file_path = "received_file.txt"
+    
+
+    # store the file
+    with open(file_path, "wb") as f:
+        f.write(content)
+    content_len = len(content)
+    INFO(f"Saved {content_len} bytes to: {file_path}")
+    
+
+    # show a last information message with the througput
+    INFO(f"Process finished in {total_time:.2f} seconds | Computed throughput: {((content_len / 1024) / total_time):.2f} KBps")
+    
     return
 
 
@@ -594,4 +527,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        ERROR("Process interrupted by the user")
+    finally:
+        nrf.power_down()
+        os.system("sudo killall pigpiod")
