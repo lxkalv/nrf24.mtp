@@ -294,7 +294,37 @@ def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
         data = pkt[ID_CHUNK_BYTES:]
         return extracted_window, extracted_chunk, data
 
+def send_DATA_message(data) -> None:
+        """
+        Continuously send a given data message until we receive the expected ACK
+        """
+        message_has_been_sent = False
+        packets_lost          = 0
 
+        while not message_has_been_sent:
+            # status_bar(f"Sending DATA message: {PageID:02d}|{BurstID:03d}|{ChunkID:03d}|{packets_lost}", "INFO")
+            
+            self.flush_rx()
+            # self.flush_tx()
+            self.reset_packages_lost()
+            self.send(DATA_MESSAGE)
+            
+            try:
+                self.wait_until_sent()
+            
+            except TimeoutError:
+                WARN(f"Time-out while sending DATA message Page {PageID} Burst {BurstID} Chunk {ChunkID}, retrying")
+                packets_lost += 1
+                continue
+
+            if self.get_packages_lost() == 0:
+                message_has_been_sent = True
+            
+            else:
+                #time.sleep(250e-6 * self.RETRANSMISSION_DELAY)
+                packets_lost += 1
+        
+        return
 
 
 
