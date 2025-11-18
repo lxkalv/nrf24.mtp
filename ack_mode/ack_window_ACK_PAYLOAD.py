@@ -216,7 +216,6 @@ def enable_noack_command():
     feature |= nrf.EN_DYN_ACK
     # Escribir de nuevo FEATURE
     nrf._nrf_write_reg(nrf.FEATURE, feature)
-enable_noack_command()
 
 def send_no_ack(data):
         # We expect a list of byte values to be sent.  However, popular types
@@ -592,7 +591,7 @@ def main():
 
     role = choose_node_role()
     choose_address_based_on_role(role, nrf)
-    _disable_auto_ack(nrf)
+    enable_noack_command()
     INFO("EN_AA after disabling again:")
     nrf.show_registers()  # opcional, para comprobar que EN_AA=0
 
