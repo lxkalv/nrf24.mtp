@@ -59,5 +59,5 @@ def timestamp() -> str:
     """
     Returns the current date and time as a formatted string
     """
-    return datetime.datetime.now().strftime("%Y-%m-%d_%H:%M:%S.%f")[:-3]
+    return datetime.datetime.now().strftime("%Y-%m-%d___%H-%M-%S.%f")[:-3]
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
