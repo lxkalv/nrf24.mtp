@@ -6,22 +6,21 @@ Interface between the user and the Transfer protocol.
 ```
 IO
                         ┌───────────────────┐
-RADIO CONFIGURATION  ─> │                   │ ─> RADIO OBJECT
-   FILE TO TRANSMIT* ─> │                   │ ─> BYTES TO TRANSMIT*
+RADIO CONFIGURATION  ─> │                   │ ─> RADIO OBJECT 
                         │ APPLICATION LAYER │
-      FILE TO STORE* <─ │                   │ <─ BYTES TO STORE*
+        FILE HANDLE <─> │                   │ <─> FILE BYTES
                         └───────────────────┘
 ```
 
 ##### Inputs
 - RADIO CONFIGURATION: Configuration parameters for the radio object
-- FILE TO TRANSMIT*: Path to a file to be transmitted (only for TX mode)
-- BYTES TO STORE*: Bytes received to be stored in a file (only for RX mode)
 
 ##### Outputs
 - RADIO OBJECT: Configured radio object ready to transmit/receive data
-- BYTES TO TRANSMIT*: Bytes read from the file to be transmitted (only for TX mode)
-- FILE TO STORE*: Path to the file where the received bytes will be stored (only for RX mode)
+
+##### Bidirectional
+- FILE HANDLE: The path to store to or read from
+- FILE BYTES: The bytes to transmit or received
 """
 
 
@@ -305,30 +304,34 @@ def load_file_bytes(file_path: Path) -> bytes | None:
 
 
 
-def store_file_bytes(file_path: Path, data: bytes) -> bool:
+def store_file_bytes(dir_path: Path, data: bytes) -> bool:
     """
-    Stores the given bytes into a file at the specified path
+    Stores the given bytes into a file at the specified directory
     """
 
-    if not file_path:
-        file_path = get_usb_mount_path()
+    # NOTE: If no specific path is provided, we try to store the received bytes into a
+    # USB mount point
+    if not dir_path:
+        dir_path = get_usb_mount_path()
 
-    if not file_path:
+    # NOTE: If no valid USB mount point is found, then we store it into a fallback
+    # directory, the name of the file is always the current timestamp
+    if not dir_path:
         fallback_dir = Path("received_files")
         fallback_dir.mkdir(exist_ok = True)
 
-        file_path = fallback_dir / Logger.timestamp()
+        dir_path = fallback_dir / (Logger.timestamp() + ".txt")
     
     else:
-        file_path = file_path / Logger.timestamp()
+        dir_path = dir_path / (Logger.timestamp() + ".txt")
 
     try:
-        file_path.write_bytes(data)
-        Logger.SUCC(f"Stored {len(data)} bytes into file: {file_path}")
+        dir_path.write_bytes(data)
+        Logger.SUCC(f"Stored {len(data)} bytes into file: {dir_path}")
         return True
 
     except Exception as e:
-        Logger.ERROR(f"Failed to store bytes into file: {file_path} ({e})")
+        Logger.ERROR(f"Failed to store bytes into file: {dir_path} ({e})")
         return False
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
