@@ -10,7 +10,7 @@ import nrf24_mtp.layers.ApplicationLayer as ApplicationLayer
 
 # :::: configure_radio_object() test ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 if True:
-    sys.argv = ["layers_ApplicationLayer_configure_radio_object.py", "--mode", "TX"]
+    sys.argv = ["layers_ApplicationLayer_configure_radio_object.py", "--mode", "TX", "--print-config"]
     Logger.INFO("Test with default config")
     config = ApplicationLayer.parse_arguments("Test")
     radio  = ApplicationLayer.configure_radio_object(config)
