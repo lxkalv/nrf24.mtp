@@ -132,7 +132,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
             if not TX_HAS_STARTED:
                 THROUGHPUT_TIC = time.time()
-            TX_HAS_STARTED = True
+                TX_HAS_STARTED = True
 
         # Transfer FINISH
         elif (frame[0] == 0xFF) and (frame[1] == 0x0F):
@@ -193,7 +193,9 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                     break
 
                 if (tac - tic) >= CHECKSUM_TIMEOUT:
-                    ERROR(f"CHECKSUM timeout for BURST {PageID:02d}|{BurstID:03d}, retrying") 
+                    ERROR(f"CHECKSUM timeout for BURST {PageID:02d}|{BurstID:03d}")
+                    PRX.flush_rx()
+                    PRX.power_up_rx()
 
     return STREAM
 
