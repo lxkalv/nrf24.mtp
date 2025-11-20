@@ -342,7 +342,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             pass
 
         ack_message=nrf.get_payload()  
-        print(f"ACK message recieved correctly. ACK:{ack_message}")
+        print(f"ACK HEADER message recieved correctly. ACK:{ack_message}")
 
 
 
@@ -357,17 +357,14 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
                 for p_idx, pkt in enumerate(window_packet):
                     if (p_idx == WINDOW_SIZE-1) or  (current_window==total_wind-1 and p_idx == last_window_size-1):
-                        
-                        print(f"We are at the matha poulet last chunck of the window message {p_idx}")
+
                         send_DATA_message(nrf, pkt, current_window)
-                        print("passed send_DATA_message")
+
                         while not nrf.data_ready():
                             pass
-                        print("Passed nrfdataready")
 
                         ack_message=nrf.get_payload()
 
-                        print(f"I have sent all the fucking message {ack_message}")
                         if ack_message == b"OK": 
                             ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                             SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt-1} | rtt={ack_rtt_ms:.2f} ms")
