@@ -448,15 +448,13 @@ def BEGIN_RECEIVER_MODE() -> None:
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
                 print(f"Extracted window:{extracted_window} Extracted chunk: {extracted_chunk}")
 
-                if expected_chunk_in_window == extracted_chunk:
+                if expected_chunk_in_window == extracted_chunk and expected_window == extracted_window:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)
                     SUCC(f"Received chunk {extracted_chunk + 1}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {expected_window}")
 
-                    if len(window_chunks) == WINDOW_SIZE or ((expected_window == total_wind-1) and (len(window_chunks) == last_window_size)):
-                        # --- SEND ACK --------------------------------  
-                        nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")               
-                        # ---------------------------------------------
+                    if len(window_chunks) == WINDOW_SIZE or ((expected_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
+                        nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")  
 
                         # if we already recieved the complete window
                         if (extracted_window!=expected_window):        
