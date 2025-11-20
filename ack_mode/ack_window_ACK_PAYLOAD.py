@@ -363,7 +363,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         ack_message=nrf.get_payload()
                     else:
                         send_no_ack(pkt)
-                        time.sleep(0.001)  # Small delay between packets
+                        time.sleep(0.0001)  # Small delay between packets
                 
                 if ack_message == b"OK": 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
