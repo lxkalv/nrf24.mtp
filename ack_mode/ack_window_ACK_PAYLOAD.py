@@ -201,12 +201,6 @@ nrf.set_address_bytes(4) # [2 - 5] Bytes
 
 
 
-# === DISABLE HARDWARE AUTO-ACK (EN_AA=0) TO MAKE MANUAL ACKs =========
-def _able_auto_ack(nrf_obj):
-    nrf_obj.unset_ce()
-    nrf_obj._nrf_write_reg(nrf_obj.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
-    nrf_obj.set_ce()
-
 def enable_noack_command():
     # Read feature
     feature = nrf._nrf_read_reg(nrf.FEATURE, 1)[0]
@@ -271,7 +265,7 @@ def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
             # nrf.flush_tx()
             nrf.reset_packages_lost()
             nrf.send(DATA_MESSAGE)
-            print("ACK Message sent")
+            print("Data Message sent")
             
             try:
                 nrf.wait_until_sent()
@@ -346,6 +340,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         send_DATA_message(nrf,struct.pack(f"<{len(header)}s", header), "HEADER")
         while not nrf.data_ready():
             pass
+
         ack_message=nrf.get_payload()  
         print(f"ACK message recieved correctly. ACK:{ack_message}")
 
@@ -369,7 +364,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         while not nrf.data_ready():
                             pass
                         print("Passed nrfdataready")
-                        
+
                         ack_message=nrf.get_payload()
 
                         print(f"I have sent all the fucking message {ack_message}")
@@ -548,7 +543,6 @@ def main():
 
     role = choose_node_role()
     choose_address_based_on_role(role, nrf)
-    _able_auto_ack(nrf)
     enable_noack_command()
     INFO("EN_AA after disabling again:")
     nrf.show_registers()  # opcional, para comprobar que EN_AA=0
