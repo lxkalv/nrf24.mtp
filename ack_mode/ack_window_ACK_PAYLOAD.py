@@ -241,13 +241,6 @@ def send_no_ack(data):
 
 # =================================================================================
 
-
-# status visualization
-
-# :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-
-
-
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -344,9 +337,12 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         last_window_size = chunk_id % WINDOW_SIZE if (chunk_id % WINDOW_SIZE) != 0 else WINDOW_SIZE
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
 
+        nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")          
         send_DATA_message(nrf,struct.pack(f"<{len(header)}s", header), "HEADER")
 
-
+        while not nrf.data_ready() :
+            pass
+    
         # store the encoded bytes
         packets = []
         for chunk in chunks:
@@ -366,7 +362,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         
                         print(f"We are at the matha poulet last chunck of the window message {p_idx}")
                         send_DATA_message(nrf, pkt, current_window)
-                        print("Send data")
+                        print("passed send_DATA_message")
                         while not nrf.data_ready() :
                             pass
                         print("Passed nrfdataready")
@@ -441,6 +437,8 @@ def BEGIN_RECEIVER_MODE() -> None:
         chunks = []
         window_chunks=[]
         timer_has_started = False
+
+        nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")          
 
         # check if there are frames
         while ((tac - tic) < timeout) and (expected_window < total_wind):
