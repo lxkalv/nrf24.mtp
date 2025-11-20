@@ -361,23 +361,24 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                             pass
 
                         ack_message=nrf.get_payload()
-
-                        if ack_message == b"OK": 
-                            ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
-                            SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt-1} | rtt={ack_rtt_ms:.2f} ms")
-                            break
-                        else:
-                            ERROR(f"No manual ACK for the window seq={current_window}")
-                            attempt += 1
-
                     else:
                         send_no_ack(pkt)
                         time.sleep(0.001)  # Small delay between packets
+                
+                if ack_message == b"OK": 
+                    ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
+                    SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms")
+                    break
+                else:
+                    ERROR(f"No manual ACK for the window seq={current_window}")
+                    attempt += 1
+
 
             if ack_message == b"ERROR":
                 ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
                 break
 
+            
             current_window += 1
             current_chunk += WINDOW_SIZE
 
@@ -445,7 +446,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 packet = nrf.get_payload()
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
-                print(f"Extracted window:{extracted_window} Extracted cunck: {extracted_chunk}")
+                print(f"Extracted window:{extracted_window} Extracted chunk: {extracted_chunk}")
 
                 if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
