@@ -312,6 +312,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         start_val = 0
         chunk_id = 0
 
+        # Create the frame depending on the chunck of the window
         while start_val < content_len:
             # tous les WINDOW_SIZE chunks, on retire ID_WIND_BYTES
             if chunk_id % WINDOW_SIZE == 0:
@@ -326,27 +327,29 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 end_val = min(start_val + size, content_len)
                 ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")  # exactly DATA_BYTES
                 final_content = ident_chunk + content[start_val:end_val]
-
-
             chunks.append(final_content)
             start_val = end_val
             chunk_id += 1
 
-        #chunks_len = len(chunks) # Total number of chunks
+
+        #Creating and sending the first packet
         total_wind = math.ceil(chunk_id / WINDOW_SIZE)
         last_window_size = chunk_id % WINDOW_SIZE if (chunk_id % WINDOW_SIZE) != 0 else WINDOW_SIZE
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
 
-        nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")          
-        send_DATA_message(nrf,struct.pack(f"<{len(header)}s", header), "HEADER")
-
-        while not nrf.data_ready() :
-            pass
-    
         # store the encoded bytes
         packets = []
         for chunk in chunks:
             packets.append(struct.pack(f"<{len(chunk)}s", chunk))
+        
+        #send Header Message
+        send_DATA_message(nrf,struct.pack(f"<{len(header)}s", header), "HEADER")
+        while not nrf.data_ready():
+            pass
+        ack_message=nrf.get_payload()  
+        print(f"ACK message recieved correctly. ACK:{ack_message}")
+
+
 
         # Start transmitting                       
         current_window = 0  
@@ -363,9 +366,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         print(f"We are at the matha poulet last chunck of the window message {p_idx}")
                         send_DATA_message(nrf, pkt, current_window)
                         print("passed send_DATA_message")
-                        while not nrf.data_ready() :
+                        while not nrf.data_ready():
                             pass
                         print("Passed nrfdataready")
+                        
                         ack_message=nrf.get_payload()
 
                         print(f"I have sent all the fucking message {ack_message}")
@@ -413,6 +417,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         tac     = time.monotonic()
         timeout = 20
         INFO(f'Timeout set to {timeout} seconds')
+        nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")  
 
         INFO("Waiting for header packet...")
         while (tac - tic) < timeout:
@@ -420,7 +425,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
             if not nrf.data_ready():
                 continue
-
+            
             header_packet = nrf.get_payload()
             raw = header_packet[:ID_WIND_BYTES+1]
             total_wind, last_window_size = struct.unpack(f">{ID_WIND_BYTES}sB", raw)
