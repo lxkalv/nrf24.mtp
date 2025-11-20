@@ -447,6 +447,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
                 print(f"Extracted window:{extracted_window} Extracted chunk: {extracted_chunk}")
+                print(f"Expected window:{expected_window} Expected chunk: {expected_chunk}")
 
                 if expected_chunk_in_window == extracted_chunk and expected_window == extracted_window:
                     expected_chunk_in_window += 1
