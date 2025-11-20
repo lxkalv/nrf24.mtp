@@ -231,7 +231,6 @@ def send_no_ack(data):
 
         nrf._nrf_command([nrf.W_TX_PAYLOAD_NO_ACK] + data)
         nrf.power_up_tx()
-        print("No ACK Message sent")
 
 # =================================================================================
 
@@ -265,11 +264,9 @@ def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
             # nrf.flush_tx()
             nrf.reset_packages_lost()
             nrf.send(DATA_MESSAGE)
-            print("Data Message sent")
             
             try:
                 nrf.wait_until_sent()
-                print("Passed the wait Until sent")
             except TimeoutError:
                 INFO(f"Time-out while sending DATA message {message_type}, retrying")
                 packets_lost += 1
@@ -374,7 +371,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                             attempt += 1
 
                     else:
-                        print(f"We are sending a regular window{p_idx}")
                         send_no_ack(pkt)
                         time.sleep(0.001)  # Small delay between packets
 
