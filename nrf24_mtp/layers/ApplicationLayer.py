@@ -23,10 +23,6 @@ RADIO CONFIGURATION  ─> │                   │ ─> RADIO OBJECT
 - FILE BYTES: The bytes to transmit or received
 """
 
-
-
-
-
 # :::: IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 from pathlib import Path
 from enum import Enum
