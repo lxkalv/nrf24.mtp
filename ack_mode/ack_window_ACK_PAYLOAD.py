@@ -364,7 +364,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     else:
                         send_no_ack(pkt)
                         time.sleep(0.0001)  # Small delay between packets
-                pirint(ack_message)
+                print(ack_message)
                 if ack_message == WINDOW_SIZE.to_bytes(ID_WIND_BYTES, "big") or ((current_window==total_wind-1) and ack_message == last_window_size.to_bytes(ID_WIND_BYTES, "big")): 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms")
