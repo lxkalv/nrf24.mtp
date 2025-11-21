@@ -4,7 +4,7 @@ from signal import pause
 
 # --- Configuración ---
 PIN_PWM = 26
-FRECUENCIA = 100       
+FRECUENCIA = 2       
 TIEMPO_ENCENDIDO = 10  
 TIEMPO_APAGADO = 10    
 # ---------------------
