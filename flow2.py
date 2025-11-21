@@ -62,7 +62,7 @@ def main():
             # --- 1. INITIALIZATION & CONFIG ---
             print("\n[State] Device Configuration")
             
-            # Start Blinking instead of Solid On <<<
+            # Start Blinking 
             # This indicates "Waiting for Configuration Confirmation"
             led_device_config.blink(on_time=0.5, off_time=0.5)
             
@@ -78,7 +78,7 @@ def main():
                 check_stop()
                 time.sleep(0.05)
             
-            # Button Pressed -> LED turns Solid ON <<<
+            # Button Pressed -> LED turns Solid ON
             # Calling .on() automatically stops the background blinking thread
             print("[Config] Configuration Accepted.")
             led_device_config.on()
