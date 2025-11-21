@@ -46,7 +46,7 @@ class Role(Enum):
 CE_PIN               = 22
 CHANNEL              = 76                          # NOTE: Select one from [0..125], Channel is computed as 2.4GHz + (CHANNEL)MHz
 DATA_RATE            = RF24_DATA_RATE.RATE_2MBPS   # NOTE: Select one from {250KBPS, 1MBPS, 2MBPS}
-PA_LEVEL             = RF24_PA.MIN                 # NOTE: Select one from {MIN (-18dBm), LOW (-12dBm), HIGH (-6dBm), MAX (0dBm)}
+PA_LEVEL             = RF24_PA.MAX                 # NOTE: Select one from {MIN (-18dBm), LOW (-12dBm), HIGH (-6dBm), MAX (0dBm)}
 CRC_BYTES            = RF24_CRC.BYTES_2            # NOTE: Select one from {DISABLED, BYTES_1, BYTES_2}
 PAYLOAD_SIZE         = RF24_PAYLOAD.DYNAMIC        # NOTE: Select one from {ACK, DYNAMIC, MIN (1), MAX (32), [1..32]}
 RETRANSMISSION_TRIES = 15                          # NOTE: Select one from [1..15]
@@ -61,7 +61,7 @@ class CustomNRF24(NRF24):
     modifying the library itself
     """
     
-    def __init__(self: "CustomNRF24", spi_speed: float = 5_000_000) -> None:
+    def __init__(self: "CustomNRF24", spi_speed: float = 10_000_000) -> None:
         # :::: CONFIGURE PIGPIO :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
         self.hostname = "localhost"
         self.port     = 8888
