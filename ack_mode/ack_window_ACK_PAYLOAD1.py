@@ -282,6 +282,12 @@ def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
         return
 
 
+def tx_empty(nrf):
+    fifo_status = nrf.read_register(nrf.FIFO_STATUS, 1)[0]
+    return bool(fifo_status & 0x10)  # Bit TX_EMPTY (0x10)
+
+
+
 
 
 def BEGIN_TRANSMITTER_MODE() -> None:
@@ -483,8 +489,8 @@ def BEGIN_RECEIVER_MODE() -> None:
                             chunks.extend(window_chunks)
                             expected_chunk_in_window = 0
                         window_chunks.clear()
-                        nrf.flush_tx()
-                        nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
+                        # nrf.flush_tx()
+                        # nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
                     print(f"After long if: {len(window_chunks)}")
                     
                     tic = time.monotonic()
@@ -493,6 +499,9 @@ def BEGIN_RECEIVER_MODE() -> None:
                     ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
                     tic = time.monotonic()
+
+                if tx_empty(nrf) :
+                    nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
 
 
         INFO('Connection timed-out or all chunks recieved')
