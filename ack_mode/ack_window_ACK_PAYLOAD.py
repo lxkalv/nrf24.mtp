@@ -421,7 +421,8 @@ def BEGIN_RECEIVER_MODE() -> None:
             total_wind = int.from_bytes(total_wind, "big") #Check that we don't need to 0 for the index of the payload
 
             print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
-
+            
+            nrf.flush_tx()
             tic = time.monotonic()
             break
 
