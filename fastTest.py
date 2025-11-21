@@ -25,7 +25,7 @@ try:
             GPIO.output(led_pin, led_state)
             
             # specific delay to debounce the switch
-            time.sleep(0.2)
+            time.sleep(1)
             
 except KeyboardInterrupt:
     print("Cleaning up...")
