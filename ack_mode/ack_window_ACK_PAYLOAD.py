@@ -365,7 +365,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         send_no_ack(pkt)
                         time.sleep(0.0001)  # Small delay between packets
                 
-                if ack_message == b"OK": 
+                if ack_message == to_bytes(WINDOW_SIZE) or ((current_window==total_wind-1) and ack_message == to_bytes(last_window_size)): 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms")
                     break
@@ -374,7 +374,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     attempt += 1
 
 
-            if ack_message == b"ERROR":
+            if attempt == MAX_ATTEMPTS:
                 ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
                 break
 
@@ -449,16 +449,16 @@ def BEGIN_RECEIVER_MODE() -> None:
                 #print(f"Extracted window:{extracted_window} Extracted chunk: {extracted_chunk}")
                 #print(f"Expected window:{expected_window} Expected chunk: {expected_chunk_in_window}")
 
-                if extracted_chunk==0:
-                    nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")
 
                 if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)
+                    nrf.ack_payload(RF24_RX_ADDR.P1,to_bytes(length(window_chunks)+1))
                     SUCC(f"Received chunk {extracted_chunk + 1}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {expected_window}")
 
-                    if len(window_chunks) == WINDOW_SIZE or ((expected_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
-                        
+                    if len(window_chunks) == WINDOW_SIZE or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
+                        nrf.ack_payload(RF24_RX_ADDR.P1,b"0")
+                        SUCC(f"Extracted window Completed {extracted_window}")
                         # if we already recieved the complete window
                         if (extracted_window!=expected_window):        
                             
@@ -489,7 +489,6 @@ def BEGIN_RECEIVER_MODE() -> None:
                 else:
                     ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window-1}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
-                    nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
                     tic = time.monotonic()
 
 
