@@ -3,7 +3,7 @@ import time
 
 # --- Configuración ---
 PIN_PWM = 26                
-FRECUENCIA = 5             # Frecuencia en Hz (este valor no afecta al blink de 0/100%)
+FRECUENCIA = 3             # Frecuencia en Hz (este valor no afecta al blink de 0/100%)
 TIEMPO_ENCENDIDO = 5       # Segundos que el LED permanece encendido
 TIEMPO_APAGADO = 5         # Segundos que el LED permanece apagado
 # ---------------------
