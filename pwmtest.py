@@ -17,7 +17,7 @@ try:
         if comando == "start":
             print(">>> Iniciando parpadeo...")
             # on_time=0.5, off_time=0.5 hace que parpadee rápido (medio segundo)
-            red.blink(on_time=0.01, off_time=0.01)
+            red.blink(on_time=0.1, off_time=0.1)
             
         elif comando == "stop":
             print(">>> Deteniendo LED.")
