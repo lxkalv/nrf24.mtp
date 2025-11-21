@@ -365,7 +365,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                         send_no_ack(pkt)
                         time.sleep(0.0001)  # Small delay between packets
                 
-                if ack_message == to_bytes(WINDOW_SIZE) or ((current_window==total_wind-1) and ack_message == to_bytes(last_window_size)): 
+                if ack_message == WINDOW_SIZE.to_bytes(ID_WIND_BYTES, "big") or ((current_window==total_wind-1) and ack_message == last_window_size.to_bytes(ID_WIND_BYTES, "big")): 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms")
                     break
@@ -453,7 +453,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)
-                    nrf.ack_payload(RF24_RX_ADDR.P1,to_bytes(length(window_chunks)+1))
+                    nrf.ack_payload(RF24_RX_ADDR.P1,(len(window_chunks)+1).to_bytes(WINDOW_SIZE,"big"))
                     SUCC(f"Received chunk {extracted_chunk + 1}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {expected_window}")
 
                     if len(window_chunks) == WINDOW_SIZE or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
