@@ -66,18 +66,31 @@ def RX_MODE(nrf: Trx, config: dict[str, Any]) -> None:
     if not config["autostart"]:
         input(f"{Logger.YELLOW('[>>>>]')} Press Enter to start RX mode...")
 
+    # Definition of variables used inside the loop
+    current_burst: list[list[bytes]] | None = None
+    PageID    = -1
+    BurstID   = -1
+    BurstSize = -1
+
+    pages: list[bytes] | None = None
+
     transfer_has_finished = False
     while not transfer_has_finished:
         frame = LinkLayer.read_frame(nrf)
         
         if frame[0] == 0xFF and frame[1] == 0xF0:
             PageID, BurstID, BurstSize = TransportLayer.read_burst_info_control_message(frame)
+            current_burst              = TransportLayer.generate_empty_burst_based_on_burst_info(BurstSize)
 
         if frame[0] == 0xFF and frame[1] == 0xFF:
             transfer_has_finished = True
         
         if frame[0] < 0xF0:
             pass
+
+    decompressed_pages = PresentationLayer.decompress_pages(pages)
+    content            = PresentationLayer.merge_pages_into_bytes(decompressed_pages)
+    ApplicationLayer.store_file_bytes(config["file_path_rx"], content)
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 

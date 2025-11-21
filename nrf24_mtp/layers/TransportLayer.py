@@ -76,6 +76,22 @@ def merge_bursts_into_page(bursts: list[list[bytes]]) -> bytes:
             compressed_page += frame[1:]  # Remove FrameID byte
 
     return compressed_page
+
+
+
+def generate_empty_burst_based_on_burst_info(BurstSize: int) -> list[list[bytes]]:
+    """
+    Generates an empty structure based on the information contained in the
+    BURST_INFO control message to be filled up with the upcomming data
+    messages
+    """
+    number_of_frames = BurstSize / (1 + BYTES_PER_FRAME)
+
+    burst: list[list[bytes]] = [
+        [bytes() for FrameID in range(number_of_frames)]
+    ]
+
+    return burst
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -137,6 +153,7 @@ def generate_transfer_finish_control_message() -> bytes:
     finish_message += 0xFF.to_bytes(1)  # Control Message ID
     finish_message += 0x0F.to_bytes(1)  # Transfer Finish Message Type
     return finish_message
+
 
 
 def read_transfer_finish_control_message(message: bytes) -> bool:
