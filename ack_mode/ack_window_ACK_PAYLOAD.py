@@ -422,7 +422,6 @@ def BEGIN_RECEIVER_MODE() -> None:
 
             print(f"Received header packet with total_wind={total_wind} and last_window_size={last_window_size}")
             
-            nrf.flush_tx()
             tic = time.monotonic()
             break
 
