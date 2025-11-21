@@ -370,7 +370,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms")
                     break
                 else:
-                    ERROR(f"No manual ACK for the window seq={current_window}")
+                    ERROR(f"No ACK for the window seq={current_window}")
                     attempt += 1
 
 
