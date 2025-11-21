@@ -452,13 +452,13 @@ def BEGIN_RECEIVER_MODE() -> None:
                 if extracted_chunk==0:
                     nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")
 
-                if expected_chunk_in_window == extracted_chunk and expected_window == extracted_window:
+                if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)
                     SUCC(f"Received chunk {extracted_chunk + 1}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {expected_window}")
 
                     if len(window_chunks) == WINDOW_SIZE or ((expected_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
-
+                        
                         # if we already recieved the complete window
                         if (extracted_window!=expected_window):        
                             
