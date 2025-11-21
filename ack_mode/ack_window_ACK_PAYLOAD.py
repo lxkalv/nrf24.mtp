@@ -487,7 +487,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     tic = time.monotonic()
 
                 else:
-                    ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window}, got {extracted_chunk}), discarding")
+                    ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window-1}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
                     nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
                     tic = time.monotonic()
