@@ -430,9 +430,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         expected_chunk_in_window=0
         chunks = []
         window_chunks=[]
-        timer_has_started = False
-
-        nrf.ack_payload(RF24_RX_ADDR.P1,b"OK")          
+        timer_has_started = False          
 
         # check if there are frames
         while ((tac - tic) < timeout) and (expected_window < total_wind):
@@ -481,11 +479,12 @@ def BEGIN_RECEIVER_MODE() -> None:
                             expected_chunk_in_window = 0
                         window_chunks.clear()
                     print(f"After long if: {len(window_chunks)}")
+                    nrf.flush_tx()
                     nrf.ack_payload(RF24_RX_ADDR.P1,(len(window_chunks)+1).to_bytes(WINDOW_SIZE,"big"))
                     tic = time.monotonic()
 
                 else:
-                    ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window-1}, got {extracted_chunk}), discarding")
+                    ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window}, got {extracted_chunk}), discarding")
                     # Optional: could implement NACK or request retransmission here
                     tic = time.monotonic()
 
