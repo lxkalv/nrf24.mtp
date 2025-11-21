@@ -454,7 +454,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)        
                     SUCC(f"Received chunk {extracted_chunk + 1}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {expected_window}")
-
+                    print(f"Before long if: {len(window_chunks)}")
                     if len(window_chunks) == WINDOW_SIZE or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
                         SUCC(f"Extracted window Completed {extracted_window}")
                         # if we already recieved the complete window
@@ -480,6 +480,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                             chunks.extend(window_chunks)
                             expected_chunk_in_window = 0
                         window_chunks.clear()
+                    print(f"After long if: {len(window_chunks)}")
                     nrf.ack_payload(RF24_RX_ADDR.P1,(len(window_chunks)+1).to_bytes(WINDOW_SIZE,"big"))
                     tic = time.monotonic()
 
