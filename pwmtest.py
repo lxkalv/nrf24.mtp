@@ -1,36 +1,42 @@
-import RPi.GPIO as GPIO
-import time
+from gpiozero import PWMLED
+from time import sleep
+from signal import pause
 
 # --- Configuración ---
-PIN_PWM = 26                
-FRECUENCIA =  100            # Frecuencia en Hz (este valor no afecta al blink de 0/100%)
-TIEMPO_ENCENDIDO = 10       # Segundos que el LED permanece encendido
-TIEMPO_APAGADO = 10        # Segundos que el LED permanece apagado
+PIN_PWM = 26
+FRECUENCIA = 100       
+TIEMPO_ENCENDIDO = 10  
+TIEMPO_APAGADO = 10    
 # ---------------------
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(PIN_PWM, GPIO.OUT)
+# 1. Configuración del objeto
+# Usamos PWMLED para mantener tu configuración de frecuencia (100Hz)
+led = PWMLED(PIN_PWM, frequency=FRECUENCIA)
 
-# Configurar el objeto PWM
-pwm = GPIO.PWM(PIN_PWM, FRECUENCIA)
+# 2. Iniciar el parpadeo en SEGUNDO PLANO
+# background=True es el valor por defecto.
+# fade_in_time=0 y fade_out_time=0 hacen que el cambio sea instantáneo (como tu 0% a 100%)
+led.blink(on_time=TIEMPO_ENCENDIDO, 
+          off_time=TIEMPO_APAGADO, 
+          fade_in_time=0, 
+          fade_out_time=0)
 
-# Iniciar el PWM con ciclo de trabajo 0% (apagado)
-pwm.start(0)
+print(f"Iniciando parpadeo (PWM) en GPIO {PIN_PWM} en segundo plano.")
 
-print(f"Iniciando parpadeo continuo (PWM) en GPIO {PIN_PWM}. Presiona Ctrl+C para detener.")
-
+# ---------------------------------------------------------
+# 3. AQUÍ SE EJECUTA TU "OTRO CÓDIGO"
+# ---------------------------------------------------------
 try:
+    # Este bucle simula tu programa principal funcionando
+    contador = 0
     while True:
-        # Encender el LED (100% duty cycle)
-        pwm.ChangeDutyCycle(100)
-        time.sleep(TIEMPO_ENCENDIDO)
-
-        # Apagar el LED (0% duty cycle)
-        pwm.ChangeDutyCycle(0)
-        time.sleep(TIEMPO_APAGADO)
+        print(f"El código principal sigue corriendo... {contador}")
+        contador += 1
+        
+        # Hacemos una pausa corta aquí solo para no inundar la consola,
+        # pero el LED sigue respetando sus tiempos de 10s/10s independientemente de esto.
+        sleep(1) 
 
 except KeyboardInterrupt:
-    # Detener el PWM y limpiar los pines al presionar Ctrl+C
-    pwm.stop()
-    GPIO.cleanup()
-    print("\nPrograma detenido y pines limpiados.")
+    print("\nPrograma detenido.")
+    # No hace falta GPIO.cleanup(), gpiozero lo hace solo al cerrar el script.
