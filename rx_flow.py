@@ -4,6 +4,7 @@ import hashlib
 import zlib
 import time
 import math
+import sys
 
 from radio import CustomNRF24
 
