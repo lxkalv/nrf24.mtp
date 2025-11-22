@@ -9,8 +9,49 @@
 #include <time.h>
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
+#include <dirent.h>
 
 /* ---------- small helpers ---------- */
+/* Find the lowest /sys/class/gpio/gpiochip*/base value.
+ * On Raspberry Pi this is the main SoC GPIO base (e.g. 512).
+ */
+static int get_gpio_base(void)
+{
+    DIR *d = opendir("/sys/class/gpio");
+    if (!d) return -1;
+
+    struct dirent *de;
+    int best = -1;
+
+    while ((de = readdir(d)) != NULL) {
+        if (strncmp(de->d_name, "gpiochip", 8) != 0)
+            continue;
+
+        char path[128];
+        snprintf(path, sizeof(path), "/sys/class/gpio/%s/base", de->d_name);
+
+        int fd = open(path, O_RDONLY);
+        if (fd < 0)
+            continue;
+
+        char buf[32];
+        ssize_t r = read(fd, buf, sizeof(buf) - 1);
+        close(fd);
+        if (r <= 0)
+            continue;
+
+        buf[r] = '\0';
+        int val = atoi(buf);
+        if (val < 0)
+            continue;
+
+        if (best < 0 || val < best)
+            best = val;
+    }
+
+    closedir(d);
+    return best;
+}
 
 static int gpio_write_str(const char *path, const char *value)
 {
@@ -21,38 +62,20 @@ static int gpio_write_str(const char *path, const char *value)
     return (w == (ssize_t)strlen(value)) ? 0 : -1;
 }
 
-static int gpio_export(uint8_t pin)
+static int gpio_export(unsigned int pin)
 {
-    char path[64];
-    snprintf(path, sizeof(path), "/sys/class/gpio/gpio%u", pin);
-    if (access(path, F_OK) == 0) {
-        // already exported
-        return 0;
-    }
-
     char buf[16];
     snprintf(buf, sizeof(buf), "%u\n", pin);
-    int fd = open("/sys/class/gpio/export", O_WRONLY);
-    if (fd < 0) return -1;
-
-    ssize_t w = write(fd, buf, strlen(buf));
-    int saved_errno = errno;
-    close(fd);
-
-    if (w != (ssize_t)strlen(buf)) {
-        errno = saved_errno;
-        return -1;
-    }
-    return 0;
+    return gpio_write_str("/sys/class/gpio/export", buf);
 }
 
-
-static int gpio_unexport(uint8_t pin)
+static int gpio_unexport(unsigned int pin)
 {
     char buf[16];
     snprintf(buf, sizeof(buf), "%u\n", pin);
     return gpio_write_str("/sys/class/gpio/unexport", buf);
 }
+
 
 static int gpio_set_direction(uint8_t pin, const char *dir)
 {
@@ -133,15 +156,16 @@ int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
     memset(dev, 0, sizeof(*dev));
     dev->cfg = *cfg;
 
-    /* open SPI */
+    /* ---- open & configure SPI ---- */
+
     int fd = open(cfg->spi_device, O_RDWR);
     if (fd < 0) {
         perror("open spi");
         return -1;
     }
 
-    uint8_t mode = SPI_MODE_0;
-    uint8_t bits = 8;
+    uint8_t  mode  = SPI_MODE_0;
+    uint8_t  bits  = 8;
     uint32_t speed = cfg->spi_speed_hz ? cfg->spi_speed_hz : 8000000;
 
     if (ioctl(fd, SPI_IOC_WR_MODE, &mode) < 0 ||
@@ -154,33 +178,55 @@ int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
 
     dev->spi_fd = fd;
 
-    /* configure CE GPIO */
-    (void)gpio_unexport(cfg->ce_gpio); /* ignore error */
-    if (gpio_export(cfg->ce_gpio) < 0) {
+    /* ---- map BCM CE pin -> global GPIO index ---- */
+    /* e.g. on your Pi: gpiochip512/base = 512, BCM22 -> 512+22 = 534 */
+
+    int base = get_gpio_base();
+    if (base < 0) {
+        perror("get_gpio_base");
+        close(fd);
+        return -1;
+    }
+
+    unsigned int ce_global = (unsigned int)(base + cfg->ce_gpio);
+
+    /* ---- configure CE GPIO via sysfs ---- */
+
+    (void)gpio_unexport(ce_global);  /* ignore error if not exported */
+
+    if (gpio_export(ce_global) < 0) {
         perror("gpio_export");
         close(fd);
         return -1;
     }
-    /* small delay to let sysfs create dirs */
+
+    /* allow sysfs to create gpioN directory */
     usleep(100000);
 
-    if (gpio_set_direction(cfg->ce_gpio, "out") < 0) {
+    if (gpio_set_direction(ce_global, "out") < 0) {
         perror("gpio_direction");
         close(fd);
         return -1;
     }
 
-    dev->ce_fd = gpio_open_value(cfg->ce_gpio);
+    dev->ce_fd = gpio_open_value(ce_global);
     if (dev->ce_fd < 0) {
         perror("gpio_open_value");
         close(fd);
         return -1;
     }
 
-    /* CE low initially */
-    ce_set(dev, 0);
+    /* CE low initially (standby) */
+    if (gpio_write_value_fd(dev->ce_fd, 0) < 0) {
+        perror("gpio_write_value_fd");
+        close(dev->ce_fd);
+        close(fd);
+        return -1;
+    }
 
-    /* Power up: set PWR_UP=1, PRIM_RX=0, EN_CRC=1 (1 byte CRC by default) */
+    /* ---- power up the nRF24 ---- */
+
+    /* Power up: PWR_UP=1, EN_CRC=1 (1-byte CRC for now, PRIM_RX=0) */
     if (nrf24_write_reg(dev, NRF24_REG_CONFIG,
                         NRF24_CONFIG_PWR_UP | NRF24_CONFIG_EN_CRC) < 0) {
         perror("nrf24_write_reg(CONFIG)");
@@ -188,11 +234,12 @@ int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
         return -1;
     }
 
-    /* wait tpd2stby ~1.5 ms (datasheet) */
+    /* tpd2stby ~1.5 ms */
     sleep_ms(2);
 
     return 0;
 }
+
 
 void nrf24_deinit(nrf24_t *dev)
 {
