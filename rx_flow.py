@@ -204,7 +204,10 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                 WARN(f"Invalid message received | FrameID:{FrameID:03d} | L:{len(frame)} B")
                 continue
 
+
             current_burst[FrameID] = frame
+            PREV_FRAME             = frame
+            PREV_FRAME_COUNT       = 0
 
             if FrameID == len(sizes) - 1:
                 SUCC(f"Completed BURST [{PageID:02d}|{BurstID:03d}]")
