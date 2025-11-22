@@ -156,8 +156,9 @@ class CustomNRF24(NRF24):
         """
 
         message_has_been_sent = False
+        INFO(f"Sending {message_name} message: {CONTROL_MESSAGE.hex()}")
         while not message_has_been_sent:
-            INFO(f"Sending {message_name} message: {CONTROL_MESSAGE.hex()}")
+            # INFO(f"Sending {message_name} message: {CONTROL_MESSAGE.hex()}")
             
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
@@ -191,7 +192,7 @@ class CustomNRF24(NRF24):
                 # sys.exit(1)
                 self.flush_rx() # this is very cutre
 
-            INFO(f"Sending DATA message: {DATA_MESSAGE.hex()}")
+            # INFO(f"Sending DATA message: {DATA_MESSAGE.hex()}")
         
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)

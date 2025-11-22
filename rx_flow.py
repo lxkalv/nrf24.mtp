@@ -147,7 +147,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
         # Pull the received frame from the FIFO
         frame: bytes = PRX.get_payload()
-        INFO(f"Received frame: {frame.hex()}")
+        # INFO(f"Received frame: {frame.hex()}")
 
 
 
