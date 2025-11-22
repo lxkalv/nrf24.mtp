@@ -12,24 +12,70 @@
 #include <dirent.h>
 #include <stdlib.h>
 
-/* ---------- small helpers (GPIO + SPI) ---------- */
+/* --------- nRF24L01+ command / register definitions --------- */
+
+#define NRF24_CMD_R_REGISTER       0x00
+#define NRF24_CMD_W_REGISTER       0x20
+#define NRF24_CMD_REGISTER_MASK    0x1F
+#define NRF24_CMD_R_RX_PAYLOAD     0x61
+#define NRF24_CMD_W_TX_PAYLOAD     0xA0
+#define NRF24_CMD_FLUSH_TX         0xE1
+#define NRF24_CMD_FLUSH_RX         0xE2
+#define NRF24_CMD_REUSE_TX_PL      0xE3
+#define NRF24_CMD_R_RX_PL_WID      0x60
+#define NRF24_CMD_W_ACK_PAYLOAD    0xA8
+#define NRF24_CMD_NOP              0xFF
+
+#define NRF24_REG_CONFIG           0x00
+#define NRF24_REG_EN_AA            0x01
+#define NRF24_REG_EN_RXADDR        0x02
+#define NRF24_REG_SETUP_AW         0x03
+#define NRF24_REG_SETUP_RETR       0x04
+#define NRF24_REG_RF_CH            0x05
+#define NRF24_REG_RF_SETUP         0x06
+#define NRF24_REG_STATUS           0x07
+#define NRF24_REG_OBSERVE_TX       0x08
+#define NRF24_REG_RX_ADDR_P0       0x0A
+#define NRF24_REG_TX_ADDR          0x10
+#define NRF24_REG_RX_PW_P0         0x11
+#define NRF24_REG_FIFO_STATUS      0x17
+#define NRF24_REG_DYNPD            0x1C
+#define NRF24_REG_FEATURE          0x1D
+
+#define NRF24_CONFIG_PRIM_RX       (1 << 0)
+#define NRF24_CONFIG_PWR_UP        (1 << 1)
+#define NRF24_CONFIG_CRCO          (1 << 2)
+#define NRF24_CONFIG_EN_CRC        (1 << 3)
+
+#define NRF24_STATUS_MAX_RT        (1 << 4)
+#define NRF24_STATUS_TX_DS         (1 << 5)
+#define NRF24_STATUS_RX_DR         (1 << 6)
+
+#define NRF24_RF_SETUP_RF_DR_LOW   (1 << 5)
+#define NRF24_RF_SETUP_RF_DR_HIGH  (1 << 3)
+#define NRF24_RF_SETUP_RF_PWR_0DBM (3 << 1)
+
+/* Shared address used on pipe0 and TX for quick_mode */
+static const uint8_t QUICK_ADDR[5] = { 'M', 'T', 'P', '0', '1' };
+
+/* --------- helpers: GPIO sysfs --------- */
 
 static int gpio_write_str(const char *path, const char *value)
 {
     int fd = open(path, O_WRONLY);
-    if (fd < 0) return -1;
+    if (fd < 0)
+        return -1;
     ssize_t w = write(fd, value, strlen(value));
     close(fd);
     return (w == (ssize_t)strlen(value)) ? 0 : -1;
 }
 
-/* Find the lowest /sys/class/gpio/gpiochipX/base value.
- * On Raspberry Pi this is the main SoC GPIO base (e.g. 512).
- */
+/* Find the lowest /sys/class/gpio/gpiochipX/base value (main SoC GPIO base). */
 static int get_gpio_base(void)
 {
     DIR *d = opendir("/sys/class/gpio");
-    if (!d) return -1;
+    if (!d)
+        return -1;
 
     struct dirent *de;
     int best = -1;
@@ -67,7 +113,6 @@ static int get_gpio_base(void)
 static int gpio_export(unsigned int pin)
 {
     char buf[16];
-    /* include newline; some kernels expect it */
     snprintf(buf, sizeof(buf), "%u\n", pin);
     return gpio_write_str("/sys/class/gpio/export", buf);
 }
@@ -96,7 +141,8 @@ static int gpio_open_value(unsigned int pin)
 static int gpio_write_value_fd(int fd, int value)
 {
     const char ch = value ? '1' : '0';
-    if (lseek(fd, 0, SEEK_SET) < 0) return -1;
+    if (lseek(fd, 0, SEEK_SET) < 0)
+        return -1;
     ssize_t w = write(fd, &ch, 1);
     return (w == 1) ? 0 : -1;
 }
@@ -107,10 +153,9 @@ static int ce_set(nrf24_t *dev, int level)
     return gpio_write_value_fd(dev->ce_fd, level);
 }
 
-/* SPI transfer */
-static int spi_transfer(int fd,
-                        const uint8_t *tx, uint8_t *rx,
-                        size_t len)
+/* --------- helpers: SPI / timing --------- */
+
+static int spi_transfer(int fd, const uint8_t *tx, uint8_t *rx, size_t len)
 {
     struct spi_ioc_transfer tr = {
         .tx_buf = (unsigned long)tx,
@@ -126,18 +171,6 @@ static int spi_transfer(int fd,
     return (ret < 1) ? -1 : 0;
 }
 
-/* Read STATUS by sending NOP */
-static int nrf24_read_status(nrf24_t *dev, uint8_t *status)
-{
-    uint8_t tx = NRF24_CMD_NOP;
-    uint8_t rx = 0;
-    if (spi_transfer(dev->spi_fd, &tx, &rx, 1) < 0)
-        return -1;
-    if (status) *status = rx;
-    return 0;
-}
-
-/* Busy-wait sleep helper */
 static void sleep_ms(unsigned int ms)
 {
     struct timespec ts;
@@ -146,7 +179,87 @@ static void sleep_ms(unsigned int ms)
     nanosleep(&ts, NULL);
 }
 
-/* ---------- public API: init / deinit ---------- */
+/* --------- low-level register access --------- */
+
+int nrf24_write_reg(nrf24_t *dev, uint8_t reg, uint8_t value)
+{
+    uint8_t buf[2];
+    buf[0] = NRF24_CMD_W_REGISTER | (NRF24_CMD_REGISTER_MASK & reg);
+    buf[1] = value;
+    return spi_transfer(dev->spi_fd, buf, NULL, 2);
+}
+
+int nrf24_read_reg(nrf24_t *dev, uint8_t reg, uint8_t *value)
+{
+    uint8_t tx[2];
+    uint8_t rx[2];
+
+    tx[0] = NRF24_CMD_R_REGISTER | (NRF24_CMD_REGISTER_MASK & reg);
+    tx[1] = NRF24_CMD_NOP;
+
+    if (spi_transfer(dev->spi_fd, tx, rx, 2) < 0)
+        return -1;
+    if (value)
+        *value = rx[1];
+    return 0;
+}
+
+int nrf24_write_buf(nrf24_t *dev, uint8_t cmd, const uint8_t *data, uint8_t len)
+{
+    if (len > 32)
+        len = 32;
+    uint8_t buf[1 + 32];
+    buf[0] = cmd;
+    if (len && data)
+        memcpy(&buf[1], data, len);
+    return spi_transfer(dev->spi_fd, buf, NULL, 1 + len);
+}
+
+int nrf24_read_buf(nrf24_t *dev, uint8_t cmd, uint8_t *data, uint8_t len)
+{
+    if (len > 32)
+        len = 32;
+    uint8_t tx[1 + 32];
+    uint8_t rx[1 + 32];
+    tx[0] = cmd;
+    memset(&tx[1], NRF24_CMD_NOP, len);
+    if (spi_transfer(dev->spi_fd, tx, rx, 1 + len) < 0)
+        return -1;
+    if (data && len)
+        memcpy(data, &rx[1], len);
+    return 0;
+}
+
+/* --------- small helpers around registers --------- */
+
+static int nrf24_flush_tx(nrf24_t *dev)
+{
+    uint8_t cmd = NRF24_CMD_FLUSH_TX;
+    return spi_transfer(dev->spi_fd, &cmd, NULL, 1);
+}
+
+static int nrf24_flush_rx(nrf24_t *dev)
+{
+    uint8_t cmd = NRF24_CMD_FLUSH_RX;
+    return spi_transfer(dev->spi_fd, &cmd, NULL, 1);
+}
+
+static int nrf24_clear_interrupts(nrf24_t *dev)
+{
+    return nrf24_write_reg(dev, NRF24_REG_STATUS,
+                           NRF24_STATUS_RX_DR |
+                           NRF24_STATUS_TX_DS |
+                           NRF24_STATUS_MAX_RT);
+}
+
+static int nrf24_set_address(nrf24_t *dev, uint8_t reg, const uint8_t addr[5])
+{
+    return nrf24_write_buf(dev,
+                           NRF24_CMD_W_REGISTER | (NRF24_CMD_REGISTER_MASK & reg),
+                           addr, 5);
+}
+
+/* --------- init / deinit --------- */
 
 int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
 {
@@ -157,17 +270,18 @@ int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
 
     memset(dev, 0, sizeof(*dev));
     dev->cfg = *cfg;
+    dev->spi_fd = -1;
+    dev->ce_fd  = -1;
 
-    /* ---- open & configure SPI ---- */
-
+    /* open SPI device */
     int fd = open(cfg->spi_device, O_RDWR);
     if (fd < 0) {
         perror("open spi");
         return -1;
     }
 
-    uint8_t  mode  = SPI_MODE_0;
-    uint8_t  bits  = 8;
+    uint8_t mode = SPI_MODE_0;
+    uint8_t bits = 8;
     uint32_t speed = cfg->spi_speed_hz ? cfg->spi_speed_hz : 8000000;
 
     if (ioctl(fd, SPI_IOC_WR_MODE, &mode) < 0 ||
@@ -180,32 +294,31 @@ int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
 
     dev->spi_fd = fd;
 
-    /* ---- map BCM CE pin -> global GPIO index ---- */
-
+    /* map BCM CE -> global GPIO index */
     int base = get_gpio_base();
     if (base < 0) {
         perror("get_gpio_base");
         close(fd);
+        dev->spi_fd = -1;
         return -1;
     }
 
     unsigned int ce_global = (unsigned int)(base + cfg->ce_gpio);
 
-    /* ---- configure CE GPIO via sysfs ---- */
-
-    (void)gpio_unexport(ce_global);  /* ignore error */
-
+    (void)gpio_unexport(ce_global);
     if (gpio_export(ce_global) < 0) {
         perror("gpio_export");
         close(fd);
+        dev->spi_fd = -1;
         return -1;
     }
 
-    usleep(100000);  /* let sysfs create gpioN dir */
+    usleep(100000);
 
     if (gpio_set_direction(ce_global, "out") < 0) {
         perror("gpio_direction");
         close(fd);
+        dev->spi_fd = -1;
         return -1;
     }
 
@@ -213,6 +326,7 @@ int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
     if (dev->ce_fd < 0) {
         perror("gpio_open_value");
         close(fd);
+        dev->spi_fd = -1;
         return -1;
     }
 
@@ -220,38 +334,39 @@ int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
     if (gpio_write_value_fd(dev->ce_fd, 0) < 0) {
         perror("gpio_write_value_fd");
         close(dev->ce_fd);
+        dev->ce_fd = -1;
         close(fd);
+        dev->spi_fd = -1;
         return -1;
     }
 
-    /* ---- power up the nRF24 ---- */
-
+    /* Power-down, CRC enabled, PRIM_RX=0 for now */
     if (nrf24_write_reg(dev, NRF24_REG_CONFIG,
-                        NRF24_CONFIG_PWR_UP | NRF24_CONFIG_EN_CRC) < 0) {
+                        NRF24_CONFIG_EN_CRC) < 0) {
         perror("nrf24_write_reg(CONFIG)");
         nrf24_deinit(dev);
         return -1;
     }
-
-    /* tpd2stby ~1.5 ms */
-    sleep_ms(2);
 
     return 0;
 }
 
 void nrf24_deinit(nrf24_t *dev)
 {
-    if (!dev) return;
+    if (!dev)
+        return;
 
-    /* power down radio */
-    uint8_t cfg_val;
-    if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &cfg_val) == 0) {
-        cfg_val &= ~NRF24_CONFIG_PWR_UP;
-        (void)nrf24_write_reg(dev, NRF24_REG_CONFIG, cfg_val);
+    if (dev->spi_fd >= 0) {
+        uint8_t cfg;
+        if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &cfg) == 0) {
+            cfg &= ~NRF24_CONFIG_PWR_UP;
+            (void)nrf24_write_reg(dev, NRF24_REG_CONFIG, cfg);
+        }
     }
 
     if (dev->ce_fd >= 0) {
         close(dev->ce_fd);
+        dev->ce_fd = -1;
 
         int base = get_gpio_base();
         if (base >= 0) {
@@ -260,412 +375,221 @@ void nrf24_deinit(nrf24_t *dev)
         }
     }
 
-    if (dev->spi_fd >= 0)
+    if (dev->spi_fd >= 0) {
         close(dev->spi_fd);
-
-    memset(dev, 0, sizeof(*dev));
-}
-
-/* R/W one-byte register */
-int nrf24_read_reg(nrf24_t *dev, uint8_t reg, uint8_t *value)
-{
-    uint8_t tx[2] = { NRF24_CMD_R_REGISTER | (reg & 0x1F), 0xFF };
-    uint8_t rx[2] = { 0 };
-    if (spi_transfer(dev->spi_fd, tx, rx, 2) < 0)
-        return -1;
-    if (value) *value = rx[1];
-    return 0;
-}
-
-int nrf24_write_reg(nrf24_t *dev, uint8_t reg, uint8_t value)
-{
-    uint8_t tx[2] = { NRF24_CMD_W_REGISTER | (reg & 0x1F), value };
-    uint8_t rx[2];
-    return spi_transfer(dev->spi_fd, tx, rx, 2);
-}
-
-/* multi-byte registers (addresses etc.) */
-int nrf24_read_buf(nrf24_t *dev, uint8_t reg, uint8_t *buf, size_t len)
-{
-    if (!buf || !len) {
-        errno = EINVAL;
-        return -1;
+        dev->spi_fd = -1;
     }
-    uint8_t tx[len + 1];
-    uint8_t rx[len + 1];
-    tx[0] = NRF24_CMD_R_REGISTER | (reg & 0x1F);
-    memset(tx + 1, 0xFF, len);
-
-    if (spi_transfer(dev->spi_fd, tx, rx, len + 1) < 0)
-        return -1;
-
-    memcpy(buf, rx + 1, len);
-    return 0;
 }
 
-int nrf24_write_buf(nrf24_t *dev, uint8_t reg, const uint8_t *buf, size_t len)
+/* --------- radio configuration for quick_mode --------- */
+
+int nrf24_configure_quick(nrf24_t *dev, uint8_t channel)
 {
-    if (!buf || !len) {
-        errno = EINVAL;
-        return -1;
-    }
-    uint8_t tx[len + 1];
-    uint8_t rx[len + 1];
-    tx[0] = NRF24_CMD_W_REGISTER | (reg & 0x1F);
-    memcpy(tx + 1, buf, len);
-
-    return spi_transfer(dev->spi_fd, tx, rx, len + 1);
-}
-
-/* FIFO helpers */
-int nrf24_flush_tx(nrf24_t *dev)
-{
-    uint8_t tx = NRF24_CMD_FLUSH_TX;
-    uint8_t rx = 0;
-    return spi_transfer(dev->spi_fd, &tx, &rx, 1);
-}
-
-int nrf24_flush_rx(nrf24_t *dev)
-{
-    uint8_t tx = NRF24_CMD_FLUSH_RX;
-    uint8_t rx = 0;
-    return spi_transfer(dev->spi_fd, &tx, &rx, 1);
-}
-
-/* High-level config */
-
-int nrf24_set_channel(nrf24_t *dev, uint8_t channel)
-{
-    /* 7-bit field: 0..125 typical */
-    return nrf24_write_reg(dev, NRF24_REG_RF_CH, channel & 0x7F);
-}
-
-int nrf24_set_datarate(nrf24_t *dev, nrf24_datarate_t dr)
-{
-    uint8_t rf;
-    if (nrf24_read_reg(dev, NRF24_REG_RF_SETUP, &rf) < 0)
+    /* address width = 5 bytes */
+    if (nrf24_write_reg(dev, NRF24_REG_SETUP_AW, 0x03) < 0)
         return -1;
 
-    rf &= ~(NRF24_RF_DR_LOW | NRF24_RF_DR_HIGH);
-
-    switch (dr) {
-    case NRF24_DR_250KBPS:
-        rf |= NRF24_RF_DR_LOW;
-        break;
-    case NRF24_DR_1MBPS:
-        /* both bits 0 */
-        break;
-    case NRF24_DR_2MBPS:
-        rf |= NRF24_RF_DR_HIGH;
-        break;
-    default:
-        errno = EINVAL;
-        return -1;
-    }
-
-    return nrf24_write_reg(dev, NRF24_REG_RF_SETUP, rf);
-}
-
-int nrf24_set_power(nrf24_t *dev, nrf24_power_t pwr)
-{
-    uint8_t rf;
-    if (nrf24_read_reg(dev, NRF24_REG_RF_SETUP, &rf) < 0)
+    /* auto ack on pipe 0 */
+    if (nrf24_write_reg(dev, NRF24_REG_EN_AA, 0x01) < 0)
         return -1;
 
-    rf &= ~NRF24_RF_PWR_MASK;
-    rf |= ((uint8_t)pwr & 0x03) << 1;
-
-    return nrf24_write_reg(dev, NRF24_REG_RF_SETUP, rf);
-}
-
-int nrf24_set_retries(nrf24_t *dev, uint8_t ard, uint8_t arc)
-{
-    /* ARD: upper 4 bits (0..15) => delay = (ard + 1) * 250us
-       ARC: lower 4 bits (0..15) => max retransmits */
-    uint8_t val = ((ard & 0x0F) << 4) | (arc & 0x0F);
-    return nrf24_write_reg(dev, NRF24_REG_SETUP_RETR, val);
-}
-
-int nrf24_set_auto_ack(nrf24_t *dev, bool enable_p0)
-{
-    uint8_t en_aa = 0;
-    if (enable_p0)
-        en_aa |= 0x01; /* ENAA_P0 */
-    return nrf24_write_reg(dev, NRF24_REG_EN_AA, en_aa);
-}
-
-int nrf24_enable_dynamic_payloads(nrf24_t *dev, bool enable_p0)
-{
-    uint8_t feature;
-    if (nrf24_read_reg(dev, NRF24_REG_FEATURE, &feature) < 0)
+    /* enable data pipe 0 only */
+    if (nrf24_write_reg(dev, NRF24_REG_EN_RXADDR, 0x01) < 0)
         return -1;
 
-    if (enable_p0)
-        feature |= NRF24_FEATURE_EN_DPL;
-    else
-        feature &= ~NRF24_FEATURE_EN_DPL;
-
-    if (nrf24_write_reg(dev, NRF24_REG_FEATURE, feature) < 0)
+    /* retries: ARD=4 (1.25ms), ARC=15 -> 0x4F */
+    if (nrf24_write_reg(dev, NRF24_REG_SETUP_RETR, 0x4F) < 0)
         return -1;
 
-    uint8_t dynpd = 0;
-    if (enable_p0)
-        dynpd |= NRF24_DYNPD_DPL_P0;
-
-    return nrf24_write_reg(dev, NRF24_REG_DYNPD, dynpd);
-}
-
-int nrf24_set_crc(nrf24_t *dev, bool enable, bool two_bytes)
-{
-    uint8_t cfg;
-    if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &cfg) < 0)
+    /* RF channel */
+    if (nrf24_write_reg(dev, NRF24_REG_RF_CH, (uint8_t)(channel & 0x7F)) < 0)
         return -1;
 
-    if (enable) {
-        cfg |= NRF24_CONFIG_EN_CRC;
-        if (two_bytes)
-            cfg |= NRF24_CONFIG_CRCO;
-        else
-            cfg &= ~NRF24_CONFIG_CRCO;
-    } else {
-        cfg &= ~NRF24_CONFIG_EN_CRC;
-    }
-
-    return nrf24_write_reg(dev, NRF24_REG_CONFIG, cfg);
-}
-
-int nrf24_set_address_width_5bytes(nrf24_t *dev)
-{
-    /* AW = 0b11 => 5 bytes */
-    return nrf24_write_reg(dev, NRF24_REG_SETUP_AW, 0x03);
-}
-
-int nrf24_set_rx_address_p0(nrf24_t *dev, const uint8_t *addr, size_t len)
-{
-    if (!addr || len < 3 || len > 5) {
-        errno = EINVAL;
-        return -1;
-    }
-    if (nrf24_write_buf(dev, NRF24_REG_RX_ADDR_P0, addr, len) < 0)
+    /* 2Mbps, 0dBm */
+    if (nrf24_write_reg(dev, NRF24_REG_RF_SETUP,
+                        NRF24_RF_SETUP_RF_DR_HIGH |
+                        NRF24_RF_SETUP_RF_PWR_0DBM) < 0)
         return -1;
 
-    /* enable pipe 0 */
-    uint8_t en_rx;
-    if (nrf24_read_reg(dev, NRF24_REG_EN_RXADDR, &en_rx) < 0)
-        return -1;
-    en_rx |= 0x01;
-    return nrf24_write_reg(dev, NRF24_REG_EN_RXADDR, en_rx);
-}
-
-int nrf24_set_tx_address(nrf24_t *dev, const uint8_t *addr, size_t len)
-{
-    if (!addr || len < 3 || len > 5) {
-        errno = EINVAL;
-        return -1;
-    }
-    return nrf24_write_buf(dev, NRF24_REG_TX_ADDR, addr, len);
-}
-
-/* Mode control */
-
-int nrf24_set_rx_mode(nrf24_t *dev)
-{
-    uint8_t cfg;
-    if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &cfg) < 0)
-        return -1;
-    cfg |= NRF24_CONFIG_PRIM_RX;
-    if (nrf24_write_reg(dev, NRF24_REG_CONFIG, cfg) < 0)
+    /* fixed payload size on pipe 0 */
+    if (nrf24_write_reg(dev, NRF24_REG_RX_PW_P0, NRF24_MAX_PAYLOAD_SIZE) < 0)
         return -1;
 
-    /* CE high -> RX mode after ~130us */
-    ce_set(dev, 1);
-    sleep_ms(1);
-    return 0;
-}
-
-int nrf24_set_tx_mode(nrf24_t *dev)
-{
-    uint8_t cfg;
-    if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &cfg) < 0)
+    /* disable dynamic payload and special features */
+    if (nrf24_write_reg(dev, NRF24_REG_DYNPD, 0x00) < 0)
         return -1;
-    cfg &= ~NRF24_CONFIG_PRIM_RX;
-    if (nrf24_write_reg(dev, NRF24_REG_CONFIG, cfg) < 0)
+    if (nrf24_write_reg(dev, NRF24_REG_FEATURE, 0x00) < 0)
         return -1;
 
-    /* Standby-I with CE low */
-    ce_set(dev, 0);
-    sleep_ms(1);
-    return 0;
-}
-
-/* Blocking send:
- * - assumes we are in PTX (PRIM_RX=0)
- * - loads payload
- * - pulses CE high >= 10us
- * - polls STATUS until TX_DS or MAX_RT or timeout
- */
-int nrf24_send_blocking(nrf24_t *dev,
-                        const uint8_t *payload, size_t len,
-                        unsigned int timeout_ms)
-{
-    if (!payload || len == 0 || len > 32) {
-        errno = EINVAL;
+    /* set addresses for pipe0 and TX (same) */
+    if (nrf24_set_address(dev, NRF24_REG_RX_ADDR_P0, QUICK_ADDR) < 0)
         return -1;
-    }
+    if (nrf24_set_address(dev, NRF24_REG_TX_ADDR, QUICK_ADDR) < 0)
+        return -1;
 
-    /* ensure TX FIFO clean-ish */
+    /* clear interrupts and flush FIFOs */
+    if (nrf24_clear_interrupts(dev) < 0)
+        return -1;
+    if (nrf24_flush_rx(dev) < 0)
+        return -1;
     if (nrf24_flush_tx(dev) < 0)
         return -1;
 
-    /* write payload */
-    uint8_t tx[len + 1];
-    uint8_t rx[len + 1];
-    tx[0] = NRF24_CMD_W_TX_PAYLOAD;
-    memcpy(tx + 1, payload, len);
+    return 0;
+}
 
-    if (spi_transfer(dev->spi_fd, tx, rx, len + 1) < 0)
+int nrf24_set_mode_rx(nrf24_t *dev)
+{
+    if (ce_set(dev, 0) < 0)
         return -1;
 
-    /* pulse CE for >=10us */
-    ce_set(dev, 1);
-    usleep(20); /* 20us just to be safe */
-    ce_set(dev, 0);
+    uint8_t cfg;
+    if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &cfg) < 0)
+        return -1;
 
-    /* poll STATUS */
-    unsigned int waited = 0;
-    const unsigned int step_ms = 1;
-    uint8_t status = 0;
+    cfg |= NRF24_CONFIG_PWR_UP | NRF24_CONFIG_EN_CRC | NRF24_CONFIG_PRIM_RX;
 
-    while (waited < timeout_ms) {
-        if (nrf24_read_status(dev, &status) < 0)
+    if (nrf24_write_reg(dev, NRF24_REG_CONFIG, cfg) < 0)
+        return -1;
+
+    sleep_ms(2); /* tpd2stby ~1.5ms */
+
+    if (nrf24_clear_interrupts(dev) < 0)
+        return -1;
+    if (nrf24_flush_rx(dev) < 0)
+        return -1;
+
+    return ce_set(dev, 1);  /* start listening */
+}
+
+int nrf24_set_mode_tx(nrf24_t *dev)
+{
+    if (ce_set(dev, 0) < 0)
+        return -1;
+
+    uint8_t cfg;
+    if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &cfg) < 0)
+        return -1;
+
+    cfg |= NRF24_CONFIG_PWR_UP | NRF24_CONFIG_EN_CRC;
+    cfg &= ~NRF24_CONFIG_PRIM_RX;
+
+    if (nrf24_write_reg(dev, NRF24_REG_CONFIG, cfg) < 0)
+        return -1;
+
+    sleep_ms(2);
+
+    if (nrf24_clear_interrupts(dev) < 0)
+        return -1;
+    if (nrf24_flush_tx(dev) < 0)
+        return -1;
+
+    return 0;
+}
+
+/* --------- blocking send / recv --------- */
+
+int nrf24_send_blocking(nrf24_t *dev,
+                        const void *payload, uint8_t length,
+                        unsigned int timeout_ms)
+{
+    if (!dev || !payload) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (length == 0 || length > NRF24_MAX_PAYLOAD_SIZE) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (nrf24_write_buf(dev, NRF24_CMD_W_TX_PAYLOAD, payload, length) < 0)
+        return -1;
+
+    /* CE pulse (>=10us) */
+    if (ce_set(dev, 1) < 0)
+        return -1;
+    sleep_ms(1);
+    if (ce_set(dev, 0) < 0)
+        return -1;
+
+    unsigned int elapsed = 0;
+    while (1) {
+        uint8_t status;
+        if (nrf24_read_reg(dev, NRF24_REG_STATUS, &status) < 0)
             return -1;
 
-        if (status & NRF24_STATUS_TX_DS) {
-            /* clear TX_DS */
-            nrf24_write_reg(dev, NRF24_REG_STATUS, NRF24_STATUS_TX_DS);
+        if (status & (NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT)) {
+            if (nrf24_write_reg(dev, NRF24_REG_STATUS,
+                                NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT) < 0)
+                return -1;
+
+            if (status & NRF24_STATUS_MAX_RT) {
+                (void)nrf24_flush_tx(dev);
+                errno = ETIMEDOUT;
+                return -1;
+            }
+
             return 0; /* success */
         }
-        if (status & NRF24_STATUS_MAX_RT) {
-            /* clear MAX_RT and flush TX */
-            nrf24_write_reg(dev, NRF24_REG_STATUS, NRF24_STATUS_MAX_RT);
-            nrf24_flush_tx(dev);
+
+        if (timeout_ms > 0 && elapsed >= timeout_ms) {
             errno = ETIMEDOUT;
             return -1;
         }
 
-        sleep_ms(step_ms);
-        waited += step_ms;
+        sleep_ms(1);
+        elapsed++;
     }
-
-    errno = ETIMEDOUT;
-    return -1;
 }
 
-/* Blocking receive:
- * - assumes RX mode (PRIM_RX=1, CE=1)
- * - waits for RX_DR or timeout
- * - reads payload width (if DPL) and payload
- */
 int nrf24_recv_blocking(nrf24_t *dev,
-                        uint8_t *payload, size_t max_len,
-                        size_t *out_len,
+                        void *payload, uint8_t *length_inout,
                         unsigned int timeout_ms)
 {
-    if (!payload || max_len == 0) {
+    if (!dev || !payload || !length_inout || *length_inout == 0) {
         errno = EINVAL;
         return -1;
     }
 
-    unsigned int waited = 0;
-    const unsigned int step_ms = 1;
-    uint8_t status = 0;
+    unsigned int elapsed = 0;
 
-    while (waited < timeout_ms) {
-        if (nrf24_read_status(dev, &status) < 0)
+    while (1) {
+        uint8_t status;
+        if (nrf24_read_reg(dev, NRF24_REG_STATUS, &status) < 0)
             return -1;
 
-        if (status & NRF24_STATUS_RX_DR)
-            break;
+        if (status & NRF24_STATUS_RX_DR) {
+            uint8_t width = 0;
+            if (nrf24_read_buf(dev, NRF24_CMD_R_RX_PL_WID, &width, 1) < 0)
+                return -1;
 
-        sleep_ms(step_ms);
-        waited += step_ms;
+            if (width == 0 || width > NRF24_MAX_PAYLOAD_SIZE) {
+                (void)nrf24_flush_rx(dev);
+                (void)nrf24_write_reg(dev, NRF24_REG_STATUS, NRF24_STATUS_RX_DR);
+                errno = EIO;
+                return -1;
+            }
+
+            if (width > *length_inout)
+                width = *length_inout;
+
+            if (nrf24_read_buf(dev, NRF24_CMD_R_RX_PAYLOAD, payload, width) < 0)
+                return -1;
+
+            *length_inout = width;
+
+            if (nrf24_write_reg(dev, NRF24_REG_STATUS, NRF24_STATUS_RX_DR) < 0)
+                return -1;
+
+            return 0;
+        }
+
+        if (timeout_ms > 0 && elapsed >= timeout_ms) {
+            errno = ETIMEDOUT;
+            return -1;
+        }
+
+        sleep_ms(1);
+        elapsed++;
     }
-
-    if (!(status & NRF24_STATUS_RX_DR)) {
-        errno = ETIMEDOUT;
-        return -1;
-    }
-
-    /* read payload width (for DPL) */
-    uint8_t tx_wid = NRF24_CMD_R_RX_PL_WID;
-    uint8_t rx_wid = 0;
-    if (spi_transfer(dev->spi_fd, &tx_wid, &rx_wid, 1) < 0)
-        return -1;
-
-    uint8_t pl_len = rx_wid;
-    if (pl_len == 0 || pl_len > 32 || pl_len > max_len) {
-        /* something is wrong; flush RX FIFO */
-        nrf24_flush_rx(dev);
-        errno = EIO;
-        return -1;
-    }
-
-    uint8_t tx[33] = { NRF24_CMD_R_RX_PAYLOAD };
-    uint8_t rx[33] = { 0 };
-    if (spi_transfer(dev->spi_fd, tx, rx, (size_t)pl_len + 1) < 0)
-        return -1;
-
-    memcpy(payload, rx + 1, pl_len);
-    if (out_len)
-        *out_len = pl_len;
-
-    /* clear RX_DR */
-    nrf24_write_reg(dev, NRF24_REG_STATUS, NRF24_STATUS_RX_DR);
-
-    return 0;
-}
-
-/* Basic "quick-mode-like" config */
-int nrf24_configure_basic(nrf24_t *dev,
-                          uint8_t channel,
-                          const uint8_t *tx_addr,
-                          const uint8_t *rx_addr_p0)
-{
-    if (!tx_addr || !rx_addr_p0) {
-        errno = EINVAL;
-        return -1;
-    }
-
-    if (nrf24_set_address_width_5bytes(dev) < 0)
-        return -1;
-
-    if (nrf24_set_tx_address(dev, tx_addr, 5) < 0)
-        return -1;
-
-    if (nrf24_set_rx_address_p0(dev, rx_addr_p0, 5) < 0)
-        return -1;
-
-    if (nrf24_set_channel(dev, channel) < 0)
-        return -1;
-
-    if (nrf24_set_datarate(dev, NRF24_DR_2MBPS) < 0)
-        return -1;
-
-    if (nrf24_set_power(dev, NRF24_PWR_0DBM) < 0)
-        return -1;
-
-    /* ARD = 500us (0b0001 => 500us), ARC = 15 (0b1111) */
-    if (nrf24_set_retries(dev, 1, 15) < 0)
-        return -1;
-
-    if (nrf24_set_auto_ack(dev, true) < 0)
-        return -1;
-
-    if (nrf24_enable_dynamic_payloads(dev, true) < 0)
-        return -1;
-
-    if (nrf24_set_crc(dev, true, true) < 0)
-        return -1;
-
-    return 0;
 }
