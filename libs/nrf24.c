@@ -23,11 +23,29 @@ static int gpio_write_str(const char *path, const char *value)
 
 static int gpio_export(uint8_t pin)
 {
+    char path[64];
+    snprintf(path, sizeof(path), "/sys/class/gpio/gpio%u", pin);
+    if (access(path, F_OK) == 0) {
+        // already exported
+        return 0;
+    }
+
     char buf[16];
-    // NOTE: include newline, some kernels require it
     snprintf(buf, sizeof(buf), "%u\n", pin);
-    return gpio_write_str("/sys/class/gpio/export", buf);
+    int fd = open("/sys/class/gpio/export", O_WRONLY);
+    if (fd < 0) return -1;
+
+    ssize_t w = write(fd, buf, strlen(buf));
+    int saved_errno = errno;
+    close(fd);
+
+    if (w != (ssize_t)strlen(buf)) {
+        errno = saved_errno;
+        return -1;
+    }
+    return 0;
 }
+
 
 static int gpio_unexport(uint8_t pin)
 {
