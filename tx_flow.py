@@ -175,6 +175,7 @@ def TX_LINK_LAYER(PTX: CustomNRF24, STREAM: list[list[list[bytes]]], CHECKSUMS: 
             while ChunkID < len(STREAM[PageID][BurstID]):
                 PTX.send_DATA_message(STREAM[PageID][BurstID][ChunkID], PageID, BurstID, ChunkID)
                 ChunkID += 1
+                time.sleep(0.001)  # small delay to avoid overflows in the RX buffer
 
             PTX.power_up_rx()
             tic = time.time()
