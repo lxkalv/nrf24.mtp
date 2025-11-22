@@ -24,14 +24,15 @@ static int gpio_write_str(const char *path, const char *value)
 static int gpio_export(uint8_t pin)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%u", pin);
+    // NOTE: include newline, some kernels require it
+    snprintf(buf, sizeof(buf), "%u\n", pin);
     return gpio_write_str("/sys/class/gpio/export", buf);
 }
 
 static int gpio_unexport(uint8_t pin)
 {
     char buf[16];
-    snprintf(buf, sizeof(buf), "%u", pin);
+    snprintf(buf, sizeof(buf), "%u\n", pin);
     return gpio_write_str("/sys/class/gpio/unexport", buf);
 }
 
