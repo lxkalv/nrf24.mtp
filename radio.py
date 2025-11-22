@@ -184,6 +184,12 @@ class CustomNRF24(NRF24):
         packets_lost          = 0
         message_has_been_sent = False
         while not message_has_been_sent:
+
+            if packets_lost > 100:
+                ERROR(f"Too many packets lost while sending DATA message {PageID}|{BurstID}|{ChunkID}, aborting transmission")
+                self.show_registers()
+                sys.exit(1)
+
             INFO(f"Sending DATA message: {DATA_MESSAGE.hex()}")
         
             self.reset_packages_lost()
