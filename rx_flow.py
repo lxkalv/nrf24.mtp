@@ -132,6 +132,8 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     TRANSFER_HAS_ENDED = False
     TX_HAS_STARTED     = False
 
+    IS_READING_DATA    = False
+
     THROUGHPUT_TIC = 0
     THROUGHPUT_TAC = 0
 
@@ -148,6 +150,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # Burst INFO
         if (frame[0] == 0xFF) and (frame[1] == 0xF0):
             PageID, BurstID, sizes, current_burst = generate_struct_based_on_BURST_INFO(frame)
+            IS_READING_DATA = True
 
             if not TX_HAS_STARTED:
                 THROUGHPUT_TIC = time.time()
@@ -175,6 +178,10 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # DATA message
         else:
             FrameID = frame[0]
+
+            if not IS_READING_DATA:
+                WARN(f"DATA message received before BURST_INFO, discarding frame: {frame.hex()}")
+                continue
 
             # If the header information is invalid we discard the frame
             if (
@@ -216,6 +223,7 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
                     SUCC(f"CHECKSUM for BURST [{PageID:02d}|{BurstID:03d}] sent successfully: {CHECKSUM.hex()}")
                     include_STREAM_with_burst(STREAM, PageID, BurstID, current_burst)
+                    IS_READING_DATA = False
                     break
 
                 if (tac - tic) >= CHECKSUM_TIMEOUT:
