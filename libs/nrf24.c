@@ -10,6 +10,7 @@
 #include <sys/ioctl.h>
 #include <linux/spi/spidev.h>
 #include <dirent.h>
+#include <stdlib.h>
 
 /* ---------- small helpers (GPIO + SPI) ---------- */
 
