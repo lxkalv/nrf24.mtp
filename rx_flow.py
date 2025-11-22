@@ -32,32 +32,49 @@ MAX_PAYLOAD = 32
 
 
 # :::: PROTOCOL LAYERS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def generate_STREAM_section_based_on_BURST_INFO(frame: bytes, STREAM: list[list[list[bytes]]]) -> tuple[int, int, list[bytes]]:
+def generate_struct_based_on_BURST_INFO(frame: bytes) -> tuple[int, int, list[bytes], list[bytes]]:
+    
     _                 = frame[0]
     _                 = frame[1]
     PageID            = frame[2]
     BurstID           = frame[3]
     size_of_burst     = int.from_bytes(frame[4:6])
 
-    chunks_in_burst   = math.ceil(size_of_burst / MAX_PAYLOAD)
-    length_last_chunk = size_of_burst % MAX_PAYLOAD if (size_of_burst % MAX_PAYLOAD) != 0 else MAX_PAYLOAD
+    frames_in_burst   = math.ceil(size_of_burst / MAX_PAYLOAD)
+    length_last_frame = size_of_burst % MAX_PAYLOAD if (size_of_burst % MAX_PAYLOAD) != 0 else MAX_PAYLOAD
 
-    INFO(f"Receiving BURST: {PageID:02d}|{BurstID:03d} -> {size_of_burst} B in {chunks_in_burst} CHUNKS")
+    INFO(f"Receiving BURST [{PageID:02d}|{BurstID:03d}] -> {size_of_burst} B in {frames_in_burst} FRAMES")
 
-    sizes = list()
+    sizes       = list()
+    empty_burst = list()
 
-    if len(STREAM) <= PageID:
-        STREAM.append(list())
-    if len(STREAM[PageID]) <= BurstID:
-        STREAM[PageID].append(list())
-    for ChunkID in range(chunks_in_burst):
-        STREAM[PageID][BurstID].append(bytes())
-        if ChunkID == chunks_in_burst - 1:
-            sizes.append(bytes(length_last_chunk))
+    for FrameID in range(frames_in_burst):
+        empty_burst.append(bytes())
+
+        if FrameID == frames_in_burst - 1:
+            sizes.append(bytes(length_last_frame))
         else:
-            sizes.append(bytes(32))
+            sizes.append(bytes(MAX_PAYLOAD))
 
-    return (PageID, BurstID, sizes)
+    return (PageID, BurstID, sizes, empty_burst)
+
+
+
+def include_STREAM_with_burst(STREAM: list[list[list[bytes]]], PageID: int, BurstID: int, burst: list[bytes]) -> None:
+    # Ensure the STREAM structure has enough pages
+    while len(STREAM) <= PageID:
+        STREAM.append([])
+
+    # Ensure the current page has enough bursts
+    while len(STREAM[PageID]) <= BurstID:
+        STREAM[PageID].append([])
+
+    # Include the burst into the STREAM
+    STREAM[PageID][BurstID] = burst
+
+    return
+
+
 
 def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     # Generate the organized structure containing the DATA to be transmitted organized
@@ -118,21 +135,25 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
     THROUGHPUT_TIC = 0
     THROUGHPUT_TAC = 0
 
-    BURST_HASHER = hashlib.sha256()
     while not TRANSFER_HAS_ENDED:
         # If we have not received anything we do nothing
         while not PRX.data_ready(): continue
 
         # Pull the received frame from the FIFO
         frame: bytes = PRX.get_payload()
+        INFO(f"Received frame: {frame.hex()}")
+
+
 
         # Burst INFO
         if (frame[0] == 0xFF) and (frame[1] == 0xF0):
-            PageID, BurstID, sizes = generate_STREAM_section_based_on_BURST_INFO(frame, STREAM)
+            PageID, BurstID, sizes, current_burst = generate_struct_based_on_BURST_INFO(frame)
 
             if not TX_HAS_STARTED:
                 THROUGHPUT_TIC = time.time()
                 TX_HAS_STARTED = True
+
+
 
         # Transfer FINISH
         elif (frame[0] == 0xFF) and (frame[1] == 0x0F):
@@ -148,27 +169,31 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
             )
 
             INFO(f"Transfer finished successfully | Throughput: {tx_data / tx_time / 1024:.2f} KBps over {tx_time:.2f} seconds | {tx_data / 1024:.2f} KB transferred")
-            
+
+
+
+        # DATA message
         else:
-            ChunkID = frame[0]
+            FrameID = frame[0]
 
             # If the header information is invalid we discard the frame
             if (
-               ChunkID > len(sizes) - 1
-            or len(frame) != len(sizes[ChunkID])
+               FrameID    >= len(sizes)
+            or len(frame) != len(sizes[FrameID])
             ):
-                WARN(f"Invalid message received: {ChunkID:03d} -> {len(frame)} B")
+                WARN(f"Invalid message received | FrameID:{FrameID:03d} | L:{len(frame)} B")
                 continue
 
-            STREAM[PageID][BurstID][ChunkID] = frame
+            current_burst[FrameID] = frame
 
-            if ChunkID == len(sizes) - 1:
-                SUCC(f"Completed BURST: {PageID:02d}|{BurstID:03d}")
-                BURST_HASHER = hashlib.sha256()
-                for ChunkID, chunk in enumerate(STREAM[PageID][BurstID]):
-                    if not chunk: WARN(f"Missing {ChunkID:03d} in BURST")
-                    BURST_HASHER.update(chunk)
-                CHECKSUM = BURST_HASHER.digest()
+            if FrameID == len(sizes) - 1:
+                SUCC(f"Completed BURST [{PageID:02d}|{BurstID:03d}]")
+                
+                for FrameID, chunk in enumerate(current_burst):
+                    if not chunk: WARN(f"Missing {FrameID:03d} in BURST")
+                
+                
+                CHECKSUM = hashlib.sha256(b"".join(current_burst)).digest()
                 
                 tic = time.time()
                 tac = time.time()
@@ -182,18 +207,19 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
                     try:
                         PRX.wait_until_sent()
                     except TimeoutError:
-                        ERROR(f"Time-out while sending CHECKSUM for BURST {PageID:02d}|{BurstID:03d}, retrying")
+                        ERROR(f"Time-out while sending CHECKSUM for BURST [{PageID:02d}|{BurstID:03d}]")
                         continue
 
                     if PRX.get_packages_lost() > 0:
-                        ERROR(f"Packages lost while sending CHECKSUM for BURST {PageID:02d}|{BurstID:03d}, retrying")
+                        ERROR(f"Packages lost while sending CHECKSUM for BURST [{PageID:02d}|{BurstID:03d}]")
                         continue
 
-                    SUCC(f"CHECKSUM for BURST {PageID:02d}|{BurstID:03d} sent successfully: {CHECKSUM.hex()}")
+                    SUCC(f"CHECKSUM for BURST [{PageID:02d}|{BurstID:03d}] sent successfully: {CHECKSUM.hex()}")
+                    include_STREAM_with_burst(STREAM, PageID, BurstID, current_burst)
                     break
 
                 if (tac - tic) >= CHECKSUM_TIMEOUT:
-                    ERROR(f"CHECKSUM timeout for BURST {PageID:02d}|{BurstID:03d}")
+                    ERROR(f"CHECKSUM timeout for BURST [{PageID:02d}|{BurstID:03d}]")
                     PRX.flush_rx()
                     PRX.power_up_rx()
 
