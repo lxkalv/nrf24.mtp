@@ -13,6 +13,8 @@ from tx_flow import FULL_TX_MODE
 from rx_flow import FULL_RX_MODE
 
 from utils import (
+    YELLOW,
+
     ERROR,
     INFO,
 )
@@ -101,7 +103,7 @@ def main():
     """
     Main flow of the application
     """
-
+    input_role = input(f"{YELLOW('[>>>>]:')} press any button to start")
     if radio.role is Role.TRANSMITTER:
         BEGIN_TRANSMITTER_MODE()
     
