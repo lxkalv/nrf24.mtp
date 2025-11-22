@@ -155,9 +155,9 @@ class CustomNRF24(NRF24):
         progress is shown with a status bar
         """
 
-        INFO(f"Sending {message_name} message")
         message_has_been_sent = False
         while not message_has_been_sent:
+            INFO(f"Sending {message_name} message: {CONTROL_MESSAGE.hex()}")
             
             self.reset_packages_lost()
             self.send(CONTROL_MESSAGE)
@@ -184,6 +184,7 @@ class CustomNRF24(NRF24):
         packets_lost          = 0
         message_has_been_sent = False
         while not message_has_been_sent:
+            INFO(f"Sending DATA message: {DATA_MESSAGE.hex()}")
         
             self.reset_packages_lost()
             self.send(DATA_MESSAGE)
