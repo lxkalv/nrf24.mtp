@@ -134,6 +134,9 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
 
     IS_READING_DATA    = False
 
+    PREV_FRAME       = bytes()
+    PREV_FRAME_COUNT = 0
+
     THROUGHPUT_TIC = 0
     THROUGHPUT_TAC = 0
 
@@ -178,6 +181,15 @@ def RX_LINK_LAYER(PRX: CustomNRF24) -> None:
         # DATA message
         else:
             FrameID = frame[0]
+
+            if frame == PREV_FRAME:
+                PREV_FRAME_COUNT += 1
+                continue
+
+            if PREV_FRAME_COUNT > 2_000:
+                ERROR(f"Too many repeated frames received: {PREV_FRAME.hex()}, aborting transmission")
+                PRX.show_registers()
+                sys.exit(1)
 
             if not IS_READING_DATA:
                 WARN(f"DATA message received before BURST_INFO, discarding frame: {frame.hex()}")
