@@ -188,7 +188,8 @@ class CustomNRF24(NRF24):
             if packets_lost > 2_000:
                 ERROR(f"Too many packets lost while sending DATA message {PageID}|{BurstID}|{ChunkID}, aborting transmission")
                 self.show_registers()
-                sys.exit(1)
+                # sys.exit(1)
+                self.flush_rx() # this is very cutre
 
             INFO(f"Sending DATA message: {DATA_MESSAGE.hex()}")
         
