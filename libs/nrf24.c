@@ -12,7 +12,7 @@
 #include <dirent.h>
 
 /* ---------- small helpers ---------- */
-/* Find the lowest /sys/class/gpio/gpiochip*/base value.
+/* Find the lowest /sys/class/gpio/gpiochip base value.
  * On Raspberry Pi this is the main SoC GPIO base (e.g. 512).
  */
 static int get_gpio_base(void)
