@@ -633,7 +633,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                  cur_page_id, cur_burst_id,
                  (unsigned long long)chk_state);
 
-            /* Send checksum back to TX with retries */
+            /* Send checksum back to TX with a GLOBAL deadline */
             if (nrf24_set_mode_tx(&radio) < 0) {
                 ERROR("nrf24_set_mode_tx failed");
                 page0_stream_free(&stream);
@@ -642,21 +642,64 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 return 1;
             }
 
-            if (send_with_retries(&radio,
-                                  checksum_bytes,
-                                  CHECKSUM_SIZE,
-                                  CONTROL_TIMEOUT_MS,
-                                  "CHECKSUM") < 0) {
-                ERROR("P2P RX: failed to send checksum for burst %u", cur_burst_id);
-                page0_stream_free(&stream);
-                fclose(fout);
-                nrf24_deinit(&radio);
-                return 1;
+            const double send_deadline_ms = 500.0;  /* total window to get ACK */
+            double send_start = now_seconds();
+            unsigned attempt = 0;
+            int checksum_sent_ok = 0;
+
+            while (!checksum_sent_ok &&
+                (now_seconds() - send_start) * 1000.0 < send_deadline_ms) {
+
+                int ret = nrf24_send_blocking(&radio,
+                                            checksum_bytes,
+                                            CHECKSUM_SIZE,
+                                            CONTROL_TIMEOUT_MS);  /* e.g. 20–50 ms */
+
+                if (ret == 0) {
+                    checksum_sent_ok = 1;
+                    break;
+                }
+
+                if (errno != ETIMEDOUT) {
+                    ERROR("P2P RX: nrf24_send_blocking(CHECKSUM) failed: %s",
+                        strerror(errno));
+                    page0_stream_free(&stream);
+                    fclose(fout);
+                    nrf24_deinit(&radio);
+                    return 1;
+                }
+
+                attempt++;
+                if (attempt == 1 || (attempt % 50) == 0) {
+                    WARN("CHECKSUM: timeout (no ACK) on attempt %u for %u-byte frame",
+                        attempt, CHECKSUM_SIZE);
+                }
+
+                if (attempt % 200 == 0) {
+                    WARN("P2P RX: %u checksum timeouts, reconfiguring radio", attempt);
+                    (void)nrf24_configure_quick(&radio, P2P_CHANNEL);
+                    (void)nrf24_set_mode_tx(&radio);  /* stay in TX for next attempt */
+                }
             }
 
+            if (!checksum_sent_ok) {
+                WARN("P2P RX: checksum timeout for BURST %u, discarding burst and"
+                    " returning to RX (TX will resend it)", cur_burst_id);
+
+                in_burst = 0;  /* do NOT store this burst */
+                if (nrf24_set_mode_rx(&radio) < 0) {
+                    ERROR("nrf24_set_mode_rx failed");
+                    page0_stream_free(&stream);
+                    fclose(fout);
+                    nrf24_deinit(&radio);
+                    return 1;
+                }
+                continue;  /* back to main loop; TX will resend BURST_INFO+DATA */
+            }
+
+            /* Only here if checksum really got through */
             SUCC("P2P RX: checksum for BURST %u sent successfully", cur_burst_id);
 
-            /* Store burst into STREAM[Page0][BurstID] */
             if (store_burst(&stream,
                             cur_burst_id,
                             frames_in_burst,
@@ -678,6 +721,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 nrf24_deinit(&radio);
                 return 1;
             }
+
         }
     }
 
