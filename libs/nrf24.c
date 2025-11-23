@@ -25,6 +25,7 @@
 #define NRF24_CMD_R_RX_PL_WID      0x60
 #define NRF24_CMD_W_ACK_PAYLOAD    0xA8
 #define NRF24_CMD_NOP              0xFF
+#define NRF24_CMD_ACTIVATE         0x50
 
 #define NRF24_REG_CONFIG           0x00
 #define NRF24_REG_EN_AA            0x01
@@ -41,6 +42,12 @@
 #define NRF24_REG_FIFO_STATUS      0x17
 #define NRF24_REG_DYNPD            0x1C
 #define NRF24_REG_FEATURE          0x1D
+
+#define NRF24_FEATURE_EN_DPL       (1 << 2)
+#define NRF24_FEATURE_EN_ACK_PAY   (1 << 1)
+#define NRF24_FEATURE_EN_DYN_ACK   (1 << 0)
+
+#define NRF24_DYNPD_DPL_P0         (1 << 0)
 
 #define NRF24_CONFIG_PRIM_RX       (1 << 0)
 #define NRF24_CONFIG_PWR_UP        (1 << 1)
@@ -381,15 +388,64 @@ void nrf24_deinit(nrf24_t *dev)
     }
 }
 
+/* Send ACTIVATE 0x73 to toggle the features (needed on many chips). */
+static int nrf24_toggle_features(nrf24_t *dev)
+{
+    uint8_t buf[2] = { NRF24_CMD_ACTIVATE, 0x73 };
+    return spi_transfer(dev->spi_fd, buf, NULL, 2);
+}
+
+/* Turn on Dynamic Payload Length on pipe 0. */
+static int nrf24_enable_dynamic_payloads(nrf24_t *dev)
+{
+    uint8_t feature;
+
+    /* Try to set EN_DPL bit */
+    if (nrf24_read_reg(dev, NRF24_REG_FEATURE, &feature) < 0)
+        return -1;
+
+    feature |= NRF24_FEATURE_EN_DPL;
+    if (nrf24_write_reg(dev, NRF24_REG_FEATURE, feature) < 0)
+        return -1;
+
+    /* Read back; if still zero, features are disabled → need ACTIVATE */
+    if (nrf24_read_reg(dev, NRF24_REG_FEATURE, &feature) < 0)
+        return -1;
+
+    if (!(feature & NRF24_FEATURE_EN_DPL)) {
+        /* Enable feature register */
+        if (nrf24_toggle_features(dev) < 0)
+            return -1;
+
+        if (nrf24_read_reg(dev, NRF24_REG_FEATURE, &feature) < 0)
+            return -1;
+
+        feature |= NRF24_FEATURE_EN_DPL;
+        if (nrf24_write_reg(dev, NRF24_REG_FEATURE, feature) < 0)
+            return -1;
+    }
+
+    /* Enable DPL on pipe 0 in DYNPD */
+    uint8_t dynpd;
+    if (nrf24_read_reg(dev, NRF24_REG_DYNPD, &dynpd) < 0)
+        return -1;
+
+    dynpd |= NRF24_DYNPD_DPL_P0;
+    if (nrf24_write_reg(dev, NRF24_REG_DYNPD, dynpd) < 0)
+        return -1;
+
+    return 0;
+}
+
 /* --------- radio configuration for quick_mode --------- */
 
 int nrf24_configure_quick(nrf24_t *dev, uint8_t channel)
 {
-    /* address width = 5 bytes */
+    /* 5-byte addresses */
     if (nrf24_write_reg(dev, NRF24_REG_SETUP_AW, 0x03) < 0)
         return -1;
 
-    /* auto ack on pipe 0 */
+    /* auto-ack on pipe 0 */
     if (nrf24_write_reg(dev, NRF24_REG_EN_AA, 0x01) < 0)
         return -1;
 
@@ -397,7 +453,7 @@ int nrf24_configure_quick(nrf24_t *dev, uint8_t channel)
     if (nrf24_write_reg(dev, NRF24_REG_EN_RXADDR, 0x01) < 0)
         return -1;
 
-    /* retries: ARD=4 (1.25ms), ARC=15 -> 0x4F */
+    /* retries: ARD=4 (1.25 ms), ARC=15 -> 0x4F */
     if (nrf24_write_reg(dev, NRF24_REG_SETUP_RETR, 0x4F) < 0)
         return -1;
 
@@ -405,29 +461,29 @@ int nrf24_configure_quick(nrf24_t *dev, uint8_t channel)
     if (nrf24_write_reg(dev, NRF24_REG_RF_CH, (uint8_t)(channel & 0x7F)) < 0)
         return -1;
 
-    /* 2Mbps, 0dBm */
+    /* 2 Mbps, 0 dBm */
     if (nrf24_write_reg(dev, NRF24_REG_RF_SETUP,
                         NRF24_RF_SETUP_RF_DR_HIGH |
                         NRF24_RF_SETUP_RF_PWR_0DBM) < 0)
         return -1;
 
-    /* fixed payload size on pipe 0 */
+    /* RX_PW_P0 is ignored in DPL mode, but set to max anyway */
     if (nrf24_write_reg(dev, NRF24_REG_RX_PW_P0, NRF24_MAX_PAYLOAD_SIZE) < 0)
         return -1;
 
-    /* disable dynamic payload and special features */
+    /* Disable any old DPL/feature config first */
     if (nrf24_write_reg(dev, NRF24_REG_DYNPD, 0x00) < 0)
         return -1;
     if (nrf24_write_reg(dev, NRF24_REG_FEATURE, 0x00) < 0)
         return -1;
 
-    /* set addresses for pipe0 and TX (same) */
+    /* Same address for TX and RX pipe 0 */
     if (nrf24_set_address(dev, NRF24_REG_RX_ADDR_P0, QUICK_ADDR) < 0)
         return -1;
     if (nrf24_set_address(dev, NRF24_REG_TX_ADDR, QUICK_ADDR) < 0)
         return -1;
 
-    /* clear interrupts and flush FIFOs */
+    /* Clear interrupts and FIFOs */
     if (nrf24_clear_interrupts(dev) < 0)
         return -1;
     if (nrf24_flush_rx(dev) < 0)
@@ -435,8 +491,13 @@ int nrf24_configure_quick(nrf24_t *dev, uint8_t channel)
     if (nrf24_flush_tx(dev) < 0)
         return -1;
 
+    /* *** KEY STEP: turn on dynamic payloads *** */
+    if (nrf24_enable_dynamic_payloads(dev) < 0)
+        return -1;
+
     return 0;
 }
+
 
 int nrf24_set_mode_rx(nrf24_t *dev)
 {
@@ -497,15 +558,24 @@ int nrf24_send_blocking(nrf24_t *dev,
         errno = EINVAL;
         return -1;
     }
-    if (length == 0 || length > NRF24_MAX_PAYLOAD_SIZE) {
+
+    if (length == 0) {
         errno = EINVAL;
         return -1;
     }
 
-    if (nrf24_write_buf(dev, NRF24_CMD_W_TX_PAYLOAD, payload, length) < 0)
-        return -1;
+    if (length > NRF24_MAX_PAYLOAD_SIZE)
+        length = NRF24_MAX_PAYLOAD_SIZE;
 
-    /* CE pulse (>=10us) */
+    /* In DPL mode we send exactly <length> bytes */
+    if (nrf24_write_buf(dev,
+                        NRF24_CMD_W_TX_PAYLOAD,
+                        (const uint8_t *)payload,
+                        length) < 0) {
+        return -1;
+    }
+
+    /* CE pulse (>=10us); 1 ms is overkill but safe */
     if (ce_set(dev, 1) < 0)
         return -1;
     sleep_ms(1);
@@ -513,12 +583,14 @@ int nrf24_send_blocking(nrf24_t *dev,
         return -1;
 
     unsigned int elapsed = 0;
+
     while (1) {
         uint8_t status;
         if (nrf24_read_reg(dev, NRF24_REG_STATUS, &status) < 0)
             return -1;
 
         if (status & (NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT)) {
+            /* clear both bits */
             if (nrf24_write_reg(dev, NRF24_REG_STATUS,
                                 NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT) < 0)
                 return -1;
@@ -542,11 +614,17 @@ int nrf24_send_blocking(nrf24_t *dev,
     }
 }
 
+
 int nrf24_recv_blocking(nrf24_t *dev,
                         void *payload, uint8_t *length_inout,
                         unsigned int timeout_ms)
 {
-    if (!dev || !payload || !length_inout || *length_inout == 0) {
+    if (!dev || !payload || !length_inout) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (*length_inout == 0) {
         errno = EINVAL;
         return -1;
     }
@@ -560,12 +638,19 @@ int nrf24_recv_blocking(nrf24_t *dev,
 
         if (status & NRF24_STATUS_RX_DR) {
             uint8_t width = 0;
-            if (nrf24_read_buf(dev, NRF24_CMD_R_RX_PL_WID, &width, 1) < 0)
+
+            /* In DPL mode, first read payload width */
+            if (nrf24_read_buf(dev,
+                               NRF24_CMD_R_RX_PL_WID,
+                               &width,
+                               1) < 0)
                 return -1;
 
             if (width == 0 || width > NRF24_MAX_PAYLOAD_SIZE) {
+                /* invalid -> flush RX and clear flag */
                 (void)nrf24_flush_rx(dev);
-                (void)nrf24_write_reg(dev, NRF24_REG_STATUS, NRF24_STATUS_RX_DR);
+                (void)nrf24_write_reg(dev, NRF24_REG_STATUS,
+                                      NRF24_STATUS_RX_DR);
                 errno = EIO;
                 return -1;
             }
@@ -573,12 +658,16 @@ int nrf24_recv_blocking(nrf24_t *dev,
             if (width > *length_inout)
                 width = *length_inout;
 
-            if (nrf24_read_buf(dev, NRF24_CMD_R_RX_PAYLOAD, payload, width) < 0)
+            if (nrf24_read_buf(dev,
+                               NRF24_CMD_R_RX_PAYLOAD,
+                               (uint8_t *)payload,
+                               width) < 0)
                 return -1;
 
             *length_inout = width;
 
-            if (nrf24_write_reg(dev, NRF24_REG_STATUS, NRF24_STATUS_RX_DR) < 0)
+            if (nrf24_write_reg(dev, NRF24_REG_STATUS,
+                                NRF24_STATUS_RX_DR) < 0)
                 return -1;
 
             return 0;
