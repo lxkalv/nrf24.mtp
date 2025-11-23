@@ -8,6 +8,9 @@
 
 #include "nrf24.h"
 
+#define QUICK_MODE_CHANNEL 76
+
+
 #define QM_HEADER_MAGIC      "QMF1"
 #define QM_HEADER_MAGIC_LEN  4
 #define QM_HEADER_TOTAL_LEN  (QM_HEADER_MAGIC_LEN + 8)  /* 4 magic + 8 size */
@@ -54,6 +57,11 @@ static double now_seconds(void)
  * max_tries == 0  -> infinite retries.
  * Returns 0 on success, -1 on non-timeout error.
  */
+/* Send one frame, retrying forever on timeouts (no ACK).
+ * - hw_timeout_ms: timeout passed to nrf24_send_blocking() for each try.
+ * - max_tries == 0  -> infinite retries (we'll still periodically re-config).
+ * Returns 0 on success, -1 on non-timeout error.
+ */
 static int send_with_retries(nrf24_t *radio,
                              const uint8_t *buf, uint8_t len,
                              unsigned int hw_timeout_ms,
@@ -64,7 +72,8 @@ static int send_with_retries(nrf24_t *radio,
     for (;;) {
         int ret = nrf24_send_blocking(radio, buf, len, hw_timeout_ms);
         if (ret == 0) {
-            return 0;   /* got ACK */
+            /* got ACK */
+            return 0;
         }
 
         if (errno != ETIMEDOUT) {
@@ -79,14 +88,24 @@ static int send_with_retries(nrf24_t *radio,
                 attempt, (unsigned)len);
         fflush(stderr);
 
+        /* Every N timeouts, reconfigure the radio in case it got wedged */
+        if (attempt % 200 == 0) {
+            fprintf(stderr,
+                    "TX: %u consecutive timeouts, reconfiguring radio...\n",
+                    attempt);
+            (void)nrf24_configure_quick(radio, QUICK_MODE_CHANNEL);
+            (void)nrf24_set_mode_tx(radio);
+        }
+
         if (max_tries && attempt >= max_tries) {
             errno = ETIMEDOUT;
             return -1;
         }
 
-        /* else: loop and re-send the same frame */
+        /* otherwise: loop and retry same frame */
     }
 }
+
 
 
 /* ---------- TX path: send header + file ---------- */
@@ -105,7 +124,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
         return 1;
     }
 
-    if (nrf24_configure_quick(&radio, 76) < 0) {
+    if (nrf24_configure_quick(&radio, QUICK_MODE_CHANNEL) < 0) {
         perror("nrf24_configure_quick");
         nrf24_deinit(&radio);
         return 1;
@@ -142,13 +161,13 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
     memcpy(header, QM_HEADER_MAGIC, QM_HEADER_MAGIC_LEN);
     encode_u64_le(header + QM_HEADER_MAGIC_LEN, total_bytes);
 
-    /* Send header, retrying forever on timeout */
+    /* Send header, retrying forever on timeouts, with periodic re-config */
     if (send_with_retries(&radio,
-                          header,
-                          (uint8_t)QM_HEADER_TOTAL_LEN,
-                          1000,   /* per-try hw timeout (ms) */
-                          0       /* 0 = infinite SW retries */
-                          ) < 0) {
+                        header,
+                        (uint8_t)QM_HEADER_TOTAL_LEN,
+                        1000,   /* per-try hw timeout (ms) */
+                        0       /* 0 = infinite SW retries */
+                        ) < 0) {
         fprintf(stderr, "TX: failed to send header (fatal)\n");
         fclose(fin);
         nrf24_deinit(&radio);
@@ -156,6 +175,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
     }
 
     printf("TX: header sent. Starting data transfer...\n");
+
 
     uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
     uint64_t sent = 0;
@@ -183,16 +203,17 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
 
         /* Send this chunk; keep retrying forever on timeouts */
         if (send_with_retries(&radio,
-                              buf,
-                              (uint8_t)n,
-                              500,   /* per-try hw timeout (ms) */
-                              0      /* infinite SW retries */
-                              ) < 0) {
+                            buf,
+                            (uint8_t)n,
+                            500,   /* per-try hw timeout (ms) */
+                            0      /* infinite SW retries */
+                            ) < 0) {
             fprintf(stderr, "TX: fatal error sending data frame\n");
             fclose(fin);
             nrf24_deinit(&radio);
             return 1;
         }
+
 
         sent += n;
 
@@ -234,7 +255,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
         return 1;
     }
 
-    if (nrf24_configure_quick(&radio, 76) < 0) {
+    if (nrf24_configure_quick(&radio, QUICK_MODE_CHANNEL) < 0) {
         perror("nrf24_configure_quick");
         nrf24_deinit(&radio);
         return 1;
@@ -286,16 +307,29 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
     uint64_t received = 0;
     double t_start = now_seconds();
+    unsigned int idle_timeouts = 0;
 
     while (received < total_bytes) {
         uint8_t len = NRF24_MAX_PAYLOAD_SIZE;
-        int ret = nrf24_recv_blocking(&radio, buf, &len, 5000);
+        int ret = nrf24_recv_blocking(&radio, buf, &len, 1000);  /* 1s timeout now */
         if (ret < 0) {
             if (errno == ETIMEDOUT) {
+                idle_timeouts++;
                 fprintf(stderr,
                         "RX: timeout waiting for data (received=%llu / %llu)\n",
                         (unsigned long long)received,
                         (unsigned long long)total_bytes);
+
+                /* If we had many consecutive timeouts, re-arm RX mode */
+                if (idle_timeouts >= 10) {
+                    fprintf(stderr,
+                            "RX: %u consecutive timeouts, reconfiguring radio...\n",
+                            idle_timeouts);
+                    (void)nrf24_configure_quick(&radio, QUICK_MODE_CHANNEL);
+                    (void)nrf24_set_mode_rx(&radio);
+                    idle_timeouts = 0;
+                }
+
                 continue; /* keep waiting */
             } else {
                 perror("RX: nrf24_recv_blocking(data)");
@@ -304,6 +338,8 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 return 1;
             }
         }
+
+        idle_timeouts = 0;  /* got something -> link alive */
 
         if (len == 0) {
             /* Shouldn't happen with DPL */
@@ -326,12 +362,13 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
 
         if ((received % (64 * 1024)) < NRF24_MAX_PAYLOAD_SIZE) {
             printf("RX: %llu / %llu bytes (%.1f%%)\n",
-                   (unsigned long long)received,
-                   (unsigned long long)total_bytes,
-                   (total_bytes ? (100.0 * (double)received / (double)total_bytes) : 100.0));
+                (unsigned long long)received,
+                (unsigned long long)total_bytes,
+                (total_bytes ? (100.0 * (double)received / (double)total_bytes) : 100.0));
             fflush(stdout);
         }
     }
+
 
     double t_end = now_seconds();
     double dt = t_end - t_start;
