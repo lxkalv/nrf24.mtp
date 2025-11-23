@@ -94,9 +94,11 @@ static int send_with_retries(nrf24_t *radio,
         }
 
         attempt++;
-        fprintf(stderr,
-                "TX: timeout (no ACK) on attempt %u for %u-byte frame\n",
-                attempt, (unsigned)len);
+        if (attempt == 1 || (attempt % 50) == 0) {
+            fprintf(stderr,
+                    "TX: timeout (no ACK) on attempt %u for %u-byte frame\n",
+                    attempt, (unsigned)len);
+        }
         fflush(stderr);
 
         /* Optional: reconfigure radio after many timeouts */
@@ -177,7 +179,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
     if (send_with_retries(&radio,
                           header,
                           (uint8_t)FM_HEADER_TOTAL_LEN,
-                          1000,
+                          50,
                           0) < 0) {
         fprintf(stderr, "FAST TX: failed to send header (fatal)\n");
         fclose(fin);
@@ -220,7 +222,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
         if (send_with_retries(&radio,
                               frame,
                               payload_len,
-                              500,
+                              20,
                               0) < 0) {
             fprintf(stderr, "FAST TX: fatal error sending data frame\n");
             fclose(fin);
