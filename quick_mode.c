@@ -50,6 +50,45 @@ static double now_seconds(void)
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
+/* Send one frame, retrying forever on timeouts (no ACK).
+ * max_tries == 0  -> infinite retries.
+ * Returns 0 on success, -1 on non-timeout error.
+ */
+static int send_with_retries(nrf24_t *radio,
+                             const uint8_t *buf, uint8_t len,
+                             unsigned int hw_timeout_ms,
+                             unsigned int max_tries)
+{
+    unsigned int attempt = 0;
+
+    for (;;) {
+        int ret = nrf24_send_blocking(radio, buf, len, hw_timeout_ms);
+        if (ret == 0) {
+            return 0;   /* got ACK */
+        }
+
+        if (errno != ETIMEDOUT) {
+            /* Some real error (SPI/GPIO/etc.) -> propagate */
+            perror("nrf24_send_blocking");
+            return -1;
+        }
+
+        attempt++;
+        fprintf(stderr,
+                "TX: timeout (no ACK) on attempt %u for %u-byte frame\n",
+                attempt, (unsigned)len);
+        fflush(stderr);
+
+        if (max_tries && attempt >= max_tries) {
+            errno = ETIMEDOUT;
+            return -1;
+        }
+
+        /* else: loop and re-send the same frame */
+    }
+}
+
+
 /* ---------- TX path: send header + file ---------- */
 
 static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
@@ -98,21 +137,19 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
     printf("TX: sending file '%s' (%llu bytes)\n",
            input_path, (unsigned long long)total_bytes);
 
-    /* Build and send header packet */
+    /* Build header: "QMF1" + total_bytes */
     uint8_t header[QM_HEADER_TOTAL_LEN];
     memcpy(header, QM_HEADER_MAGIC, QM_HEADER_MAGIC_LEN);
     encode_u64_le(header + QM_HEADER_MAGIC_LEN, total_bytes);
 
-    if (nrf24_send_blocking(&radio,
-                            header,
-                            (uint8_t)QM_HEADER_TOTAL_LEN,
-                            1000) < 0) {
-        if (errno == ETIMEDOUT) {
-            fprintf(stderr,
-                    "TX: header send timed out (no ACK)\n");
-        } else {
-            perror("TX: nrf24_send_blocking(header)");
-        }
+    /* Send header, retrying forever on timeout */
+    if (send_with_retries(&radio,
+                          header,
+                          (uint8_t)QM_HEADER_TOTAL_LEN,
+                          1000,   /* per-try hw timeout (ms) */
+                          0       /* 0 = infinite SW retries */
+                          ) < 0) {
+        fprintf(stderr, "TX: failed to send header (fatal)\n");
         fclose(fin);
         nrf24_deinit(&radio);
         return 1;
@@ -137,7 +174,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                 nrf24_deinit(&radio);
                 return 1;
             }
-            /* EOF earlier than expected -> inconsistent; break */
             fprintf(stderr,
                     "TX: unexpected EOF (sent=%llu, total=%llu)\n",
                     (unsigned long long)sent,
@@ -145,13 +181,14 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
             break;
         }
 
-        if (nrf24_send_blocking(&radio, buf, (uint8_t)n, 500) < 0) {
-            if (errno == ETIMEDOUT) {
-                fprintf(stderr,
-                        "TX: data frame timed out (no ACK)\n");
-            } else {
-                perror("TX: nrf24_send_blocking(data)");
-            }
+        /* Send this chunk; keep retrying forever on timeouts */
+        if (send_with_retries(&radio,
+                              buf,
+                              (uint8_t)n,
+                              500,   /* per-try hw timeout (ms) */
+                              0      /* infinite SW retries */
+                              ) < 0) {
+            fprintf(stderr, "TX: fatal error sending data frame\n");
             fclose(fin);
             nrf24_deinit(&radio);
             return 1;
@@ -159,7 +196,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
 
         sent += n;
 
-        /* Simple progress every ~64 KB */
         if ((sent % (64 * 1024)) < NRF24_MAX_PAYLOAD_SIZE) {
             printf("TX: %llu / %llu bytes (%.1f%%)\n",
                    (unsigned long long)sent,
@@ -180,6 +216,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
     nrf24_deinit(&radio);
     return 0;
 }
+
 
 /* ---------- RX path: wait for header, then receive file ---------- */
 
