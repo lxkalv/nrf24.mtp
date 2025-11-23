@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -94,16 +95,23 @@ static void checksum_final(uint64_t state, uint8_t out[CHECKSUM_SIZE])
 }
 
 /* ---- nRF24 convenience wrappers ---- */
+/* Counts every on-air attempt (including retries) into rf_bytes_total / rf_frames_total. */
 
 static int send_with_retries(nrf24_t *radio,
                              const uint8_t *buf,
                              uint8_t len,
                              unsigned int timeout_ms,
-                             const char *what)
+                             const char *what,
+                             uint64_t *rf_bytes_total,
+                             uint64_t *rf_frames_total)
 {
     unsigned int attempt = 0;
 
     for (;;) {
+        /* Account RF usage for this attempt */
+        if (rf_bytes_total)  *rf_bytes_total  += len;
+        if (rf_frames_total) *rf_frames_total += 1;
+
         int ret = nrf24_send_blocking(radio, buf, len, timeout_ms);
         if (ret == 0) {
             return 0;  /* success */
@@ -122,7 +130,8 @@ static int send_with_retries(nrf24_t *radio,
 
         /* Keep retrying forever, but every so often we reconfigure the radio */
         if (attempt % 500 == 0) {
-            WARN("%s: %u consecutive timeouts, reconfiguring radio", what, attempt);
+            WARN("%s: %u consecutive timeouts, reconfiguring radio",
+                 what, attempt);
             (void)nrf24_configure_quick(radio, P2P_CHANNEL);
         }
     }
@@ -180,7 +189,7 @@ static Burst *page_get_burst(PageStream *ps, unsigned burst_id)
         size_t new_cap = ps->capacity ? ps->capacity * 2 : 8;
         while (burst_id >= new_cap) new_cap *= 2;
 
-        Burst *new_bursts = calloc(new_cap, sizeof(Burst));
+        Burst *new_bursts = (Burst *)calloc(new_cap, sizeof(Burst));
         if (!new_bursts) {
             return NULL;
         }
@@ -228,7 +237,7 @@ static int store_burst(PageStream *ps,
 
     for (unsigned i = 0; i < frames_in_burst; ++i) {
         size_t len = sizes[i];
-        b->frame_data[i] = malloc(len);
+        b->frame_data[i] = (uint8_t *)malloc(len);
         if (!b->frame_data[i]) {
             ERROR("store_burst: malloc failed for frame %u of burst %u", i, burst_id);
             b->frames_in_burst = i;
@@ -406,10 +415,11 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
 
     double t_start = now_seconds();
 
-    /* Partition into pages */
-    uint64_t total_uncompressed = orig_len;
     uint64_t total_compressed   = 0;
+    uint64_t tx_rf_bytes_total  = 0;  /* all on-air bytes (incl. retransmissions) */
+    uint64_t tx_rf_frames_total = 0;  /* all frames actually sent */
 
+    /* Partition into pages */
     for (unsigned page_id = 0; page_id < P2P_NUM_PAGES; ++page_id) {
         /* Compute [start, end) for this page using proportional split */
         uint64_t page_start = (orig_len * page_id)     / P2P_NUM_PAGES;
@@ -506,13 +516,13 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
              page_id, P2P_NUM_PAGES, (unsigned)bursts_in_page,
              (unsigned)last_burst_frames, (unsigned)last_frame_bytes);
 
-        if (send_with_retries(&radio,
-                              stream_info,
-                              sizeof(stream_info),
-                              CONTROL_TIMEOUT_MS,
-                              "STREAM_INFO") < 0) {
-            WARN("P2P TX: failed to send STREAM_INFO for page %u (continuing anyway)", page_id);
-        }
+        (void)send_with_retries(&radio,
+                                stream_info,
+                                sizeof(stream_info),
+                                CONTROL_TIMEOUT_MS,
+                                "STREAM_INFO",
+                                &tx_rf_bytes_total,
+                                &tx_rf_frames_total);
 
         /* Now send all bursts for this page */
         size_t comp_pos = 0;
@@ -591,7 +601,9 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                                       burst_info,
                                       sizeof(burst_info),
                                       CONTROL_TIMEOUT_MS,
-                                      "BURST_INFO") < 0) {
+                                      "BURST_INFO",
+                                      &tx_rf_bytes_total,
+                                      &tx_rf_frames_total) < 0) {
                     ERROR("Failed to send BURST_INFO (page %u, burst %u), aborting",
                           page_id, burst_id);
                     free(comp_page);
@@ -606,7 +618,9 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                                           burst_payloads[i],
                                           burst_sizes[i],
                                           DATA_TIMEOUT_MS,
-                                          "DATA") < 0) {
+                                          "DATA",
+                                          &tx_rf_bytes_total,
+                                          &tx_rf_frames_total) < 0) {
                         ERROR("Failed to send DATA frame (page %u, burst %u), aborting",
                               page_id, burst_id);
                         free(comp_page);
@@ -695,24 +709,30 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
     fin_msg[0] = MSG_INFO;
     fin_msg[1] = MSG_TRANSFER_FINISH;
 
-    if (send_with_retries(&radio,
-                          fin_msg,
-                          sizeof(fin_msg),
-                          CONTROL_TIMEOUT_MS,
-                          "TRANSFER_FINISH") < 0) {
-        WARN("P2P TX: failed to send TRANSFER_FINISH (continuing anyway)");
-    }
+    (void)send_with_retries(&radio,
+                            fin_msg,
+                            sizeof(fin_msg),
+                            CONTROL_TIMEOUT_MS,
+                            "TRANSFER_FINISH",
+                            &tx_rf_bytes_total,
+                            &tx_rf_frames_total);
 
     double t_end = now_seconds();
     double dt    = t_end - t_start;
-    double kibps = dt > 0.0 ? ((double)total_uncompressed / 1024.0 / dt) : 0.0;
 
-    SUCC("P2P TX: done. Original %llu bytes (total compressed %llu) in %.3f s "
-         "(%.1f KiB/s user data)",
-         (unsigned long long)total_uncompressed,
-         (unsigned long long)total_compressed,
-         dt,
-         kibps);
+    double user_kibps = (dt > 0.0)
+        ? ((double)orig_len / 1024.0 / dt)
+        : 0.0;
+
+    double rf_kibps = (dt > 0.0)
+        ? ((double)tx_rf_bytes_total / 1024.0 / dt)
+        : 0.0;
+
+    SUCC("P2P TX: done. User: %llu bytes in %.3f s (%.1f KiB/s). "
+         "RF on-air: %llu bytes in %.3f s (%.1f KiB/s, %llu frames).",
+         (unsigned long long)orig_len, dt, user_kibps,
+         (unsigned long long)tx_rf_bytes_total, dt, rf_kibps,
+         (unsigned long long)tx_rf_frames_total);
 
     free(orig_buf);
     nrf24_deinit(&radio);
@@ -780,8 +800,10 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     uint8_t  current_burst[MAX_CHUNKS_PER_BURST][MAX_PAYLOAD];
 
     /* Throughput / counters */
-    uint64_t compressed_total   = 0;
-    uint64_t uncompressed_total = 0;
+    uint64_t compressed_total    = 0;
+    uint64_t uncompressed_total  = 0;
+    uint64_t rf_bytes_total      = 0;  /* all bytes received and sent (checksums) */
+    uint64_t rf_frames_total     = 0;  /* frames RX+TX */
 
     while (!transfer_finished) {
         uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
@@ -798,6 +820,11 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                   errno, strerror(errno));
             /* We will break and decompress what we have so far. */
             break;
+        }
+
+        if (len > 0) {
+            rf_bytes_total  += len;
+            rf_frames_total += 1;
         }
 
         if (!tx_started) {
@@ -985,6 +1012,9 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             while (!checksum_sent_ok &&
                    (now_seconds() - send_start) * 1000.0 < send_deadline_ms) {
 
+                rf_bytes_total  += CHECKSUM_SIZE;
+                rf_frames_total += 1;
+
                 int ret2 = nrf24_send_blocking(&radio,
                                                checksum_bytes,
                                                CHECKSUM_SIZE,
@@ -1081,14 +1111,21 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
 
     double t_end = now_seconds();
     double dt    = (tx_started ? (t_end - t_start) : 0.0);
-    double kibps = dt > 0.0 ? ((double)uncompressed_total / 1024.0 / dt) : 0.0;
+
+    double user_kibps = (dt > 0.0)
+        ? ((double)uncompressed_total / 1024.0 / dt)
+        : 0.0;
+
+    double rf_kibps = (dt > 0.0)
+        ? ((double)rf_bytes_total / 1024.0 / dt)
+        : 0.0;
 
     SUCC("P2P RX: done. Compressed %llu B -> %llu B uncompressed in %.3f s "
-         "(%.1f KiB/s user data)",
+         "(%.1f KiB/s user data, %.1f KiB/s RF on-air, %llu RF frames).",
          (unsigned long long)compressed_total,
          (unsigned long long)uncompressed_total,
-         dt,
-         kibps);
+         dt, user_kibps, rf_kibps,
+         (unsigned long long)rf_frames_total);
 
     page_stream_free(&stream);
     fclose(fout);
