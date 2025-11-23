@@ -793,12 +793,31 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    /* Choose logfile name based on mode */
+    char log_path[64];
     if (strcmp(mode, "tx") == 0) {
-        return run_tx(spi_dev, ce_bcm, path);
+        snprintf(log_path, sizeof(log_path), "p2p_tx.log");
     } else if (strcmp(mode, "rx") == 0) {
-        return run_rx(spi_dev, ce_bcm, path);
+        snprintf(log_path, sizeof(log_path), "p2p_rx.log");
     } else {
         usage(argv[0]);
         return 1;
     }
+
+    if (log_init(log_path) != 0) {
+        /* Not fatal: just tell the user and continue */
+        WARN("Could not open log file '%s' (continuing without file log)", log_path);
+    } else {
+        INFO("Logging to file '%s'", log_path);
+    }
+
+    int ret;
+    if (strcmp(mode, "tx") == 0) {
+        ret = run_tx(spi_dev, ce_bcm, path);
+    } else { /* mode == "rx" already checked above */
+        ret = run_rx(spi_dev, ce_bcm, path);
+    }
+
+    log_close();
+    return ret;
 }
