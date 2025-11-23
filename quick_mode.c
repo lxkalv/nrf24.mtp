@@ -228,10 +228,12 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
 
     double t_end = now_seconds();
     double dt = t_end - t_start;
-    double kbps = (dt > 0.0) ? (8.0 * (double)sent / (1000.0 * dt)) : 0.0;
+    /* Throughput in KiB/s (binary kilobytes per second) */
+    double kibps = (dt > 0.0) ? ((double)sent / 1024.0 / dt) : 0.0;
 
-    printf("TX: done. Sent %llu bytes in %.3f s (%.1f kbps)\n",
-           (unsigned long long)sent, dt, kbps);
+    printf("TX: done. Sent %llu bytes in %.3f s (%.1f KiB/s)\n",
+        (unsigned long long)sent, dt, kibps);
+
 
     fclose(fin);
     nrf24_deinit(&radio);
@@ -362,10 +364,11 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
 
     double t_end = now_seconds();
     double dt = t_end - t_start;
-    double kbps = (dt > 0.0) ? (8.0 * (double)received / (1000.0 * dt)) : 0.0;
+    double kibps = (dt > 0.0) ? ((double)received / 1024.0 / dt) : 0.0;
 
-    printf("RX: done. Received %llu bytes in %.3f s (%.1f kbps)\n",
-           (unsigned long long)received, dt, kbps);
+    printf("RX: done. Received %llu bytes in %.3f s (%.1f KiB/s)\n",
+        (unsigned long long)received, dt, kibps);
+
 
     fclose(fout);
     nrf24_deinit(&radio);
