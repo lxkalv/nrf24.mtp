@@ -8,7 +8,7 @@ LIBDIR  = libs
 BINDIR  = bin
 
 CFLAGS  = -Wall -Wextra -O2 -I. -I$(LIBDIR)
-LDFLAGS =
+LDFLAGS = -lz
 
 # Programs (names only)
 PROGS     = quick_mode fast_mode p2p_mode
