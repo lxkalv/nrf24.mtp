@@ -537,8 +537,15 @@ int nrf24_set_mode_rx(nrf24_t *dev)
 
 int nrf24_set_mode_tx(nrf24_t *dev)
 {
+    /*
     if (ce_set(dev, 0) < 0)
         return -1;
+    */
+   /* Enter TX mode and keep CE high so FIFO drives transmissions */
+    if (ce_set(dev, 1) < 0)
+        return -1;
+
+   
 
     uint8_t cfg;
     if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &cfg) < 0)
@@ -588,11 +595,13 @@ int nrf24_send_blocking(nrf24_t *dev,
     }
 
     /* Short CE pulse: spec says >10us; we give it 20us */
+    /*
     if (ce_set(dev, 1) < 0)
         return -1;
     sleep_us(20);
     if (ce_set(dev, 0) < 0)
         return -1;
+    */
 
     /* Poll STATUS with microsecond sleeps instead of milliseconds */
     const unsigned int step_us    = 50;  /* poll every 50us */
