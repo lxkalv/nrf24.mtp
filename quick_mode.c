@@ -267,15 +267,18 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
         return 1;
     }
 
-    printf("RX: waiting for header on channel 76...\n");
+    printf("RX: waiting for header on channel %d...\n", QUICK_MODE_CHANNEL);
+
+    /* ---- receive header: magic + total_bytes ---- */
 
     uint8_t hdr_buf[NRF24_MAX_PAYLOAD_SIZE];
     uint8_t hdr_len = NRF24_MAX_PAYLOAD_SIZE;
     uint64_t total_bytes = 0;
 
-    /* Wait indefinitely for a valid header (magic + length) */
     for (;;) {
         hdr_len = NRF24_MAX_PAYLOAD_SIZE;
+
+        /* Wait indefinitely for the header. No reconfig here. */
         if (nrf24_recv_blocking(&radio, hdr_buf, &hdr_len, 0) < 0) {
             perror("RX: nrf24_recv_blocking(header)");
             nrf24_deinit(&radio);
@@ -307,30 +310,20 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
     uint64_t received = 0;
     double t_start = now_seconds();
-    unsigned int idle_timeouts = 0;
 
+    /* ---- main data loop: NEVER flush/reconfigure RX here ---- */
     while (received < total_bytes) {
         uint8_t len = NRF24_MAX_PAYLOAD_SIZE;
-        int ret = nrf24_recv_blocking(&radio, buf, &len, 1000);  /* 1s timeout now */
+
+        /* Finite HW timeout, but on timeout we just keep waiting. */
+        int ret = nrf24_recv_blocking(&radio, buf, &len, 1000);
         if (ret < 0) {
             if (errno == ETIMEDOUT) {
-                idle_timeouts++;
                 fprintf(stderr,
                         "RX: timeout waiting for data (received=%llu / %llu)\n",
                         (unsigned long long)received,
                         (unsigned long long)total_bytes);
-
-                /* If we had many consecutive timeouts, re-arm RX mode */
-                if (idle_timeouts >= 10) {
-                    fprintf(stderr,
-                            "RX: %u consecutive timeouts, reconfiguring radio...\n",
-                            idle_timeouts);
-                    (void)nrf24_configure_quick(&radio, QUICK_MODE_CHANNEL);
-                    (void)nrf24_set_mode_rx(&radio);
-                    idle_timeouts = 0;
-                }
-
-                continue; /* keep waiting */
+                continue;  /* do NOT reconfigure, do NOT flush */
             } else {
                 perror("RX: nrf24_recv_blocking(data)");
                 fclose(fout);
@@ -339,10 +332,8 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             }
         }
 
-        idle_timeouts = 0;  /* got something -> link alive */
-
         if (len == 0) {
-            /* Shouldn't happen with DPL */
+            /* Shouldn't really happen in DPL, but ignore safely */
             continue;
         }
 
@@ -362,13 +353,12 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
 
         if ((received % (64 * 1024)) < NRF24_MAX_PAYLOAD_SIZE) {
             printf("RX: %llu / %llu bytes (%.1f%%)\n",
-                (unsigned long long)received,
-                (unsigned long long)total_bytes,
-                (total_bytes ? (100.0 * (double)received / (double)total_bytes) : 100.0));
+                   (unsigned long long)received,
+                   (unsigned long long)total_bytes,
+                   (total_bytes ? (100.0 * (double)received / (double)total_bytes) : 100.0));
             fflush(stdout);
         }
     }
-
 
     double t_end = now_seconds();
     double dt = t_end - t_start;
@@ -381,6 +371,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     nrf24_deinit(&radio);
     return 0;
 }
+
 
 /* ---------- main ---------- */
 
