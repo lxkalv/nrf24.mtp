@@ -36,6 +36,9 @@
 /* New control subtype for stream layout */
 #define P2P_MSG_STREAM_INFO  0xE0
 
+/* radio config */
+#define RADIO_CONFIG_SPI_SPEED 10000000
+
 /* ---- Time helper ---- */
 
 static double now_seconds(void)
