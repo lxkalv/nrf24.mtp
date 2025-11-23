@@ -186,6 +186,15 @@ static void sleep_ms(unsigned int ms)
     nanosleep(&ts, NULL);
 }
 
+static void sleep_us(unsigned int us)
+{
+    struct timespec ts;
+    ts.tv_sec  = us / 1000000U;
+    ts.tv_nsec = (long)(us % 1000000U) * 1000L;
+    nanosleep(&ts, NULL);
+}
+
+
 /* --------- low-level register access --------- */
 
 int nrf24_write_reg(nrf24_t *dev, uint8_t reg, uint8_t value)
@@ -453,9 +462,12 @@ int nrf24_configure_quick(nrf24_t *dev, uint8_t channel)
     if (nrf24_write_reg(dev, NRF24_REG_EN_RXADDR, 0x01) < 0)
         return -1;
 
-    /* retries: ARD=4 (1.25 ms), ARC=15 -> 0x4F */
-    if (nrf24_write_reg(dev, NRF24_REG_SETUP_RETR, 0x4F) < 0)
+    /* ARD=0 (250us), ARC=15 -> 0x0F.
+    * 250us is fine since we don't use ACK payloads.
+    */
+    if (nrf24_write_reg(dev, NRF24_REG_SETUP_RETR, 0x0F) < 0)
         return -1;
+
 
     /* RF channel */
     if (nrf24_write_reg(dev, NRF24_REG_RF_CH, (uint8_t)(channel & 0x7F)) < 0)
@@ -567,7 +579,7 @@ int nrf24_send_blocking(nrf24_t *dev,
     if (length > NRF24_MAX_PAYLOAD_SIZE)
         length = NRF24_MAX_PAYLOAD_SIZE;
 
-    /* In DPL mode we send exactly <length> bytes */
+    /* Write payload to TX FIFO (DPL, so we send exactly <length> bytes) */
     if (nrf24_write_buf(dev,
                         NRF24_CMD_W_TX_PAYLOAD,
                         (const uint8_t *)payload,
@@ -575,14 +587,18 @@ int nrf24_send_blocking(nrf24_t *dev,
         return -1;
     }
 
-    /* CE pulse (>=10us); 1 ms is overkill but safe */
+    /* Short CE pulse: spec says >10us; we give it 20us */
     if (ce_set(dev, 1) < 0)
         return -1;
-    sleep_ms(1);
+    sleep_us(20);
     if (ce_set(dev, 0) < 0)
         return -1;
 
-    unsigned int elapsed = 0;
+    /* Poll STATUS with microsecond sleeps instead of milliseconds */
+    const unsigned int step_us    = 50;  /* poll every 50us */
+    const unsigned int timeout_us = timeout_ms ? timeout_ms * 1000U : 0;
+
+    unsigned int elapsed_us = 0;
 
     while (1) {
         uint8_t status;
@@ -590,7 +606,7 @@ int nrf24_send_blocking(nrf24_t *dev,
             return -1;
 
         if (status & (NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT)) {
-            /* clear both bits */
+            /* clear both flags */
             if (nrf24_write_reg(dev, NRF24_REG_STATUS,
                                 NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT) < 0)
                 return -1;
@@ -601,18 +617,19 @@ int nrf24_send_blocking(nrf24_t *dev,
                 return -1;
             }
 
-            return 0; /* success */
+            return 0;  /* success */
         }
 
-        if (timeout_ms > 0 && elapsed >= timeout_ms) {
+        if (timeout_us && elapsed_us >= timeout_us) {
             errno = ETIMEDOUT;
             return -1;
         }
 
-        sleep_ms(1);
-        elapsed++;
+        sleep_us(step_us);
+        elapsed_us += step_us;
     }
 }
+
 
 
 int nrf24_recv_blocking(nrf24_t *dev,
@@ -629,7 +646,9 @@ int nrf24_recv_blocking(nrf24_t *dev,
         return -1;
     }
 
-    unsigned int elapsed = 0;
+    const unsigned int step_us    = 50;
+    const unsigned int timeout_us = timeout_ms ? timeout_ms * 1000U : 0;
+    unsigned int       elapsed_us = 0;
 
     while (1) {
         uint8_t status;
@@ -639,7 +658,7 @@ int nrf24_recv_blocking(nrf24_t *dev,
         if (status & NRF24_STATUS_RX_DR) {
             uint8_t width = 0;
 
-            /* In DPL mode, first read payload width */
+            /* DPL: read payload width first */
             if (nrf24_read_buf(dev,
                                NRF24_CMD_R_RX_PL_WID,
                                &width,
@@ -647,7 +666,6 @@ int nrf24_recv_blocking(nrf24_t *dev,
                 return -1;
 
             if (width == 0 || width > NRF24_MAX_PAYLOAD_SIZE) {
-                /* invalid -> flush RX and clear flag */
                 (void)nrf24_flush_rx(dev);
                 (void)nrf24_write_reg(dev, NRF24_REG_STATUS,
                                       NRF24_STATUS_RX_DR);
@@ -673,12 +691,13 @@ int nrf24_recv_blocking(nrf24_t *dev,
             return 0;
         }
 
-        if (timeout_ms > 0 && elapsed >= timeout_ms) {
+        if (timeout_us && elapsed_us >= timeout_us) {
             errno = ETIMEDOUT;
             return -1;
         }
 
-        sleep_ms(1);
-        elapsed++;
+        sleep_us(step_us);
+        elapsed_us += step_us;
     }
 }
+
