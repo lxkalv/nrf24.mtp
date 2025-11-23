@@ -338,7 +338,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
     nrf24_t radio;
     nrf24_config_t cfg = {
         .spi_device   = spi_dev,
-        .spi_speed_hz = 8000000,
+        .spi_speed_hz = RADIO_CONFIG_SPI_SPEED,
         .ce_gpio      = (uint8_t)ce_bcm
     };
 
@@ -626,7 +626,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     nrf24_t radio;
     nrf24_config_t cfg = {
         .spi_device   = spi_dev,
-        .spi_speed_hz = 8000000,
+        .spi_speed_hz = RADIO_CONFIG_SPI_SPEED,
         .ce_gpio      = (uint8_t)ce_bcm
     };
 
