@@ -38,6 +38,7 @@
 /* Paging */
 #define P2P_NUM_PAGES        10
 #define MAX_BURSTS_PER_PAGE  255   /* burst_id is 8-bit on the air */
+#define MAX_PAGES            16    /* safety margin for page_finished array */
 
 /* ---- Time helper ---- */
 
@@ -781,7 +782,12 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     int tx_started        = 0;
     double t_start        = 0.0;
 
-    /* Per-page state */
+    /* Per-page "finished" flags: once a page is appended, we won't append again,
+       but we will still answer duplicate bursts with checksums. */
+    int page_finished[MAX_PAGES];
+    memset(page_finished, 0, sizeof(page_finished));
+
+    /* Per-page state (current page in progress) */
     int      have_page_info      = 0;
     uint8_t  current_page_id     = 0;
     uint8_t  total_pages         = 0;
@@ -792,8 +798,9 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     unsigned bursts_completed    = 0;
     int      page_has_data       = 0;  /* any stored bursts? */
 
-    /* Per-burst state (for current page) */
+    /* Per-burst state (for current burst) */
     int      in_burst            = 0;
+    uint8_t  cur_burst_page_id   = 0;
     unsigned cur_burst_id        = 0;
     unsigned frames_in_burst     = 0;
     uint8_t  sizes[MAX_CHUNKS_PER_BURST];
@@ -845,12 +852,16 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                      "decompressing previous page as-is",
                      (unsigned)current_page_id);
 
-                (void)decompress_page_to_file(&stream, fout,
-                                              &compressed_total, &uncompressed_total);
+                if (current_page_id < MAX_PAGES && !page_finished[current_page_id]) {
+                    (void)decompress_page_to_file(&stream, fout,
+                                                  &compressed_total, &uncompressed_total);
+                    page_finished[current_page_id] = 1;
+                }
                 page_stream_free(&stream);
                 page_stream_init(&stream);
                 page_has_data    = 0;
                 bursts_completed = 0;
+                memset(burst_received, 0, sizeof(burst_received));
             }
 
             current_page_id = buf[2];
@@ -889,18 +900,21 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             uint8_t burst_id = buf[3];
             uint16_t size_of_burst = decode_u16_le(&buf[4]);
 
-            if (!have_page_info) {
-                WARN("P2P RX: BURST_INFO received before STREAM_INFO (page=%u, burst=%u), ignoring",
-                     (unsigned)page_id, (unsigned)burst_id);
+            /* Accept BURST_INFO if:
+             *  - it matches the current page (have_page_info && page_id == current_page_id), OR
+             *  - it's for a page we've already finished (we'll just re-ACK checksums).
+             */
+            int is_current_page = (have_page_info && page_id == current_page_id);
+            int is_finished_page = (page_id < MAX_PAGES && page_finished[page_id]);
+
+            if (!is_current_page && !is_finished_page) {
+                WARN("P2P RX: BURST_INFO for unexpected page=%u (current=%u), ignoring",
+                     (unsigned)page_id, (unsigned)current_page_id);
                 continue;
             }
-            if (page_id != current_page_id) {
-                WARN("P2P RX: BURST_INFO page mismatch: got %u, expected %u",
-                     (unsigned)page_id, (unsigned)current_page_id);
-                /* We can still try to process, but it's suspicious */
-            }
 
-            cur_burst_id = burst_id;
+            cur_burst_page_id = page_id;
+            cur_burst_id      = burst_id;
 
             frames_in_burst = (size_of_burst + MAX_PAYLOAD - 1) / MAX_PAYLOAD;
             if (frames_in_burst == 0 || frames_in_burst > MAX_CHUNKS_PER_BURST) {
@@ -959,7 +973,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
         memcpy(current_burst[frame_id], buf, len);
         page_has_data = 1;
 
-        /* When we receive the last frame, compute checksum, store burst, send checksum */
+        /* When we receive the last frame, compute checksum, optionally store burst, send checksum */
         if (frame_id == frames_in_burst - 1) {
             /* 1) Compute checksum over the whole burst */
             uint64_t chk_state;
@@ -971,28 +985,39 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             checksum_final(chk_state, checksum_bytes);
 
             SUCC("P2P RX: completed BURST [P%u|B%u], checksum 0x%016llX",
-                 (unsigned)current_page_id, (unsigned)cur_burst_id,
+                 (unsigned)cur_burst_page_id, (unsigned)cur_burst_id,
                  (unsigned long long)chk_state);
 
-            /* 2) Store the burst in memory */
-            if (store_burst(&stream,
-                            cur_burst_id,
-                            frames_in_burst,
-                            current_burst,
-                            sizes) < 0) {
-                ERROR("P2P RX: failed to store burst %u", cur_burst_id);
-                page_stream_free(&stream);
-                fclose(fout);
-                nrf24_deinit(&radio);
-                return 1;
-            }
+            /* 2) Store the burst in memory ONLY if this page has not been finished
+             * yet. If it's a duplicate burst for an already-finished page, we don't
+             * store or append data, we just send the checksum back.
+             */
+            int is_finished_page =
+                (cur_burst_page_id < MAX_PAGES && page_finished[cur_burst_page_id]);
 
-            /* Track unique bursts for this page */
-            if (cur_burst_id < MAX_BURSTS_PER_PAGE) {
-                if (!burst_received[cur_burst_id]) {
-                    burst_received[cur_burst_id] = 1;
-                    bursts_completed++;
+            if (!is_finished_page) {
+                if (store_burst(&stream,
+                                cur_burst_id,
+                                frames_in_burst,
+                                current_burst,
+                                sizes) < 0) {
+                    ERROR("P2P RX: failed to store burst %u", cur_burst_id);
+                    page_stream_free(&stream);
+                    fclose(fout);
+                    nrf24_deinit(&radio);
+                    return 1;
                 }
+
+                /* Track unique bursts for this page (only if it's a normal, not-yet-finished page) */
+                if (cur_burst_id < MAX_BURSTS_PER_PAGE) {
+                    if (!burst_received[cur_burst_id]) {
+                        burst_received[cur_burst_id] = 1;
+                        bursts_completed++;
+                    }
+                }
+            } else {
+                INFO("P2P RX: duplicate BURST [P%u|B%u] for finished page, will re-send checksum only",
+                     (unsigned)cur_burst_page_id, (unsigned)cur_burst_id);
             }
 
             /* 3) Try to send checksum back to TX (bounded time) */
@@ -1050,7 +1075,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             if (!checksum_sent_ok) {
                 WARN("P2P RX: checksum timeout for Page %u, BURST %u; returning to RX "
                      "(TX may resend it)",
-                     (unsigned)current_page_id, (unsigned)cur_burst_id);
+                     (unsigned)cur_burst_page_id, (unsigned)cur_burst_id);
 
                 in_burst = 0;
 
@@ -1065,7 +1090,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             }
 
             SUCC("P2P RX: checksum for Page %u, BURST %u sent successfully",
-                 (unsigned)current_page_id, (unsigned)cur_burst_id);
+                 (unsigned)cur_burst_page_id, (unsigned)cur_burst_id);
 
             in_burst = 0;
 
@@ -1077,11 +1102,17 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 return 1;
             }
 
-            /* 4) If we know how many bursts this page should have, and we've
-             * seen them all at least once, decompress this page.
+            /* 4) If this is the "active" page and we know how many bursts it
+             * should have, and we've seen them all at least once, decompress
+             * this page ONCE and mark it as finished.
              */
-            if (have_page_info && expected_bursts > 0 &&
-                bursts_completed >= expected_bursts) {
+            if (!is_finished_page &&
+                have_page_info &&
+                cur_burst_page_id == current_page_id &&
+                expected_bursts > 0 &&
+                bursts_completed >= expected_bursts &&
+                current_page_id < MAX_PAGES &&
+                !page_finished[current_page_id]) {
 
                 SUCC("P2P RX: all %u bursts received for Page %u; decompressing page",
                      (unsigned)expected_bursts, (unsigned)current_page_id);
@@ -1089,20 +1120,27 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 (void)decompress_page_to_file(&stream, fout,
                                               &compressed_total, &uncompressed_total);
 
+                page_finished[current_page_id] = 1;
+
                 page_stream_free(&stream);
                 page_stream_init(&stream);
-                have_page_info   = 0;
                 page_has_data    = 0;
-                bursts_completed = 0;
+
+                /* Keep have_page_info = 1 so that if TX still resends bursts
+                 * for this page, we will recompute and send checksums, but the
+                 * page won't be appended again thanks to page_finished[].
+                 */
+                bursts_completed = expected_bursts;
                 memset(burst_received, 0, sizeof(burst_received));
             }
         }
     }
 
     /* If we exit the loop without TRANSFER_FINISH, we may still have a partial page
-     * buffered. Try to decompress what we have.
+     * buffered. Try to decompress what we have (once).
      */
-    if (have_page_info && page_has_data) {
+    if (have_page_info && page_has_data &&
+        current_page_id < MAX_PAGES && !page_finished[current_page_id]) {
         WARN("P2P RX: transfer ended unexpectedly; decompressing partial Page %u",
              (unsigned)current_page_id);
         (void)decompress_page_to_file(&stream, fout,
