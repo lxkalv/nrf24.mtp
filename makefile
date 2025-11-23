@@ -6,8 +6,14 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -O2 -Ilibs
 LDFLAGS =
 
-# Binaries we build
-PROGRAMS = quick_mode fast_mode p2p_mode
+# Where to put the executables
+BINDIR  = bin
+
+# Program names (without path)
+PROGS   = quick_mode fast_mode p2p_mode
+
+# Executables with full path
+BIN_PROGS = $(addprefix $(BINDIR)/,$(PROGS))
 
 # Common library objects
 COMMON_OBJS = libs/nrf24.o libs/utils.o
@@ -19,26 +25,30 @@ p2p_mode_OBJS   = p2p_mode.o   $(COMMON_OBJS)
 
 .PHONY: all clean
 
-all: $(PROGRAMS)
+# Default target: build all executables into bin/
+all: $(BINDIR) $(BIN_PROGS)
 
-# -------- Pattern rules --------
+# Ensure bin/ exists
+$(BINDIR):
+	@mkdir -p $(BINDIR)
 
-# Generic rule to build any .o from .c (works in subdirs too)
+# ---------- Pattern rule for .o ----------
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# -------- Link rules for each binary --------
+# ---------- Link rules ----------
 
-quick_mode: $(quick_mode_OBJS)
+$(BINDIR)/quick_mode: $(quick_mode_OBJS) | $(BINDIR)
 	$(CC) $(CFLAGS) -o $@ $(quick_mode_OBJS) $(LDFLAGS)
 
-fast_mode: $(fast_mode_OBJS)
+$(BINDIR)/fast_mode: $(fast_mode_OBJS) | $(BINDIR)
 	$(CC) $(CFLAGS) -o $@ $(fast_mode_OBJS) $(LDFLAGS)
 
-p2p_mode: $(p2p_mode_OBJS)
+$(BINDIR)/p2p_mode: $(p2p_mode_OBJS) | $(BINDIR)
 	$(CC) $(CFLAGS) -o $@ $(p2p_mode_OBJS) $(LDFLAGS)
 
-# -------- Explicit deps for libs (optional but nice) --------
+# ---------- Explicit deps (nice but optional) ----------
 
 libs/nrf24.o: libs/nrf24.c libs/nrf24.h
 libs/utils.o: libs/utils.c libs/utils.h
@@ -47,7 +57,8 @@ quick_mode.o: quick_mode.c libs/nrf24.h
 fast_mode.o:  fast_mode.c  libs/nrf24.h
 p2p_mode.o:   p2p_mode.c   libs/nrf24.h libs/utils.h
 
-# -------- Cleanup --------
+# ---------- Cleanup ----------
 
 clean:
-	rm -f $(PROGRAMS) *.o libs/*.o
+	rm -f $(BIN_PROGS) *.o libs/*.o
+	@rmdir $(BINDIR) 2>/dev/null || true
