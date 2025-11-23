@@ -13,7 +13,7 @@ OBJS_FM = $(SRCS_FM:.c=.o)
 OBJS_QM = $(SRCS_QM:.c=.o)
 OBJS_SC = $(SRCS_SC:.c=.o)
 
-all: quick_mode
+all: fast_mode quick_mode simple_chat
 
 fast_mode: $(OBJS_FM)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
