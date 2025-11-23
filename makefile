@@ -1,32 +1,53 @@
+# ==========================
+#  Simple nRF24 C Makefile
+# ==========================
+
 CC      = gcc
 CFLAGS  = -Wall -Wextra -O2 -Ilibs
-LDFLAGS = 
+LDFLAGS =
 
-# Source files
-LIBS    = libs/nrf24.c
+# Binaries we build
+PROGRAMS = quick_mode fast_mode p2p_mode
 
-SRCS_FM = fast_mode.c   $(LIBS)
-SRCS_QM = quick_mode.c  $(LIBS)
-SRCS_SC = simple_chat.c $(LIBS)
+# Common library objects
+COMMON_OBJS = libs/nrf24.o libs/utils.o
 
-OBJS_FM = $(SRCS_FM:.c=.o)
-OBJS_QM = $(SRCS_QM:.c=.o)
-OBJS_SC = $(SRCS_SC:.c=.o)
+# Per-program object lists
+quick_mode_OBJS = quick_mode.o $(COMMON_OBJS)
+fast_mode_OBJS  = fast_mode.o  $(COMMON_OBJS)
+p2p_mode_OBJS   = p2p_mode.o   $(COMMON_OBJS)
 
-all: fast_mode quick_mode simple_chat
+.PHONY: all clean
 
-fast_mode: $(OBJS_FM)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+all: $(PROGRAMS)
 
-simple_chat: $(OBJS_SC)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+# -------- Pattern rules --------
 
-quick_mode: $(OBJS_QM)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
-
-# Generic rule: builds both quick_mode.o and libs/nrf24.o
+# Generic rule to build any .o from .c (works in subdirs too)
 %.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# -------- Link rules for each binary --------
+
+quick_mode: $(quick_mode_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(quick_mode_OBJS) $(LDFLAGS)
+
+fast_mode: $(fast_mode_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(fast_mode_OBJS) $(LDFLAGS)
+
+p2p_mode: $(p2p_mode_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(p2p_mode_OBJS) $(LDFLAGS)
+
+# -------- Explicit deps for libs (optional but nice) --------
+
+libs/nrf24.o: libs/nrf24.c libs/nrf24.h
+libs/utils.o: libs/utils.c libs/utils.h
+
+quick_mode.o: quick_mode.c libs/nrf24.h
+fast_mode.o:  fast_mode.c  libs/nrf24.h
+p2p_mode.o:   p2p_mode.c   libs/nrf24.h libs/utils.h
+
+# -------- Cleanup --------
 
 clean:
-	rm -f quick_mode fast_mode simple_chat $(OBJS_FM) $(OBJS_QM) $(OBJS_SC)
+	rm -f $(PROGRAMS) *.o libs/*.o

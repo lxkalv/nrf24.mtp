@@ -1,0 +1,760 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <errno.h>
+#include <time.h>
+
+#include "libs/nrf24.h"
+#include "libs/utils.h"
+
+/* ---- Protocol constants (mirroring the Python logic, no compression) ---- */
+
+#define P2P_CHANNEL          76
+
+#define BURST_DATA_MAX       7905   /* bytes of DATA (excluding ChunkID) per burst */
+#define CHUNK_DATA_MAX       31     /* bytes of DATA per frame (<=31 so payload<=32) */
+#define MAX_PAYLOAD          32     /* max nRF24 payload size */
+#define MAX_CHUNKS_PER_BURST 255    /* 7905 / 31 = 255 */
+
+#define CHECKSUM_TIMEOUT_MS  1000   /* wait up to 1 s for checksum */
+#define CONTROL_TIMEOUT_MS   100    /* per-attempt timeout when sending control frames */
+#define DATA_TIMEOUT_MS      20     /* per-attempt timeout when sending data frames */
+
+#define CHECKSUM_SIZE        8      /* 64-bit FNV-1a checksum */
+
+#define MSG_INFO             0xFF
+#define MSG_BURST_INFO       0xF0
+#define MSG_TRANSFER_FINISH  0x0F
+
+/* ---- Time helper ---- */
+
+static double now_seconds(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
+/* ---- Little-endian helpers ---- */
+
+static void encode_u16_le(uint8_t *dst, uint16_t v)
+{
+    dst[0] = (uint8_t)(v & 0xFFu);
+    dst[1] = (uint8_t)((v >> 8) & 0xFFu);
+}
+
+static uint16_t decode_u16_le(const uint8_t *src)
+{
+    return (uint16_t)(src[0] | ((uint16_t)src[1] << 8));
+}
+
+static void encode_u64_le(uint8_t *dst, uint64_t v)
+{
+    for (int i = 0; i < 8; ++i) {
+        dst[i] = (uint8_t)(v & 0xFFu);
+        v >>= 8;
+    }
+}
+
+/* ---- 64-bit FNV-1a checksum ---- */
+
+#define FNV64_OFFSET_BASIS  1469598103934665603ULL
+#define FNV64_PRIME         1099511628211ULL
+
+static void checksum_init(uint64_t *state)
+{
+    *state = FNV64_OFFSET_BASIS;
+}
+
+static void checksum_update(uint64_t *state, const uint8_t *data, size_t len)
+{
+    uint64_t h = *state;
+    for (size_t i = 0; i < len; ++i) {
+        h ^= (uint64_t)data[i];
+        h *= FNV64_PRIME;
+    }
+    *state = h;
+}
+
+static void checksum_final(uint64_t state, uint8_t out[CHECKSUM_SIZE])
+{
+    encode_u64_le(out, state);
+}
+
+/* ---- nRF24 convenience wrappers ---- */
+
+static int send_with_retries(nrf24_t *radio,
+                             const uint8_t *buf,
+                             uint8_t len,
+                             unsigned int timeout_ms,
+                             const char *what)
+{
+    unsigned int attempt = 0;
+
+    for (;;) {
+        int ret = nrf24_send_blocking(radio, buf, len, timeout_ms);
+        if (ret == 0) {
+            return 0;  /* success */
+        }
+
+        if (errno != ETIMEDOUT) {
+            ERROR("nrf24_send_blocking(%s) failed: %s", what, strerror(errno));
+            return -1;
+        }
+
+        ++attempt;
+        if (attempt == 1 || (attempt % 50) == 0) {
+            WARN("%s: timeout (no ACK) on attempt %u for %u-byte frame",
+                 what, attempt, (unsigned)len);
+        }
+
+        /* Keep retrying forever, but every so often we reconfigure the radio */
+        if (attempt % 500 == 0) {
+            WARN("%s: %u consecutive timeouts, reconfiguring radio", what, attempt);
+            (void)nrf24_configure_quick(radio, P2P_CHANNEL);
+        }
+    }
+}
+
+/* ---- RX-side in-memory burst storage (similar to STREAM in Python) ---- */
+
+typedef struct {
+    unsigned frames_in_burst;
+    uint8_t *frame_data[MAX_CHUNKS_PER_BURST];
+    uint8_t  frame_len[MAX_CHUNKS_PER_BURST];
+} Burst;
+
+typedef struct {
+    Burst  *bursts;
+    size_t  count;
+    size_t  capacity;
+} Page0Stream;
+
+static void page0_stream_init(Page0Stream *ps)
+{
+    ps->bursts   = NULL;
+    ps->count    = 0;
+    ps->capacity = 0;
+}
+
+static void free_burst(Burst *b)
+{
+    if (!b) return;
+    for (unsigned i = 0; i < b->frames_in_burst; ++i) {
+        free(b->frame_data[i]);
+        b->frame_data[i] = NULL;
+        b->frame_len[i]  = 0;
+    }
+    b->frames_in_burst = 0;
+}
+
+static void page0_stream_free(Page0Stream *ps)
+{
+    if (!ps->bursts) return;
+    for (size_t i = 0; i < ps->count; ++i) {
+        free_burst(&ps->bursts[i]);
+    }
+    free(ps->bursts);
+    ps->bursts   = NULL;
+    ps->count    = 0;
+    ps->capacity = 0;
+}
+
+/* Ensure we have at least (burst_id+1) bursts allocated in page 0. */
+static Burst *page0_get_burst(Page0Stream *ps, unsigned burst_id)
+{
+    if (burst_id >= ps->capacity) {
+        size_t new_cap = ps->capacity ? ps->capacity * 2 : 8;
+        while (burst_id >= new_cap) new_cap *= 2;
+
+        Burst *new_bursts = calloc(new_cap, sizeof(Burst));
+        if (!new_bursts) {
+            return NULL;
+        }
+        /* copy existing bursts */
+        for (size_t i = 0; i < ps->count; ++i) {
+            new_bursts[i] = ps->bursts[i];
+        }
+        free(ps->bursts);
+        ps->bursts   = new_bursts;
+        ps->capacity = new_cap;
+    }
+
+    if (burst_id >= ps->count) {
+        /* initialise new bursts as empty */
+        for (size_t i = ps->count; i <= burst_id; ++i) {
+            ps->bursts[i].frames_in_burst = 0;
+            for (unsigned j = 0; j < MAX_CHUNKS_PER_BURST; ++j) {
+                ps->bursts[i].frame_data[j] = NULL;
+                ps->bursts[i].frame_len[j]  = 0;
+            }
+        }
+        ps->count = burst_id + 1;
+    }
+
+    return &ps->bursts[burst_id];
+}
+
+/* Store a fully-received burst into STREAM[Page0][BurstID]. Overwrites old one if present. */
+static int store_burst(Page0Stream *ps,
+                       unsigned burst_id,
+                       unsigned frames_in_burst,
+                       uint8_t current_burst[MAX_CHUNKS_PER_BURST][MAX_PAYLOAD],
+                       const uint8_t sizes[MAX_CHUNKS_PER_BURST])
+{
+    Burst *b = page0_get_burst(ps, burst_id);
+    if (!b) {
+        ERROR("store_burst: out of memory for burst %u", burst_id);
+        return -1;
+    }
+
+    /* free any existing contents */
+    free_burst(b);
+
+    b->frames_in_burst = frames_in_burst;
+
+    for (unsigned i = 0; i < frames_in_burst; ++i) {
+        size_t len = sizes[i];
+        b->frame_data[i] = malloc(len);
+        if (!b->frame_data[i]) {
+            ERROR("store_burst: malloc failed for frame %u of burst %u", i, burst_id);
+            b->frames_in_burst = i;
+            return -1;
+        }
+        memcpy(b->frame_data[i], current_burst[i], len);
+        b->frame_len[i] = (uint8_t)len;
+    }
+
+    return 0;
+}
+
+/* ---- TX: send file with burst-level reliability ---- */
+
+static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
+{
+    nrf24_t radio;
+    nrf24_config_t cfg = {
+        .spi_device   = spi_dev,
+        .spi_speed_hz = 8000000,
+        .ce_gpio      = (uint8_t)ce_bcm
+    };
+
+    if (nrf24_init(&radio, &cfg) < 0) {
+        ERROR("nrf24_init failed: %s", strerror(errno));
+        return 1;
+    }
+    if (nrf24_configure_quick(&radio, P2P_CHANNEL) < 0) {
+        ERROR("nrf24_configure_quick failed");
+        nrf24_deinit(&radio);
+        return 1;
+    }
+    if (nrf24_set_mode_tx(&radio) < 0) {
+        ERROR("nrf24_set_mode_tx failed");
+        nrf24_deinit(&radio);
+        return 1;
+    }
+
+    FILE *fin = fopen(input_path, "rb");
+    if (!fin) {
+        ERROR("Cannot open input file '%s': %s", input_path, strerror(errno));
+        nrf24_deinit(&radio);
+        return 1;
+    }
+
+    /* get total length (for stats only) */
+    if (fseek(fin, 0, SEEK_END) != 0) {
+        ERROR("fseek failed on input");
+        fclose(fin);
+        nrf24_deinit(&radio);
+        return 1;
+    }
+    long fsize = ftell(fin);
+    if (fsize < 0) fsize = 0;
+    rewind(fin);
+
+    uint64_t total_bytes = (uint64_t)fsize;
+
+    INFO("P2P TX: sending file '%s' (%llu bytes)",
+         input_path, (unsigned long long)total_bytes);
+
+    double t_start = now_seconds();
+    uint64_t sent_data_bytes = 0;
+
+    unsigned page_id  = 0; /* single-page model */
+    unsigned burst_id = 0;
+
+    int eof_reached = 0;
+
+    while (!eof_reached) {
+        /* Build one burst in memory */
+        uint8_t burst_payloads[MAX_CHUNKS_PER_BURST][MAX_PAYLOAD];
+        uint8_t burst_sizes  [MAX_CHUNKS_PER_BURST];
+        unsigned num_chunks   = 0;
+
+        size_t burst_data_bytes = 0;  /* file bytes (no headers) */
+        uint16_t burst_onair_bytes = 0; /* sum of payload lengths */
+
+        uint64_t chk_state;
+        checksum_init(&chk_state);
+
+        while (!eof_reached &&
+               burst_data_bytes < BURST_DATA_MAX &&
+               num_chunks < MAX_CHUNKS_PER_BURST) {
+
+            size_t max_data = CHUNK_DATA_MAX;
+            if (total_bytes) {
+                uint64_t remaining = total_bytes - sent_data_bytes;
+                if (remaining < max_data) max_data = (size_t)remaining;
+            }
+
+            if (burst_data_bytes + max_data > BURST_DATA_MAX) {
+                max_data = BURST_DATA_MAX - burst_data_bytes;
+            }
+
+            if (max_data == 0) {
+                break;
+            }
+
+            uint8_t data_buf[CHUNK_DATA_MAX];
+            size_t nread = fread(data_buf, 1, max_data, fin);
+            if (nread == 0) {
+                if (ferror(fin)) {
+                    ERROR("Error reading input file");
+                    fclose(fin);
+                    nrf24_deinit(&radio);
+                    return 1;
+                }
+                eof_reached = 1;
+                break;
+            }
+
+            uint8_t chunk_id = (uint8_t)num_chunks;
+            burst_payloads[num_chunks][0] = chunk_id;
+            memcpy(&burst_payloads[num_chunks][1], data_buf, nread);
+
+            uint8_t payload_len = (uint8_t)(1 + nread);
+            burst_sizes[num_chunks] = payload_len;
+
+            checksum_update(&chk_state, burst_payloads[num_chunks], payload_len);
+
+            burst_data_bytes   += nread;
+            burst_onair_bytes  += payload_len;
+            sent_data_bytes    += nread;
+            num_chunks++;
+        }
+
+        if (num_chunks == 0) {
+            break;  /* nothing left to send */
+        }
+
+        uint8_t checksum_bytes[CHECKSUM_SIZE];
+        checksum_final(chk_state, checksum_bytes);
+
+        INFO("P2P TX: BURST %u -> %u data bytes in %u frames, checksum 0x%016llX",
+             burst_id, (unsigned)burst_data_bytes, num_chunks,
+             (unsigned long long)chk_state);
+
+        /* Outer loop: send this burst until RX confirms checksum */
+        int burst_done = 0;
+        while (!burst_done) {
+            /* 1) send BURST_INFO control frame */
+            uint8_t burst_info[6];
+            burst_info[0] = MSG_INFO;
+            burst_info[1] = MSG_BURST_INFO;
+            burst_info[2] = (uint8_t)page_id;
+            burst_info[3] = (uint8_t)burst_id;
+            encode_u16_le(&burst_info[4], burst_onair_bytes);
+
+            if (send_with_retries(&radio,
+                                  burst_info,
+                                  sizeof(burst_info),
+                                  CONTROL_TIMEOUT_MS,
+                                  "BURST_INFO") < 0) {
+                ERROR("Failed to send BURST_INFO, aborting");
+                fclose(fin);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+
+            /* 2) send all data frames for this burst */
+            for (unsigned i = 0; i < num_chunks; ++i) {
+                if (send_with_retries(&radio,
+                                      burst_payloads[i],
+                                      burst_sizes[i],
+                                      DATA_TIMEOUT_MS,
+                                      "DATA") < 0) {
+                    ERROR("Failed to send DATA frame, aborting");
+                    fclose(fin);
+                    nrf24_deinit(&radio);
+                    return 1;
+                }
+            }
+
+            /* 3) listen for checksum from RX */
+            if (nrf24_set_mode_rx(&radio) < 0) {
+                ERROR("nrf24_set_mode_rx failed");
+                fclose(fin);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+
+            double wait_start = now_seconds();
+            int got_valid_checksum = 0;
+
+            while (!got_valid_checksum &&
+                   (now_seconds() - wait_start) * 1000.0 < CHECKSUM_TIMEOUT_MS) {
+
+                uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
+                uint8_t len = sizeof(buf);
+                int ret = nrf24_recv_blocking(&radio, buf, &len, 50);
+                if (ret < 0) {
+                    if (errno == ETIMEDOUT) {
+                        continue; /* try again */
+                    }
+                    ERROR("nrf24_recv_blocking (checksum) failed: %s", strerror(errno));
+                    fclose(fin);
+                    nrf24_deinit(&radio);
+                    return 1;
+                }
+
+                if (len != CHECKSUM_SIZE) {
+                    WARN("P2P TX: received non-checksum frame of %u bytes while waiting", len);
+                    continue;
+                }
+
+                if (memcmp(buf, checksum_bytes, CHECKSUM_SIZE) == 0) {
+                    SUCC("P2P TX: BURST %u checksum confirmed by RX", burst_id);
+                    got_valid_checksum = 1;
+                } else {
+                    WARN("P2P TX: invalid checksum received for BURST %u", burst_id);
+                }
+            }
+
+            if (!got_valid_checksum) {
+                WARN("P2P TX: checksum timeout for BURST %u, resending burst", burst_id);
+                if (nrf24_set_mode_tx(&radio) < 0) {
+                    ERROR("nrf24_set_mode_tx failed");
+                    fclose(fin);
+                    nrf24_deinit(&radio);
+                    return 1;
+                }
+                continue;  /* resend same burst */
+            }
+
+            /* checksum OK, move on to next burst */
+            burst_done = 1;
+            burst_id++;
+
+            if (nrf24_set_mode_tx(&radio) < 0) {
+                ERROR("nrf24_set_mode_tx failed");
+                fclose(fin);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+        }
+    }
+
+    /* Send TRANSFER_FINISH control message */
+    uint8_t fin_msg[2];
+    fin_msg[0] = MSG_INFO;
+    fin_msg[1] = MSG_TRANSFER_FINISH;
+
+    if (send_with_retries(&radio,
+                          fin_msg,
+                          sizeof(fin_msg),
+                          CONTROL_TIMEOUT_MS,
+                          "TRANSFER_FINISH") < 0) {
+        WARN("P2P TX: failed to send TRANSFER_FINISH (continuing anyway)");
+    }
+
+    double t_end = now_seconds();
+    double dt = t_end - t_start;
+    double kibps = dt > 0.0 ? ((double)sent_data_bytes / 1024.0 / dt) : 0.0;
+
+    SUCC("P2P TX: done. Sent %llu bytes in %.3f s (%.1f KiB/s)",
+         (unsigned long long)sent_data_bytes, dt, kibps);
+
+    fclose(fin);
+    nrf24_deinit(&radio);
+    return 0;
+}
+
+/* ---- RX: receive file with burst-level reliability ---- */
+
+static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
+{
+    nrf24_t radio;
+    nrf24_config_t cfg = {
+        .spi_device   = spi_dev,
+        .spi_speed_hz = 8000000,
+        .ce_gpio      = (uint8_t)ce_bcm
+    };
+
+    if (nrf24_init(&radio, &cfg) < 0) {
+        ERROR("nrf24_init failed: %s", strerror(errno));
+        return 1;
+    }
+    if (nrf24_configure_quick(&radio, P2P_CHANNEL) < 0) {
+        ERROR("nrf24_configure_quick failed");
+        nrf24_deinit(&radio);
+        return 1;
+    }
+    if (nrf24_set_mode_rx(&radio) < 0) {
+        ERROR("nrf24_set_mode_rx failed");
+        nrf24_deinit(&radio);
+        return 1;
+    }
+
+    FILE *fout = fopen(output_path, "wb");
+    if (!fout) {
+        ERROR("Cannot open output file '%s': %s", output_path, strerror(errno));
+        nrf24_deinit(&radio);
+        return 1;
+    }
+
+    Page0Stream stream;
+    page0_stream_init(&stream);
+
+    INFO("P2P RX: waiting for BURST_INFO on channel %d...", P2P_CHANNEL);
+
+    int transfer_finished = 0;
+    int tx_started        = 0;
+    double t_start = 0.0;
+
+    /* current burst state */
+    int in_burst = 0;
+    unsigned cur_page_id = 0;
+    unsigned cur_burst_id = 0;
+    unsigned frames_in_burst = 0;
+    uint8_t sizes[MAX_CHUNKS_PER_BURST];
+    uint8_t current_burst[MAX_CHUNKS_PER_BURST][MAX_PAYLOAD];
+
+    while (!transfer_finished) {
+        uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
+        uint8_t len = sizeof(buf);
+
+        int ret = nrf24_recv_blocking(&radio, buf, &len, 0); /* block */
+        if (ret < 0) {
+            if (errno == ETIMEDOUT) {
+                /* should not happen with timeout=0, but handle just in case */
+                continue;
+            }
+            ERROR("nrf24_recv_blocking failed: %s", strerror(errno));
+            page0_stream_free(&stream);
+            fclose(fout);
+            nrf24_deinit(&radio);
+            return 1;
+        }
+
+        if (!tx_started) {
+            t_start   = now_seconds();
+            tx_started = 1;
+        }
+
+        /* Control messages */
+        if (len >= 2 && buf[0] == MSG_INFO && buf[1] == MSG_BURST_INFO) {
+            if (len < 6) {
+                WARN("P2P RX: malformed BURST_INFO frame");
+                continue;
+            }
+
+            cur_page_id  = buf[2];
+            cur_burst_id = buf[3];
+            uint16_t size_of_burst = decode_u16_le(&buf[4]);
+
+            frames_in_burst = (size_of_burst + MAX_PAYLOAD - 1) / MAX_PAYLOAD;
+            if (frames_in_burst == 0 || frames_in_burst > MAX_CHUNKS_PER_BURST) {
+                WARN("P2P RX: invalid frames_in_burst=%u", frames_in_burst);
+                continue;
+            }
+
+            uint8_t last_len = (uint8_t)(size_of_burst % MAX_PAYLOAD);
+            if (last_len == 0) last_len = MAX_PAYLOAD;
+
+            for (unsigned i = 0; i < frames_in_burst; ++i) {
+                sizes[i] = (i == frames_in_burst - 1) ? last_len : MAX_PAYLOAD;
+                memset(current_burst[i], 0, MAX_PAYLOAD);
+            }
+
+            INFO("P2P RX: BURST_INFO Page=%u Burst=%u -> size %u B in %u frames",
+                 cur_page_id, cur_burst_id,
+                 (unsigned)size_of_burst, frames_in_burst);
+
+            in_burst = 1;
+            continue;
+        }
+
+        if (len >= 2 && buf[0] == MSG_INFO && buf[1] == MSG_TRANSFER_FINISH) {
+            transfer_finished = 1;
+            INFO("P2P RX: received TRANSFER_FINISH");
+            break;
+        }
+
+        /* DATA frame */
+        if (!in_burst) {
+            WARN("P2P RX: DATA frame received before BURST_INFO, ignoring");
+            continue;
+        }
+
+        if (len == 0) {
+            WARN("P2P RX: empty DATA frame");
+            continue;
+        }
+
+        uint8_t frame_id = buf[0];
+
+        if (frame_id >= frames_in_burst) {
+            WARN("P2P RX: invalid FrameID=%u (frames_in_burst=%u)",
+                 frame_id, frames_in_burst);
+            continue;
+        }
+
+        if (len != sizes[frame_id]) {
+            WARN("P2P RX: frame len=%u does not match expected=%u for FrameID=%u",
+                 len, sizes[frame_id], frame_id);
+            continue;
+        }
+
+        memcpy(current_burst[frame_id], buf, len);
+
+        /* When we receive the last frame, compute checksum & respond */
+        if (frame_id == frames_in_burst - 1) {
+            /* Compute checksum over the whole burst (all frames in order) */
+            uint64_t chk_state;
+            checksum_init(&chk_state);
+            for (unsigned i = 0; i < frames_in_burst; ++i) {
+                checksum_update(&chk_state, current_burst[i], sizes[i]);
+            }
+            uint8_t checksum_bytes[CHECKSUM_SIZE];
+            checksum_final(chk_state, checksum_bytes);
+
+            SUCC("P2P RX: completed BURST [P%u|B%u], checksum 0x%016llX",
+                 cur_page_id, cur_burst_id,
+                 (unsigned long long)chk_state);
+
+            /* Send checksum back to TX with retries */
+            if (nrf24_set_mode_tx(&radio) < 0) {
+                ERROR("nrf24_set_mode_tx failed");
+                page0_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+
+            if (send_with_retries(&radio,
+                                  checksum_bytes,
+                                  CHECKSUM_SIZE,
+                                  CONTROL_TIMEOUT_MS,
+                                  "CHECKSUM") < 0) {
+                ERROR("P2P RX: failed to send checksum for burst %u", cur_burst_id);
+                page0_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+
+            SUCC("P2P RX: checksum for BURST %u sent successfully", cur_burst_id);
+
+            /* Store burst into STREAM[Page0][BurstID] */
+            if (store_burst(&stream,
+                            cur_burst_id,
+                            frames_in_burst,
+                            current_burst,
+                            sizes) < 0) {
+                ERROR("P2P RX: failed to store burst %u", cur_burst_id);
+                page0_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+
+            in_burst = 0;
+
+            if (nrf24_set_mode_rx(&radio) < 0) {
+                ERROR("nrf24_set_mode_rx failed");
+                page0_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+        }
+    }
+
+    /* Reassemble the file from STREAM[Page0] */
+    uint64_t total_written = 0;
+    for (size_t bid = 0; bid < stream.count; ++bid) {
+        Burst *b = &stream.bursts[bid];
+        if (b->frames_in_burst == 0) continue;
+
+        for (unsigned i = 0; i < b->frames_in_burst; ++i) {
+            uint8_t *frame = b->frame_data[i];
+            uint8_t  flen  = b->frame_len[i];
+            if (!frame || flen == 0) continue;
+            if (flen <= 1) continue; /* only chunk ID, no data */
+
+            size_t data_len = flen - 1;
+            if (fwrite(frame + 1, 1, data_len, fout) != data_len) {
+                ERROR("P2P RX: fwrite failed");
+                page0_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+            total_written += data_len;
+        }
+    }
+
+    double t_end = now_seconds();
+    double dt = (tx_started ? (t_end - t_start) : 0.0);
+    double kibps = dt > 0.0 ? ((double)total_written / 1024.0 / dt) : 0.0;
+
+    SUCC("P2P RX: done. Received %llu bytes in %.3f s (%.1f KiB/s)",
+         (unsigned long long)total_written, dt, kibps);
+
+    page0_stream_free(&stream);
+    fclose(fout);
+    nrf24_deinit(&radio);
+    return 0;
+}
+
+/* ---- CLI ---- */
+
+static void usage(const char *prog)
+{
+    fprintf(stderr,
+            "Usage:\n"
+            "  %s tx <spi_device> <ce_gpio> <input_file>\n"
+            "  %s rx <spi_device> <ce_gpio> <output_file>\n"
+            "Example:\n"
+            "  %s tx /dev/spidev0.0 22 test_files/lorem.txt\n"
+            "  %s rx /dev/spidev0.0 22 received_file.txt\n",
+            prog, prog, prog, prog);
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 5) {
+        usage(argv[0]);
+        return 1;
+    }
+
+    const char *mode    = argv[1];
+    const char *spi_dev = argv[2];
+    int ce_bcm          = atoi(argv[3]);
+    const char *path    = argv[4];
+
+    if (ce_bcm < 0 || ce_bcm > 255) {
+        ERROR("Invalid CE GPIO: %d", ce_bcm);
+        return 1;
+    }
+
+    if (strcmp(mode, "tx") == 0) {
+        return run_tx(spi_dev, ce_bcm, path);
+    } else if (strcmp(mode, "rx") == 0) {
+        return run_rx(spi_dev, ce_bcm, path);
+    } else {
+        usage(argv[0]);
+        return 1;
+    }
+}
