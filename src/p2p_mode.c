@@ -37,7 +37,7 @@
 #define P2P_MSG_STREAM_INFO  0xE0
 
 /* radio config */
-#define RADIO_CONFIG_SPI_SPEED 10000000
+#define RADIO_CONFIG_SPI_SPEED 8000000
 
 /* ---- Time helper ---- */
 
