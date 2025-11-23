@@ -17,6 +17,10 @@
 #define MAX_PAYLOAD          32     /* max nRF24 payload size */
 #define MAX_CHUNKS_PER_BURST 255    /* 7905 / 31 = 255 */
 
+#define CHUNK_DATA_BYTES     CHUNK_DATA_MAX
+#define MAX_FRAMES_PER_BURST MAX_CHUNKS_PER_BURST
+#define BURST_DATA_BYTES     (CHUNK_DATA_BYTES * MAX_FRAMES_PER_BURST) /* 7905 */
+
 #define CHECKSUM_TIMEOUT_MS  1000   /* wait up to 1 s for checksum */
 #define CONTROL_TIMEOUT_MS   100    /* per-attempt timeout when sending control frames */
 #define DATA_TIMEOUT_MS      20     /* per-attempt timeout when sending data frames */
@@ -26,6 +30,9 @@
 #define MSG_INFO             0xFF
 #define MSG_BURST_INFO       0xF0
 #define MSG_TRANSFER_FINISH  0x0F
+
+/* New control subtype for stream layout */
+#define P2P_MSG_STREAM_INFO  0xE0
 
 /* ---- Time helper ---- */
 
@@ -229,6 +236,20 @@ static int store_burst(Page0Stream *ps,
     return 0;
 }
 
+/* Helper: check if we have all bursts 0..(total_bursts-1) stored */
+static int have_all_bursts(const Page0Stream *ps, uint16_t total_bursts)
+{
+    if (total_bursts == 0) return 0;
+    if (ps->count < total_bursts) return 0;
+
+    for (uint16_t i = 0; i < total_bursts; ++i) {
+        if (i >= ps->count) return 0;
+        const Burst *b = &ps->bursts[i];
+        if (b->frames_in_burst == 0) return 0;
+    }
+    return 1;
+}
+
 /* ---- TX: send file with burst-level reliability ---- */
 
 static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
@@ -262,7 +283,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
         return 1;
     }
 
-    /* get total length (for stats only) */
+    /* get total length (for stats and STREAM_INFO) */
     if (fseek(fin, 0, SEEK_END) != 0) {
         ERROR("fseek failed on input");
         fclose(fin);
@@ -277,6 +298,48 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
 
     INFO("P2P TX: sending file '%s' (%llu bytes)",
          input_path, (unsigned long long)total_bytes);
+
+    /* ---- Compute and send STREAM_INFO ---- */
+    uint16_t total_bursts = 0;
+    uint8_t  last_burst_frames = 0;
+    uint8_t  last_frame_bytes  = 0;
+
+    if (total_bytes > 0) {
+        total_bursts = (uint16_t)((total_bytes + BURST_DATA_BYTES - 1) / BURST_DATA_BYTES);
+
+        uint64_t last_burst_bytes =
+            total_bytes - (uint64_t)(total_bursts - 1) * BURST_DATA_BYTES;
+
+        last_burst_frames = (uint8_t)((last_burst_bytes + CHUNK_DATA_BYTES - 1) /
+                                      CHUNK_DATA_BYTES);
+
+        uint64_t used_by_prev_frames =
+            (uint64_t)(last_burst_frames - 1) * CHUNK_DATA_BYTES;
+        last_frame_bytes = (uint8_t)(last_burst_bytes - used_by_prev_frames);
+        if (last_frame_bytes == 0) {
+            last_frame_bytes = CHUNK_DATA_BYTES;
+        }
+    }
+
+    uint8_t stream_info[6];
+    stream_info[0] = MSG_INFO;
+    stream_info[1] = P2P_MSG_STREAM_INFO;
+    encode_u16_le(&stream_info[2], total_bursts);
+    stream_info[4] = last_burst_frames;
+    stream_info[5] = last_frame_bytes;
+
+    INFO("P2P TX: STREAM_INFO -> bursts=%u, last_frames=%u, last_frame_bytes=%u",
+         (unsigned)total_bursts,
+         (unsigned)last_burst_frames,
+         (unsigned)last_frame_bytes);
+
+    if (send_with_retries(&radio,
+                          stream_info,
+                          sizeof(stream_info),
+                          CONTROL_TIMEOUT_MS,
+                          "STREAM_INFO") < 0) {
+        WARN("P2P TX: failed to send STREAM_INFO (continuing anyway)");
+    }
 
     double t_start = now_seconds();
     uint64_t sent_data_bytes = 0;
@@ -522,6 +585,15 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     int tx_started        = 0;
     double t_start = 0.0;
 
+    /* STREAM_INFO state */
+    int have_stream_info          = 0;
+    uint16_t expected_total_bursts = 0;
+    uint8_t  expected_last_frames  = 0;
+    uint8_t  expected_last_frame_bytes = 0;
+
+    int waiting_for_finish = 0;
+    double finish_deadline = 0.0;
+
     /* current burst state */
     int in_burst = 0;
     unsigned cur_page_id = 0;
@@ -531,6 +603,20 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     uint8_t current_burst[MAX_CHUNKS_PER_BURST][MAX_PAYLOAD];
 
     while (!transfer_finished) {
+
+        /* If we know we have all bursts but never get TRANSFER_FINISH,
+         * bail out after a short grace period.
+         */
+        if (waiting_for_finish) {
+            double now = now_seconds();
+            if (now >= finish_deadline) {
+                WARN("P2P RX: finish timeout after receiving all bursts; "
+                     "assuming TRANSFER_FINISH was lost and closing transfer.");
+                transfer_finished = 1;
+                break;
+            }
+        }
+
         uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
         uint8_t len = sizeof(buf);
 
@@ -552,7 +638,26 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             tx_started = 1;
         }
 
-        /* Control messages */
+        /* STREAM_INFO control message */
+        if (len >= 2 && buf[0] == MSG_INFO && buf[1] == P2P_MSG_STREAM_INFO) {
+            if (len < 6) {
+                WARN("P2P RX: malformed STREAM_INFO frame (len=%u)", len);
+                continue;
+            }
+            expected_total_bursts = decode_u16_le(&buf[2]);
+            expected_last_frames  = buf[4];
+            expected_last_frame_bytes = buf[5];
+            have_stream_info      = 1;
+            waiting_for_finish    = 0; /* reset in case of re-send */
+
+            INFO("P2P RX: STREAM_INFO -> bursts=%u, last_frames=%u, last_frame_bytes=%u",
+                 (unsigned)expected_total_bursts,
+                 (unsigned)expected_last_frames,
+                 (unsigned)expected_last_frame_bytes);
+            continue;
+        }
+
+        /* BURST_INFO control message */
         if (len >= 2 && buf[0] == MSG_INFO && buf[1] == MSG_BURST_INFO) {
             if (len < 6) {
                 WARN("P2P RX: malformed BURST_INFO frame");
@@ -585,6 +690,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             continue;
         }
 
+        /* TRANSFER_FINISH control message */
         if (len >= 2 && buf[0] == MSG_INFO && buf[1] == MSG_TRANSFER_FINISH) {
             transfer_finished = 1;
             INFO("P2P RX: received TRANSFER_FINISH");
@@ -619,7 +725,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
         memcpy(current_burst[frame_id], buf, len);
 
         /* When we receive the last frame, compute checksum & respond */
-                if (frame_id == frames_in_burst - 1) {
+        if (frame_id == frames_in_burst - 1) {
             /* ---- 1) Compute checksum over the whole burst ---- */
             uint64_t chk_state;
             checksum_init(&chk_state);
@@ -633,10 +739,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                  cur_page_id, cur_burst_id,
                  (unsigned long long)chk_state);
 
-            /* ---- 2) STORE THE BURST IMMEDIATELY ----
-             * This guarantees that once we've seen all frames of this burst,
-             * it's in STREAM, regardless of what happens with the checksum ACK.
-             */
+            /* ---- 2) STORE THE BURST IMMEDIATELY ---- */
             if (store_burst(&stream,
                             cur_burst_id,
                             frames_in_burst,
@@ -647,6 +750,20 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 fclose(fout);
                 nrf24_deinit(&radio);
                 return 1;
+            }
+
+            /* If we know the expected total bursts, check if we already
+             * have them all; if so, start a 'finish wait' timer so the
+             * transfer can complete even if TRANSFER_FINISH is lost.
+             */
+            if (have_stream_info &&
+                !waiting_for_finish &&
+                have_all_bursts(&stream, expected_total_bursts)) {
+
+                WARN("P2P RX: all %u bursts received; waiting for TRANSFER_FINISH or timeout...",
+                     (unsigned)expected_total_bursts);
+                waiting_for_finish = 1;
+                finish_deadline = now_seconds() + 2.0; /* 2 s grace */
             }
 
             /* ---- 3) Try to send checksum back to TX (bounded time) ---- */
@@ -666,12 +783,12 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             while (!checksum_sent_ok &&
                    (now_seconds() - send_start) * 1000.0 < send_deadline_ms) {
 
-                int ret = nrf24_send_blocking(&radio,
-                                              checksum_bytes,
-                                              CHECKSUM_SIZE,
-                                              CONTROL_TIMEOUT_MS);
+                int ret2 = nrf24_send_blocking(&radio,
+                                               checksum_bytes,
+                                               CHECKSUM_SIZE,
+                                               CONTROL_TIMEOUT_MS);
 
-                if (ret == 0) {
+                if (ret2 == 0) {
                     checksum_sent_ok = 1;
                     break;
                 }
@@ -699,12 +816,6 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             }
 
             if (!checksum_sent_ok) {
-                /* IMPORTANT CHANGE: we DO NOT discard the burst here.
-                 * It's already stored in STREAM, so if TX actually got the
-                 * checksum (but the ACK was lost), we still have the data.
-                 * If TX didn't get it, it will resend BURST_INFO+DATA and
-                 * we'll overwrite this burst with the new copy.
-                 */
                 WARN("P2P RX: checksum timeout for BURST %u, returning to RX "
                      "(TX may resend it)", cur_burst_id);
 
