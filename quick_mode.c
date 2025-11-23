@@ -8,7 +8,7 @@
 
 #include "nrf24.h"
 
-#define QUICK_MODE_CHANNEL 76
+#define QUICK_MODE_CHANNEL 74
 
 
 #define QM_HEADER_MAGIC      "QMF1"
