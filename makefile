@@ -1,64 +1,67 @@
 # ==========================
-#  Simple nRF24 C Makefile
+#  nRF24 C Project Makefile
 # ==========================
 
 CC      = gcc
-CFLAGS  = -Wall -Wextra -O2 -Ilibs
-LDFLAGS =
-
-# Where to put the executables
+SRCDIR  = src
+LIBDIR  = libs
 BINDIR  = bin
 
-# Program names (without path)
-PROGS   = quick_mode fast_mode p2p_mode
+CFLAGS  = -Wall -Wextra -O2 -I. -I$(LIBDIR)
+LDFLAGS =
 
-# Executables with full path
+# Programs (names only)
+PROGS     = quick_mode fast_mode p2p_mode
 BIN_PROGS = $(addprefix $(BINDIR)/,$(PROGS))
 
 # Common library objects
-COMMON_OBJS = libs/nrf24.o libs/utils.o
-
-# Per-program object lists
-quick_mode_OBJS = quick_mode.o $(COMMON_OBJS)
-fast_mode_OBJS  = fast_mode.o  $(COMMON_OBJS)
-p2p_mode_OBJS   = p2p_mode.o   $(COMMON_OBJS)
+COMMON_OBJS   = $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o
+quick_mode_OBJS = $(SRCDIR)/quick_mode.o $(COMMON_OBJS)
+fast_mode_OBJS  = $(SRCDIR)/fast_mode.o  $(COMMON_OBJS)
+p2p_mode_OBJS   = $(SRCDIR)/p2p_mode.o   $(COMMON_OBJS)
 
 .PHONY: all clean
 
-# Default target: build all executables into bin/
+# ---------- Default target ----------
+
 all: $(BINDIR) $(BIN_PROGS)
 
 # Ensure bin/ exists
 $(BINDIR):
 	@mkdir -p $(BINDIR)
 
-# ---------- Pattern rule for .o ----------
+# ---------- Compilation rules ----------
 
-%.o: %.c
+# Program sources in src/
+$(SRCDIR)/%.o: $(SRCDIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Library sources in libs/
+$(LIBDIR)/%.o: $(LIBDIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # ---------- Link rules ----------
 
-$(BINDIR)/quick_mode: $(quick_mode_OBJS) | $(BINDIR)
+$(BINDIR)/quick_mode: $(quick_mode_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(quick_mode_OBJS) $(LDFLAGS)
 
-$(BINDIR)/fast_mode: $(fast_mode_OBJS) | $(BINDIR)
+$(BINDIR)/fast_mode: $(fast_mode_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(fast_mode_OBJS) $(LDFLAGS)
 
-$(BINDIR)/p2p_mode: $(p2p_mode_OBJS) | $(BINDIR)
+$(BINDIR)/p2p_mode: $(p2p_mode_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(p2p_mode_OBJS) $(LDFLAGS)
 
-# ---------- Explicit deps (nice but optional) ----------
+# ---------- Explicit dependencies (nice to have) ----------
 
-libs/nrf24.o: libs/nrf24.c libs/nrf24.h
-libs/utils.o: libs/utils.c libs/utils.h
+$(SRCDIR)/quick_mode.o: $(SRCDIR)/quick_mode.c $(LIBDIR)/nrf24.h
+$(SRCDIR)/fast_mode.o:  $(SRCDIR)/fast_mode.c  $(LIBDIR)/nrf24.h
+$(SRCDIR)/p2p_mode.o:   $(SRCDIR)/p2p_mode.c   $(LIBDIR)/nrf24.h $(LIBDIR)/utils.h
 
-quick_mode.o: quick_mode.c libs/nrf24.h
-fast_mode.o:  fast_mode.c  libs/nrf24.h
-p2p_mode.o:   p2p_mode.c   libs/nrf24.h libs/utils.h
+$(LIBDIR)/nrf24.o: $(LIBDIR)/nrf24.c $(LIBDIR)/nrf24.h
+$(LIBDIR)/utils.o: $(LIBDIR)/utils.c $(LIBDIR)/utils.h
 
 # ---------- Cleanup ----------
 
 clean:
-	rm -f $(BIN_PROGS) *.o libs/*.o
+	rm -f $(BIN_PROGS) $(SRCDIR)/*.o $(LIBDIR)/*.o
 	@rmdir $(BINDIR) 2>/dev/null || true
