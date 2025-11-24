@@ -250,7 +250,7 @@ def _decode_packet(pkt: bytes, extracted_window: int) -> tuple[int, int, bytes]:
         data = pkt[ID_CHUNK_BYTES:]
         return extracted_window, extracted_chunk, data
 
-def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
+def send_DATA_message(nrf : NRF24, DATA_MESSAGE : bytes, message_type) -> None:
         """
         Continuously send a given data message until we receive the expected ACK
         """
@@ -282,9 +282,10 @@ def send_DATA_message(nrf, DATA_MESSAGE : bytes, message_type) -> None:
         return
 
 
-def tx_empty(nrf):
-    fifo_status = nrf.read_register(nrf.FIFO_STATUS, 1)[0]
-    return bool(fifo_status & 0x10)  # Bit TX_EMPTY (0x10)
+def tx_empty(nrf : NRF24):
+    fifo_status = nrf._nrf_read_reg(nrf.FIFO_STATUS, 1)[0]
+    is_empty = bool(fifo_status & nrf.FTX_EMPTY) # Bit TX_EMPTY (0x10)
+    return is_empty
 
 
 
