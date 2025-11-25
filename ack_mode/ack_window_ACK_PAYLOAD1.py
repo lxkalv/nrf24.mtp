@@ -371,13 +371,13 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                     else:
                         send_no_ack(pkt)
                         time.sleep(0.0001)  # Small delay between packets
-                print(ack_message)
+                print(f"Recieved ACK {ack_message}     // Expected : {current_window.to_bytes(WINDOW_SIZE,"big")}")
                 if ack_message == current_window.to_bytes(WINDOW_SIZE,"big"): 
                     ack_rtt_ms = (time.monotonic() - start) * 1000.0  # RTT of the manual ACK
                     SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms")
                     break
                 else:
-                    ERROR(f"No ACK for the window seq={current_window}")
+                    ERROR(f"Wrong ACK for the window seq={current_window}")
                     attempt += 1
 
 
