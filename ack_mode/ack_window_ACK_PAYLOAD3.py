@@ -483,7 +483,11 @@ def BEGIN_RECEIVER_MODE() -> None:
                     if len(window_chunks) == WINDOW_SIZE-1 or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size-1)):
                         print(f"flush ack payload + ack to {extracted_window}")
                         nrf.flush_tx()
-                        nrf.ack_payload(RF24_RX_ADDR.P1,expected_window.to_bytes(WINDOW_SIZE,"big"))
+
+                        if extracted_window<expected_window:
+                            nrf.ack_payload(RF24_RX_ADDR.P1,extracted_window.to_bytes(WINDOW_SIZE,"big"))
+                        else:
+                            nrf.ack_payload(RF24_RX_ADDR.P1,expected_window.to_bytes(WINDOW_SIZE,"big"))
 
 
                     if len(window_chunks) == WINDOW_SIZE or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
