@@ -302,7 +302,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             content = file.read()
 
         content_len = len(content)
-        INFO(f'Read {content_len} raw bytes read from file_to_send.txt: {content}')
+        %INFO(f'Read {content_len} raw bytes read from file_to_send.txt: {content}')
         k = 0
         # split the contents into chunks
         chunks = []
@@ -540,14 +540,14 @@ def BEGIN_RECEIVER_MODE() -> None:
         total_time     = throughput_tac - throughput_tic
 
         INFO('Collected:')
-        for chunk in chunks:
-            print(f"    {chunk}")
+        #for chunk in chunks:
+            #print(f"    {chunk}")
 
 
         content = bytes()
         for chunk in chunks:
             content += chunk
-        INFO(f'Merged data: {content}')
+        #INFO(f'Merged data: {content}')
 
 
         if len(content) == 0:
@@ -559,7 +559,7 @@ def BEGIN_RECEIVER_MODE() -> None:
             f.write(content)
         content_len = len(content)
         SUCC(f'Saved {content_len} bytes to: file_received.txt')
-        INFO(f"Computed throughput: {((content_len / 1024)*8 / total_time):.2f} KBps")
+        INFO(f"Computed throughput: {((content_len / 1024) / total_time):.2f} KBps")
 
     finally:
         nrf.power_down()
