@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.05          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 0.15  # por ejemplo 150 ms         # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -375,22 +375,25 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
                             raw_ack = nrf.get_payload()
 
-                            # Esperamos un ACK de exactamente WINDOW_SIZE bytes
-                            if len(raw_ack) != WINDOW_SIZE:
+                            # Esperamos un ACK de exactamente ID_WIND_BYTES bytes (3)
+                            if len(raw_ack) != ID_WIND_BYTES:
                                 INFO(f"Ignoring non-ACK payload {raw_ack}")
                                 continue
 
                             ack_win = int.from_bytes(raw_ack, "big")
 
-                            if ack_win == current_window:
+                            # ⬇⬇⬇ CAMBIO CLAVE AQUÍ
+                            # Si el receptor dice "tengo hasta la ventana ack_win",
+                            # y ack_win >= current_window → damos por buena current_window.
+                            if ack_win >= current_window:
                                 ack_ok = True
                                 ack_message = raw_ack
                                 break
                             else:
-                                # ACK viejo o adelantado → ignorar
+                                # ACK viejo: receptor confirmando algo que ya dimos por hecho
                                 INFO(
-                                    f"Ignoring ACK for window {ack_win} "
-                                    f"(waiting for {current_window})"
+                                    f"Ignoring old ACK for window {ack_win} "
+                                    f"(already waiting for >= {current_window})"
                                 )
                                 continue
 
