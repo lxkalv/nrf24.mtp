@@ -497,13 +497,22 @@ def BEGIN_RECEIVER_MODE() -> None:
                     tic = time.monotonic()
 
                 else:
+                    # Hemos recibido un chunk fuera de orden dentro de la ventana actual
                     ERROR(f"Received out-of-order chunk (expected {expected_chunk_in_window}, got {extracted_chunk}), discarding")
-                    # Optional: could implement NACK or request retransmission here
+
+                    # Reseteamos el ensamblado de esta ventana
+                    window_chunks.clear()
+                    expected_chunk_in_window = 0
+                    # Opcional: re-sincronizar ventana
+                    extracted_window = expected_window
+
+                    # Enviamos explícitamente un "ERROR" en el próximo ACK
+                    nrf.flush_tx()
+                    nrf.ack_payload(RF24_RX_ADDR.P1, b"ERROR")
+
+                    # Reiniciamos timeout de actividad
                     tic = time.monotonic()
 
-                if tx_empty(nrf) :
-                    print("ack to error")
-                    nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
 
 
         INFO('Connection timed-out or all chunks recieved')
