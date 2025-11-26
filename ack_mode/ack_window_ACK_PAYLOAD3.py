@@ -482,19 +482,18 @@ def BEGIN_RECEIVER_MODE() -> None:
                     if len(window_chunks) == WINDOW_SIZE-1 or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size-1)):
                         print(f"flush ack payload + ack to {extracted_window}")
                         nrf.flush_tx()
-                        nrf.ack_payload(RF24_RX_ADDR.P1,extracted_window.to_bytes(WINDOW_SIZE,"big"))
+                        nrf.ack_payload(RF24_RX_ADDR.P1,expected_window.to_bytes(WINDOW_SIZE,"big"))
+
 
                     if len(window_chunks) == WINDOW_SIZE or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
                         SUCC(f"Extracted window Completed {extracted_window}")
                         # if we already recieved the complete window
-                        if (extracted_window!=expected_window):        
-                            
-                            SUCC(f"ACK send for window {extracted_window} / {total_wind} we wait for window {expected_window}")
+                        if (extracted_window!=expected_window): 
+                            ERROR(f"Data recieved for window {extracted_window} / {total_wind} we want for window {expected_window}")
                             expected_chunk_in_window = 0
 
                         # last window completed
-                        elif (expected_window == total_wind-1) :
-                            
+                        elif(expected_window == total_wind-1) :
                             expected_window +=1
                             chunks.extend(window_chunks)
                             SUCC(f"ACK send for last window ({expected_window} / {total_wind})")
