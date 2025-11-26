@@ -512,6 +512,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                     # Reiniciamos timeout de actividad
                     tic = time.monotonic()
+                    continue
 
 
 
