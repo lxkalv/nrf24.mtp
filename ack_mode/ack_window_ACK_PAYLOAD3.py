@@ -474,7 +474,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                 packet = nrf.get_payload()
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
-
+                pirnt(f"Recieved{extracted_chunk} of window {expected_window}")
                 if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)        
