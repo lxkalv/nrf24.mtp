@@ -475,6 +475,32 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
                 print(f"Recieved chunk {extracted_chunk}, expected chunck{expected_chunk_in_window}")
+
+                if extracted_window < expected_window:
+                    ERROR(
+                        f"Duplicate data for window {extracted_window}, "
+                        f"already completed up to {expected_window - 1}. Re-ACKing..."
+                    )
+                    # No tocamos window_chunks ni expected_chunk_in_window
+                    # Solo re-enviamos el ACK de esa ventana
+                    nrf.flush_tx()
+                    nrf.ack_payload(
+                        RF24_RX_ADDR.P1,
+                        extracted_window.to_bytes(ID_WIND_BYTES, "big")
+                    )
+                    continue
+
+                # 2) Ventana FUTURA → descartamos
+                if extracted_window > expected_window:
+                    ERROR(
+                        f"Out-of-order window {extracted_window} "
+                        f"(expecting {expected_window}), discarding"
+                    )
+                    # No cambiamos estado, esperamos a que TX reenvíe lo que toca
+                    continue
+                # 3) Aquí solo entramos si extracted_window == expected_window
+                #    => estamos recibiendo la ventana que toca
+
                 if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)        
@@ -483,11 +509,9 @@ def BEGIN_RECEIVER_MODE() -> None:
                     if len(window_chunks) == WINDOW_SIZE-1 or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size-1)):
                         print(f"flush ack payload + ack to {extracted_window}")
                         nrf.flush_tx()
+                        nrf.ack_payload(RF24_RX_ADDR.P1,epected_window.to_bytes(WINDOW_SIZE,"big"))
+                        print("We confirm the window")
 
-                        if extracted_window==expected_window:
-                            nrf.ack_payload(RF24_RX_ADDR.P1,extracted_window.to_bytes(WINDOW_SIZE,"big"))
-                            print("We confirm the window")
-                            
                     if len(window_chunks) == WINDOW_SIZE or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
                         SUCC(f"Extracted window Completed {extracted_window}")
                         # if we already recieved the complete window
