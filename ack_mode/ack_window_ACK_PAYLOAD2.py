@@ -290,7 +290,6 @@ def tx_empty(nrf : NRF24):
 
 
 
-
 def BEGIN_TRANSMITTER_MODE() -> None:
     """
     Transmits the first txt file found in the mounted USB
@@ -304,7 +303,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
         content_len = len(content)
         INFO(f'Read {content_len} raw bytes read from file_to_send.txt: {content}')
-        k=0;
+        k = 0
         # split the contents into chunks
         chunks = []
         start_val = 0
@@ -316,21 +315,20 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             if chunk_id % WINDOW_SIZE == 0:
                 size = PAYLOAD_SIZE - ID_CHUNK_BYTES - ID_WIND_BYTES
                 end_val = min(start_val + size, content_len)
-                ident_wind = (chunk_id // WINDOW_SIZE).to_bytes(ID_WIND_BYTES, "big")  # exactly DATA_BYTES
-                # print(f"Window ID bytes: {ident_wind} for window {(chunk_id // WINDOW_SIZE)}")
-                ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")  # exactly DATA_BYTES
+                ident_wind = (chunk_id // WINDOW_SIZE).to_bytes(ID_WIND_BYTES, "big")
+                ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")
                 final_content = ident_chunk + ident_wind + content[start_val:end_val]
             else:
                 size = PAYLOAD_SIZE - ID_CHUNK_BYTES
                 end_val = min(start_val + size, content_len)
-                ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")  # exactly DATA_BYTES
+                ident_chunk = (chunk_id % WINDOW_SIZE).to_bytes(ID_CHUNK_BYTES, "big")
                 final_content = ident_chunk + content[start_val:end_val]
+
             chunks.append(final_content)
             start_val = end_val
             chunk_id += 1
 
-
-        #Creating and sending the first packet
+        # Creating and sending the first packet
         total_wind = math.ceil(chunk_id / WINDOW_SIZE)
         last_window_size = chunk_id % WINDOW_SIZE if (chunk_id % WINDOW_SIZE) != 0 else WINDOW_SIZE
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
@@ -340,31 +338,35 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         for chunk in chunks:
             packets.append(struct.pack(f"<{len(chunk)}s", chunk))
         
-        #send Header Message
-        send_DATA_message(nrf,struct.pack(f"<{len(header)}s", header), "HEADER")
+        # send Header Message
+        send_DATA_message(nrf, struct.pack(f"<{len(header)}s", header), "HEADER")
         while not nrf.data_ready():
             pass
 
-        ack_message=nrf.get_payload()  
+        ack_message = nrf.get_payload()
         print(f"ACK HEADER message recieved correctly. ACK:{ack_message}")
-
-
 
         # Start transmitting                       
         current_window = 0  
         current_chunk = 0    
+
         while current_window < total_wind:
             start = time.monotonic()
             attempt = 1
-            window_packet = packets[current_chunk:current_chunk+WINDOW_SIZE]
+            window_packet = packets[current_chunk:current_chunk + WINDOW_SIZE]
+
             while attempt <= MAX_ATTEMPTS:          # Manual attempts
                 INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
-                ack_message = None  # <- MUY IMPORTANTE, para distinguir timeout de ACK real
+                ack_message = None  # Para distinguir timeout de ACK real
 
                 for p_idx, pkt in enumerate(window_packet):
                     # Último chunk de la ventana (o último de la última ventana)
-                    if (p_idx == WINDOW_SIZE-1) or (current_window == total_wind-1 and p_idx == last_window_size-1):
+                    is_last_chunk_of_window = (p_idx == WINDOW_SIZE - 1)
+                    is_last_chunk_of_last_window = (
+                        current_window == total_wind - 1 and p_idx == last_window_size - 1
+                    )
 
+                    if is_last_chunk_of_window or is_last_chunk_of_last_window:
                         send_DATA_message(nrf, pkt, current_window)
 
                         # Esperamos un ACK payload, pero con timeout
@@ -379,10 +381,10 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
                     else:
                         send_no_ack(pkt)
-                        time.sleep(0.0001)
+                        time.sleep(0.0001)  # Small delay between packets
 
+                # Si no hemos recibido ningún ACK payload → consideramos la ventana fallida
                 if ack_message is None:
-                    # No hemos recibido ningún ACK payload → consideramos la ventana fallida
                     ERROR(f"No ACK payload received for window {current_window}, retrying...")
                     attempt += 1
                     nrf.flush_rx()   # limpiar posibles basuras
@@ -397,14 +399,13 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 else:
                     ERROR(f"Wrong ACK for the window seq={current_window}")
                     attempt += 1
-        nrf.flush_rx()
+                    nrf.flush_rx()
 
-
+            # Salimos del while attempt<=MAX_ATTEMPTS
             if attempt == MAX_ATTEMPTS:
                 ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
                 break
 
-            
             current_window += 1
             current_chunk += WINDOW_SIZE
 
@@ -413,7 +414,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         pi.stop()
 
     return
-
 
 
 def BEGIN_RECEIVER_MODE() -> None:
