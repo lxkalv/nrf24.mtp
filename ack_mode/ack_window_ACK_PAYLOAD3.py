@@ -550,11 +550,6 @@ def BEGIN_RECEIVER_MODE() -> None:
                     expected_chunk_in_window = 0
                     # Opcional: re-sincronizar ventana
                     extracted_window = expected_window
-
-                    # Enviamos explícitamente un "ERROR" en el próximo ACK
-                    nrf.flush_tx()
-                    nrf.ack_payload(RF24_RX_ADDR.P1, b"ERROR")
-
                     # Reiniciamos timeout de actividad
                     tic = time.monotonic()
                     continue
