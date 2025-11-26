@@ -495,6 +495,9 @@ def BEGIN_RECEIVER_MODE() -> None:
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
                 print(f"Recieved chunk {extracted_chunk}, expected chunck{expected_chunk_in_window}")
 
+                if extracted_chunk == WINDOW_SIZE:
+                    extracted_chunk=extracted_chunk-1
+                    
                 if extracted_window < expected_window:
                     ERROR(
                         f"Duplicate data for window {extracted_window}, "
