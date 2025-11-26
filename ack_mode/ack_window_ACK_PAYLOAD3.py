@@ -30,7 +30,7 @@ import os
 # :::: CONSTANTS/GLOBALS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 CE_PIN  = 22
 
-ACK_TIMEOUT_S = 0.1          # <<< max time waiting for manual ACK (500 µs)
+ACK_TIMEOUT_S = 0.05          # <<< max time waiting for manual ACK (500 µs)
 MAX_ATTEMPTS  = 1000               # <<< per-packet retries (you can adjust)
 
 ID_WIND_BYTES=3
@@ -271,7 +271,7 @@ def send_DATA_message(nrf : NRF24, DATA_MESSAGE : bytes, message_type) -> None:
                 INFO(f"Time-out while sending DATA message {message_type}, retrying")
                 packets_lost += 1
                 continue
-
+            
             
             if nrf.get_packages_lost() == 0:
                 message_has_been_sent = True
