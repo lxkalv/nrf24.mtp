@@ -351,61 +351,80 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         current_window = 0  
         current_chunk = 0    
 
-        while current_window < total_wind:
-            start = time.monotonic()
-            attempt = 1
-            window_packet = packets[current_chunk:current_chunk + WINDOW_SIZE]
+        while attempt <= MAX_ATTEMPTS:
+            INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
+            ack_message = None
 
-            while attempt <= MAX_ATTEMPTS:          # Manual attempts
-                INFO(f"Sending window #{current_window} (attempt {attempt}) of the window)")
-                ack_message = None  # Para distinguir timeout de ACK real
+            for p_idx, pkt in enumerate(window_packet):
+                is_last_chunk_of_window = (p_idx == WINDOW_SIZE - 1)
+                is_last_chunk_of_last_window = (
+                    current_window == total_wind - 1 and p_idx == last_window_size - 1
+                )
 
-                for p_idx, pkt in enumerate(window_packet):
-                    # Último chunk de la ventana (o último de la última ventana)
-                    is_last_chunk_of_window = (p_idx == WINDOW_SIZE - 1)
-                    is_last_chunk_of_last_window = (
-                        current_window == total_wind - 1 and p_idx == last_window_size - 1
-                    )
+                if is_last_chunk_of_window or is_last_chunk_of_last_window:
+                    send_DATA_message(nrf, pkt, current_window)
 
-                    if is_last_chunk_of_window or is_last_chunk_of_last_window:
-                        send_DATA_message(nrf, pkt, current_window)
+                    # Esperamos un ACK payload, con timeout
+                    start_wait = time.monotonic()
+                    ack_ok = False
+                    while time.monotonic() - start_wait < ACK_TIMEOUT_S:
+                        if not nrf.data_ready():
+                            continue
 
-                        # Esperamos un ACK payload, pero con timeout
-                        start_wait = time.monotonic()
-                        while not nrf.data_ready():
-                            if time.monotonic() - start_wait > ACK_TIMEOUT_S:
-                                ERROR(f"ACK timeout for window {current_window}")
-                                break
+                        raw = nrf.get_payload()
 
-                        if nrf.data_ready():
-                            ack_message = nrf.get_payload()
+                        # Sólo consideramos ACKs del tamaño correcto
+                        if len(raw) != ID_WIND_BYTES:
+                            INFO(f"Ignoring non-ACK payload {raw}")
+                            continue
 
-                    else:
-                        send_no_ack(pkt)
-                        time.sleep(0.0001)  # Small delay between packets
+                        ack_win = int.from_bytes(raw, "big")
 
-                # Si no hemos recibido ningún ACK payload → consideramos la ventana fallida
-                if ack_message is None:
-                    ERROR(f"No ACK payload received for window {current_window}, retrying...")
-                    attempt += 1
-                    nrf.flush_rx()   # limpiar posibles basuras
-                    continue
+                        # Aceptamos ACK acumulativos
+                        if ack_win >= current_window:
+                            ack_ok = True
+                            ack_message = raw
+                            break
+                        else:
+                            INFO(
+                                f"Ignoring old ACK for window {ack_win} "
+                                f"(already waiting for >= {current_window})"
+                            )
+                            continue
 
-                print(f"Recieved ACK {ack_message}     // Expected : {current_window.to_bytes(WINDOW_SIZE, 'big')}")
+                    if not ack_ok:
+                        break  # salimos del for y reintentamos la ventana
 
-                if ack_message == current_window.to_bytes(WINDOW_SIZE, "big"):
-                    ack_rtt_ms = (time.monotonic() - start) * 1000.0
-                    SUCC(f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok | app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms")
-                    break
                 else:
-                    ERROR(f"Wrong ACK for the window seq={current_window}")
-                    attempt += 1
-                    nrf.flush_rx()
+                    send_no_ack(pkt)
+                    time.sleep(0.0001)
 
-            # Salimos del while attempt<=MAX_ATTEMPTS
-            if attempt == MAX_ATTEMPTS:
-                ERROR(f"Giving up the transmssion because couldn't be sent the #{current_window} after {MAX_ATTEMPTS} attempts")
-                break
+            if ack_message is None:
+                ERROR(f"No valid ACK payload received for window {current_window}, retrying...")
+                attempt += 1
+                nrf.flush_rx()
+                continue
+
+            ack_win = int.from_bytes(ack_message, "big")
+            print(
+                f"Recieved ACK {ack_message}  // RX says last complete window = "
+                f"{ack_win}, current_window = {current_window}"
+            )
+
+            ack_rtt_ms = (time.monotonic() - start) * 1000.0
+            SUCC(
+                f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok "
+                f"| app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms"
+            )
+            break  # ventana confirmada
+
+        if attempt > MAX_ATTEMPTS:
+            ERROR(
+                f"Giving up the transmssion because couldn't be sent the "
+                f"#{current_window} after {MAX_ATTEMPTS} attempts"
+            )
+            break
+
 
             current_window += 1
             current_chunk += WINDOW_SIZE
