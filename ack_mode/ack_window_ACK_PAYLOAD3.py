@@ -408,10 +408,17 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 # Fin del for de los 3 chunks
 
                 if not ack_ok:
-                    ERROR(f"No valid ACK for window {current_window}, retrying...")
-                    attempt += 1
-                    nrf.flush_rx()   # limpiar posibles basuras
-                    continue
+                    # Dentro del if ack_ok:  (al final del while attempt <= MAX_ATTEMPTS)
+                    ack_win = int.from_bytes(ack_message, "big")
+                    print(
+                        f"Recieved ACK {ack_message}  // RX says last complete window = {ack_win}, "
+                        f"current_window = {current_window}"
+                    )
+                    ack_rtt_ms = (time.monotonic() - start) * 1000.0
+                    SUCC(
+                        f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok "
+                        f"| app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms"
+                    )
 
                 # ACK correcto para esta ventana
                 print(f"Recieved ACK {ack_message}     // Expected : {current_window.to_bytes(WINDOW_SIZE, 'big')}")
@@ -453,6 +460,8 @@ def BEGIN_RECEIVER_MODE() -> None:
         tac     = time.monotonic()
         timeout = 20
         INFO(f'Timeout set to {timeout} seconds')
+
+        # ACK para el HEADER
         nrf.ack_payload(RF24_RX_ADDR.P1, b"OK")  
 
         INFO("Waiting for header packet...")
@@ -472,12 +481,12 @@ def BEGIN_RECEIVER_MODE() -> None:
             tic = time.monotonic()
             break
 
-        expected_window = 0
-        extracted_window = 0
-        expected_chunk_in_window = 0
-        chunks = []
-        window_chunks = []
-        timer_has_started = False          
+        expected_window          = 0   # siguiente ventana que queremos (0, 1, 2, ...)
+        extracted_window         = 0   # última ventana decodificada de un paquete
+        expected_chunk_in_window = 0   # siguiente chunk esperado dentro de la ventana
+        chunks                   = []  # lista global de chunks en orden
+        window_chunks            = []  # chunks de la ventana actual
+        timer_has_started        = False          
 
         # check if there are frames
         while ((tac - tic) < timeout) and (expected_window < total_wind):
@@ -485,18 +494,16 @@ def BEGIN_RECEIVER_MODE() -> None:
             tac = time.monotonic()
             while nrf.data_ready():
 
-                # DEBUG: comentar para no saturar salida
-                # print (f"tk_empty : {tx_empty(nrf)}")
-
                 if not timer_has_started:
                     throughput_tic = time.monotonic()
                     timer_has_started = True
 
                 packet = nrf.get_payload()
 
+                # Decodificamos ventana y chunk
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
 
-                # ⬇⬇⬇ IMPORTANTE: sólo aceptamos la ventana que toca
+                # Solo aceptamos la ventana que toca
                 if extracted_window != expected_window:
                     ERROR(
                         f"Discarding chunk for window {extracted_window}, "
@@ -505,6 +512,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     # No tocamos window_chunks ni expected_chunk_in_window
                     continue
 
+                # Chunk en orden dentro de la ventana
                 if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)
@@ -513,30 +521,42 @@ def BEGIN_RECEIVER_MODE() -> None:
                         f"for window {extracted_window}. We are expecting {expected_window}"
                     )
 
-                    # ¿Ventana completa?
-                    is_last_window = (extracted_window == total_wind - 1)
-                    window_size_for_this = last_window_size if is_last_window else WINDOW_SIZE
+                    # ¿Cuántos chunks debe tener ESTA ventana?
+                    is_last_window        = (extracted_window == total_wind - 1)
+                    window_size_for_this  = last_window_size if is_last_window else WINDOW_SIZE
 
-                    if len(window_chunks) == window_size_for_this:
-                        # Ventana completa y en orden
-                        SUCC(f"Extracted window Completed {extracted_window}")
-
-                        # Añadimos sus chunks al buffer global
-                        chunks.extend(window_chunks)
-
-                        # ACK a esta ventana
+                    # ⬇⬇⬇ PRE-CARGA DEL ACK: penúltimo chunk de esta ventana
+                    if expected_chunk_in_window == window_size_for_this - 1:
+                        # Hemos visto todos menos el último -> preparamos ACK para
+                        # cuando llegue el último chunk (el HW lo enviará con él)
                         nrf.flush_tx()
                         nrf.ack_payload(
                             RF24_RX_ADDR.P1,
-                            extracted_window.to_bytes(WINDOW_SIZE, "big")
+                            extracted_window.to_bytes(ID_WIND_BYTES, "big")
                         )
+                        INFO(
+                            f"Preloaded ACK payload for window {extracted_window} "
+                            f"(window_size={window_size_for_this})"
+                        )
+
+                    # Ventana completa
+                    if expected_chunk_in_window == window_size_for_this:
+                        SUCC(f"Extracted window Completed {extracted_window}")
+
+                        # Añadimos los chunks de esta ventana al buffer global
+                        chunks.extend(window_chunks)
+
+                        # IMPORTANTE:
+                        # NO volvemos a llamar a ack_payload aquí. El ACK para esta ventana
+                        # ya se ha pre-cargado antes del último chunk y viajará con él.
+
                         SUCC(
                             f"ACK send for window {extracted_window} / {total_wind}"
                         )
 
                         # Avanzamos a la siguiente ventana esperada
-                        expected_window += 1
-                        expected_chunk_in_window = 0
+                        expected_window          += 1
+                        expected_chunk_in_window  = 0
                         window_chunks.clear()
                         tic = time.monotonic()
 
@@ -548,15 +568,13 @@ def BEGIN_RECEIVER_MODE() -> None:
                     )
                     window_chunks.clear()
                     expected_chunk_in_window = 0
-                    # No mandamos ACK → el TX hará timeout y retransmitirá
+                    # No mandamos ACK → el TX hará timeout y retransmitirá toda la ventana
                     tic = time.monotonic()
                     continue
 
         INFO('Connection timed-out or all chunks recieved')
         throughput_tac = time.monotonic()
         total_time     = throughput_tac - throughput_tic
-
-        INFO('Collected:')
 
         content = bytes()
         for chunk in chunks:
@@ -577,6 +595,7 @@ def BEGIN_RECEIVER_MODE() -> None:
         pi.stop()
 
     return
+
 
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
