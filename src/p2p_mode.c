@@ -896,22 +896,68 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 continue;
             }
 
-            uint8_t page_id  = buf[2];
-            uint8_t burst_id = buf[3];
+            uint8_t  page_id       = buf[2];
+            uint8_t  burst_id      = buf[3];
             uint16_t size_of_burst = decode_u16_le(&buf[4]);
 
-            /* Accept BURST_INFO if:
-             *  - it matches the current page (have_page_info && page_id == current_page_id), OR
-             *  - it's for a page we've already finished (we'll just re-ACK checksums).
-             */
-            int is_current_page = (have_page_info && page_id == current_page_id);
+            int is_current_page  = (have_page_info && page_id == current_page_id);
             int is_finished_page = (page_id < MAX_PAGES && page_finished[page_id]);
 
             if (!is_current_page && !is_finished_page) {
-                WARN("P2P RX: BURST_INFO for unexpected page=%u (current=%u), ignoring",
-                     (unsigned)page_id, (unsigned)current_page_id);
-                continue;
+                /* --- NUEVO: intento de resincronización --- */
+
+                /* Caso típico: hemos perdido el STREAM_INFO de una página nueva.
+                * Aceptamos este BURST_INFO como inicio de la nueva página.
+                * Solo lo hacemos si:
+                *   - aún no teníamos página activa, o
+                *   - la página es posterior a la actual (TX ha avanzado).
+                */
+                if (!have_page_info || page_id > current_page_id) {
+                    WARN("P2P RX: BURST_INFO para page=%u sin STREAM_INFO previo "
+                        "(current=%u, have_page_info=%d); resincronizando con esta página",
+                        (unsigned)page_id, (unsigned)current_page_id, have_page_info);
+
+                    /* Si la página anterior tenía datos y no estaba marcada como terminada,
+                    * la descomprimimos tal y como hacemos cuando llega un STREAM_INFO nuevo.
+                    */
+                    if (have_page_info &&
+                        page_has_data &&
+                        current_page_id < MAX_PAGES &&
+                        !page_finished[current_page_id]) {
+
+                        WARN("P2P RX: la página anterior %u tenía datos; "
+                            "descomprimiéndola antes de cambiar de página",
+                            (unsigned)current_page_id);
+
+                        (void)decompress_page_to_file(&stream, fout,
+                                                    &compressed_total, &uncompressed_total);
+                        page_finished[current_page_id] = 1;
+                    }
+
+                    /* Reiniciar estado de página */
+                    page_stream_free(&stream);
+                    page_stream_init(&stream);
+                    memset(burst_received, 0, sizeof(burst_received));
+                    bursts_completed = 0;
+                    page_has_data    = 0;
+
+                    current_page_id   = page_id;
+                    expected_bursts   = 0;   /* desconocido, ya no dependemos de STREAM_INFO */
+                    last_burst_frames = 0;
+                    last_frame_bytes  = 0;
+                    have_page_info    = 1;
+
+                    /* A partir de aquí tratamos el BURST_INFO como de la página actual */
+                    is_current_page = 1;
+                } else {
+                    /* Página extraña (anterior no terminada, etc.): la ignoramos como antes */
+                    WARN("P2P RX: BURST_INFO for unexpected page=%u (current=%u), ignoring",
+                        (unsigned)page_id, (unsigned)current_page_id);
+                    continue;
+                }
             }
+
+            /* A partir de aquí, o bien era la página actual, o hemos hecho resync arriba */
 
             cur_burst_page_id = page_id;
             cur_burst_id      = burst_id;
@@ -931,12 +977,13 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             }
 
             INFO("P2P RX: BURST_INFO Page=%u Burst=%u -> size %u B in %u frames",
-                 (unsigned)page_id, (unsigned)burst_id,
-                 (unsigned)size_of_burst, frames_in_burst);
+                (unsigned)page_id, (unsigned)burst_id,
+                (unsigned)size_of_burst, frames_in_burst);
 
             in_burst = 1;
             continue;
         }
+
 
         /* TRANSFER_FINISH */
         if (len >= 2 && buf[0] == MSG_INFO && buf[1] == MSG_TRANSFER_FINISH) {
