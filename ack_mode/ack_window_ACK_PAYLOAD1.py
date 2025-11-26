@@ -444,6 +444,9 @@ def BEGIN_RECEIVER_MODE() -> None:
 
             tac = time.monotonic()
             while nrf.data_ready():
+
+                print (f"tk_empty : {tx_empty(nrf)}")
+
                 if not timer_has_started:
                     throughput_tic = time.monotonic()
                     timer_has_started = True
@@ -451,17 +454,14 @@ def BEGIN_RECEIVER_MODE() -> None:
                 packet = nrf.get_payload()
 
                 extracted_window, extracted_chunk, chunk = _decode_packet(packet, extracted_window)
-                #print(f"Extracted window:{extracted_window} Extracted chunk: {extracted_chunk}")
-                #print(f"Expected window:{expected_window} Expected chunk: {expected_chunk_in_window}")
-
 
                 if expected_chunk_in_window == extracted_chunk:
                     expected_chunk_in_window += 1
                     window_chunks.append(chunk)        
                     SUCC(f"Received chunk {extracted_chunk + 1}/{WINDOW_SIZE} for window {extracted_window}. We are expecting {expected_window}")
-                    print(f"Before long if: {len(window_chunks)}")
 
                     if len(window_chunks) == WINDOW_SIZE-1 or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size-1)):
+                        print(f"flush ack payload + ack to {extracted_window}")
                         nrf.flush_tx()
                         nrf.ack_payload(RF24_RX_ADDR.P1,extracted_window.to_bytes(WINDOW_SIZE,"big"))
 
@@ -489,10 +489,10 @@ def BEGIN_RECEIVER_MODE() -> None:
                             expected_window +=1
                             chunks.extend(window_chunks)
                             expected_chunk_in_window = 0
+
                         window_chunks.clear()
                         # nrf.flush_tx()
                         # nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
-                    print(f"After long if: {len(window_chunks)}")
                     
                     tic = time.monotonic()
 
@@ -502,6 +502,7 @@ def BEGIN_RECEIVER_MODE() -> None:
                     tic = time.monotonic()
 
                 if tx_empty(nrf) :
+                    print("ack to error")
                     nrf.ack_payload(RF24_RX_ADDR.P1,b"ERROR")
 
 
