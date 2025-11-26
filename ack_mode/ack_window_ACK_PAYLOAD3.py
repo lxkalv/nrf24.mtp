@@ -484,14 +484,10 @@ def BEGIN_RECEIVER_MODE() -> None:
                         print(f"flush ack payload + ack to {extracted_window}")
                         nrf.flush_tx()
 
-                        if extracted_window<expected_window:
+                        if extracted_window==expected_window:
                             nrf.ack_payload(RF24_RX_ADDR.P1,extracted_window.to_bytes(WINDOW_SIZE,"big"))
-                            print("We have to confirm previous windows")
-                        else:
-                            nrf.ack_payload(RF24_RX_ADDR.P1,expected_window.to_bytes(WINDOW_SIZE,"big"))
-                            print("We have to confirm the expected windows")
-
-
+                            print("We confirm the window")
+                            
                     if len(window_chunks) == WINDOW_SIZE or ((extracted_window == total_wind-1) and (len(window_chunks) == last_window_size)):             
                         SUCC(f"Extracted window Completed {extracted_window}")
                         # if we already recieved the complete window
