@@ -306,7 +306,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         start_val = 0
         chunk_id = 0
 
-        # Create the frame depending on the chunck of the window
+        # Create the frame depending on the chunk of the window
         while start_val < content_len:
             if chunk_id % WINDOW_SIZE == 0:
                 size = PAYLOAD_SIZE - ID_CHUNK_BYTES - ID_WIND_BYTES
@@ -324,15 +324,13 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             start_val = end_val
             chunk_id += 1
 
-        # Creating and sending the first packet
+        # Creating and sending the first packet (HEADER)
         total_wind = math.ceil(chunk_id / WINDOW_SIZE)
         last_window_size = chunk_id % WINDOW_SIZE if (chunk_id % WINDOW_SIZE) != 0 else WINDOW_SIZE
         header = total_wind.to_bytes(ID_WIND_BYTES, "big") + last_window_size.to_bytes(1, "big")
 
         # store the encoded bytes
-        packets = []
-        for chunk in chunks:
-            packets.append(struct.pack(f"<{len(chunk)}s", chunk))
+        packets = [struct.pack(f"<{len(chunk)}s", chunk) for chunk in chunks]
         
         # send Header Message
         send_DATA_message(nrf, struct.pack(f"<{len(header)}s", header), "HEADER")
@@ -357,11 +355,15 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 ack_ok = False
                 ack_message = None
 
+                # limpiamos RX solo al inicio de cada intento, para no mezclar con ACKs viejos
+                nrf.flush_rx()
+
                 for p_idx, pkt in enumerate(window_packet):
                     # Último chunk de la ventana (o último de la última ventana)
                     is_last_chunk_of_window = (p_idx == WINDOW_SIZE - 1)
                     is_last_chunk_of_last_window = (
-                        current_window == total_wind - 1 and p_idx == last_window_size - 1
+                        current_window == total_wind - 1 and
+                        p_idx == (last_window_size - 1)
                     )
 
                     if is_last_chunk_of_window or is_last_chunk_of_last_window:
@@ -382,7 +384,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
                             ack_win = int.from_bytes(raw_ack, "big")
 
-                            # ⬇⬇⬇ CAMBIO CLAVE AQUÍ
                             # Si el receptor dice "tengo hasta la ventana ack_win",
                             # y ack_win >= current_window → damos por buena current_window.
                             if ack_win >= current_window:
@@ -399,6 +400,9 @@ def BEGIN_TRANSMITTER_MODE() -> None:
 
                         # Si ha salido del while sin encontrar ACK válido,
                         # ack_ok seguirá siendo False y se gestionará fuera del for
+                        if not ack_ok:
+                            # salimos del for para reintentar la ventana completa
+                            break
 
                     else:
                         # Chunks intermedios sin ACK
@@ -408,20 +412,17 @@ def BEGIN_TRANSMITTER_MODE() -> None:
                 # Fin del for de los 3 chunks
 
                 if not ack_ok:
-                    # Dentro del if ack_ok:  (al final del while attempt <= MAX_ATTEMPTS)
-                    ack_win = int.from_bytes(ack_message, "big")
-                    print(
-                        f"Recieved ACK {ack_message}  // RX says last complete window = {ack_win}, "
-                        f"current_window = {current_window}"
-                    )
-                    ack_rtt_ms = (time.monotonic() - start) * 1000.0
-                    SUCC(
-                        f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok "
-                        f"| app_retries={attempt} | rtt={ack_rtt_ms:.2f} ms"
-                    )
+                    ERROR(f"No valid ACK for window {current_window}, retrying...")
+                    attempt += 1
+                    # nrf.flush_rx() ya se hace al inicio del intento siguiente
+                    continue
 
                 # ACK correcto para esta ventana
-                print(f"Recieved ACK {ack_message}     // Expected : {current_window.to_bytes(WINDOW_SIZE, 'big')}")
+                ack_win_int = int.from_bytes(ack_message, "big")
+                print(
+                    f"Recieved ACK {ack_message}  // RX says last complete window = "
+                    f"{ack_win_int}, current_window = {current_window}"
+                )
                 ack_rtt_ms = (time.monotonic() - start) * 1000.0
                 SUCC(
                     f"[ACK win] chunks {current_chunk}..{current_chunk+WINDOW_SIZE-1} ok "
@@ -444,7 +445,6 @@ def BEGIN_TRANSMITTER_MODE() -> None:
         pi.stop()
 
     return
-
 def BEGIN_RECEIVER_MODE() -> None:
     """
     Receives multiple frames from a transmitter and reassembles the blocks into a
@@ -522,10 +522,10 @@ def BEGIN_RECEIVER_MODE() -> None:
                     )
 
                     # ¿Cuántos chunks debe tener ESTA ventana?
-                    is_last_window        = (extracted_window == total_wind - 1)
-                    window_size_for_this  = last_window_size if is_last_window else WINDOW_SIZE
+                    is_last_window       = (extracted_window == total_wind - 1)
+                    window_size_for_this = last_window_size if is_last_window else WINDOW_SIZE
 
-                    # ⬇⬇⬇ PRE-CARGA DEL ACK: penúltimo chunk de esta ventana
+                    # PRE-CARGA DEL ACK: penúltimo chunk de esta ventana
                     if expected_chunk_in_window == window_size_for_this - 1:
                         # Hemos visto todos menos el último -> preparamos ACK para
                         # cuando llegue el último chunk (el HW lo enviará con él)
@@ -548,7 +548,7 @@ def BEGIN_RECEIVER_MODE() -> None:
 
                         # IMPORTANTE:
                         # NO volvemos a llamar a ack_payload aquí. El ACK para esta ventana
-                        # ya se ha pre-cargado antes del último chunk y viajará con él.
+                        # ya se ha pre-cargado antes del último chunk y viaja con él.
 
                         SUCC(
                             f"ACK send for window {extracted_window} / {total_wind}"
