@@ -302,7 +302,7 @@ def BEGIN_TRANSMITTER_MODE() -> None:
             content = file.read()
 
         content_len = len(content)
-        %INFO(f'Read {content_len} raw bytes read from file_to_send.txt: {content}')
+        #INFO(f'Read {content_len} raw bytes read from file_to_send.txt: {content}')
         k = 0
         # split the contents into chunks
         chunks = []
