@@ -12,7 +12,7 @@
 
 /* ---- Protocol constants ---- */
 
-#define P2P_CHANNEL          76
+#define P2P_CHANNEL          90
 
 #define BURST_DATA_MAX       7905   /* bytes of DATA (excluding ChunkID) per burst */
 #define CHUNK_DATA_MAX       31     /* bytes of DATA per frame (<=31 so payload<=32) */
