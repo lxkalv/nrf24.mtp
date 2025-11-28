@@ -19,8 +19,8 @@ led_device_config = LED(23)
 led_rxtx_status = LED(26)
 
 # Inputs
-btn_interact = Button(6)
-btn_stop = Button(19)
+btn_interact = Button(19)
+btn_stop = Button(6)
 switch_mode = DigitalInputDevice(17, pull_up=True)     
 switch_scenario = DigitalInputDevice(27, pull_up=True) 
 
