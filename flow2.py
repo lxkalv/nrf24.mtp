@@ -28,11 +28,16 @@ switch_scenario = DigitalInputDevice(17, pull_up=True)
 USB_MOUNT_DIR = "/media/pi"
 global_stop_flag = threading.Event()
 
-def check_usb_connected():
-    """Checks if USB is mounted."""
-    if os.path.exists(USB_MOUNT_DIR):
-        return any(os.scandir(USB_MOUNT_DIR))
-    return False
+def check_usb_connected() -> bool:
+    """
+    Try to find a valid USB device connected to the USB mount path
+    """
+    
+    for path, _, _ in USB_MOUNT_PATH.walk():
+        if path.is_mount():
+            return True
+
+    return False  
 
 def trigger_reset():
     """Runs in background when STOP is pressed."""
@@ -84,15 +89,15 @@ def main():
             
             # --- 2. USB INSERTION PHASE ---
             check_stop()
+            
+            print("[State] Waiting for USB or chenking USB...")
+                
+            # Device Config is SOLID here. Insert USB starts BLINKING here.
+            led_insert_usb.blink(on_time=0.5, off_time=0.5)
+                
             while not check_usb_connected():
-                print("[State] Waiting for USB or chenking USB...")
-                
-                # Device Config is SOLID here. Insert USB starts BLINKING here.
-                led_insert_usb.blink(on_time=0.5, off_time=0.5)
-                
-                while not check_usb_connected():
-                    check_stop()
-                    time.sleep(0.1)
+                check_stop()
+                time.sleep(0.1)
 
             print("USB connected")
             time.sleep(1)
