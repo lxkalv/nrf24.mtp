@@ -136,9 +136,13 @@ def main():
                 else:
                     led_rxtx_status.on()
 
-            print("[State] Task Finished.")
+            print("[State] Task Finished. Press interact please")
             time.sleep(1)
 
+            while not btn_interact.is_pressed:
+                check_stop()
+                time.sleep(0.05)
+                
             # --- 5. COMPLETION & EXTRACTION ---
             check_stop()
             print("[State] Please Remove USB.")
