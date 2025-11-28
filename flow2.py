@@ -91,7 +91,6 @@ def main():
                 led_insert_usb.blink(on_time=0.5, off_time=0.5)
                 
                 while not check_usb_connected():
-                    print(check_usb_connected)
                     check_stop()
                     time.sleep(0.1)
 
