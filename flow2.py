@@ -66,17 +66,16 @@ def main():
             # This indicates "Waiting for Configuration Confirmation"
             led_device_config.blink(on_time=0.5, off_time=0.5)
             
-            # Read Hardware Switches
-            mode = "TX" if switch_mode.is_active else "RX"
-            scenario = "Network" if switch_scenario.is_active else "P2P"
-            print(f"[Info] Current Settings: Mode={mode}, Scenario={scenario}")
-            
-            print("[User] Press INTERACT to confirm. Press STOP to reset.")
-            
+            print("[User] Introduce the configuration and press INTERACT to confirm. Press STOP to reset.")
             # Wait for button press
             while not btn_interact.is_pressed:
                 check_stop()
                 time.sleep(0.05)
+
+            # Read Hardware Switches
+            mode = "TX" if switch_mode.is_active else "RX"
+            scenario = "Network" if switch_scenario.is_active else "P2P"
+            print(f"[Info] Current Settings: Mode={mode}, Scenario={scenario}")
             
             # Button Pressed -> LED turns Solid ON
             # Calling .on() automatically stops the background blinking thread
