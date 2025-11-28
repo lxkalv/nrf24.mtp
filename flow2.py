@@ -90,15 +90,18 @@ def main():
                 # Device Config is SOLID here. Insert USB starts BLINKING here.
                 led_insert_usb.blink(on_time=0.5, off_time=0.5)
                 
-                while not check_usb_connected():
-                    check_stop()
-                    time.sleep(0.1)
-                
+                #while not check_usb_connected():
+                    #check_stop()
+                    #time.sleep(0.1)
+                print("USB connected")
+                time.sleep(1)
                 # USB Detected: LED goes Solid
                 led_insert_usb.on()
             else:
-                 # If USB was already there, ensure led is ON
-                 led_insert_usb.on()
+                # If USB was already there, ensure led is ON
+                print("USB was alredy connected")
+                
+                led_insert_usb.on()
 
             # Ensure Device Config is still ON (Redundant but safe)
             led_device_config.on() 
