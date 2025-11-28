@@ -84,24 +84,21 @@ def main():
             
             # --- 2. USB INSERTION PHASE ---
             check_stop()
-            if not check_usb_connected():
-                print("[State] Waiting for USB...")
+            while not check_usb_connected():
+                print("[State] Waiting for USB or chenking USB...")
                 
                 # Device Config is SOLID here. Insert USB starts BLINKING here.
                 led_insert_usb.blink(on_time=0.5, off_time=0.5)
                 
-                #while not check_usb_connected():
-                    #check_stop()
-                    #time.sleep(0.1)
-                print("USB connected")
-                time.sleep(1)
-                # USB Detected: LED goes Solid
-                led_insert_usb.on()
-            else:
-                # If USB was already there, ensure led is ON
-                print("USB was alredy connected")
-                
-                led_insert_usb.on()
+                while not check_usb_connected():
+                    print(check_usb_connected)
+                    check_stop()
+                    time.sleep(0.1)
+
+            print("USB connected")
+            time.sleep(1)
+            # USB Detected: LED goes Solid
+            led_insert_usb.on()
 
             # Ensure Device Config is still ON (Redundant but safe)
             led_device_config.on() 
@@ -142,7 +139,7 @@ def main():
             while not btn_interact.is_pressed:
                 check_stop()
                 time.sleep(0.05)
-                
+
             # --- 5. COMPLETION & EXTRACTION ---
             check_stop()
             print("[State] Please Remove USB.")
