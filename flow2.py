@@ -3,6 +3,7 @@ import time
 import sys
 import threading
 import os
+from pathlib import Path
 
 # --- CUSTOM EXCEPTION ---
 class SoftReset(Exception):
@@ -25,7 +26,7 @@ switch_mode = DigitalInputDevice(27, pull_up=True)
 switch_scenario = DigitalInputDevice(17, pull_up=True) 
 
 # --- CONSTANTS ---
-USB_MOUNT_DIR = "/media/pi"
+USB_MOUNT_PATH = Path("/media")
 global_stop_flag = threading.Event()
 
 def check_usb_connected() -> bool:
