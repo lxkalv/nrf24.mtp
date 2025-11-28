@@ -14,9 +14,9 @@ class SoftReset(Exception):
 # --- PIN CONFIGURATION ---
 # LEDs
 led_insert_usb = LED(16)
-led_extract_usb = LED(26)
-led_device_config = LED(23)
-led_rxtx_status = LED(25)
+led_extract_usb = LED(25)
+led_device_config = LED(26)
+led_rxtx_status = LED(23)
 
 # Inputs
 btn_interact = Button(19)
