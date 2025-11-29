@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <time.h>
+#include <sys/stat.h> 
 
 #include "libs/logger.h"
 #include "libs/app_layer.h"
@@ -211,7 +212,7 @@ int main(int argc, char **argv)
 
     logger_info("P3P finished with code %d", ret);
     logger_close();
-    nrf24_power_down(&rctx.dev);
+    nrf24_deinit(&rctx.dev);
     return ret;
 }
 
