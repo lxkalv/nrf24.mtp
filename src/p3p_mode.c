@@ -1,1206 +1,856 @@
-/* p3p.c
- *
- * Reliable point-to-point file transfer over nRF24L01 + Raspberry Pi.
- * This is essentially the "p2p_mode" we had working, but:
- *   - uses logger.[ch] instead of utils.[ch]
- *   - writes logs into logs/p3p_TX_<timestamp>.log or logs/p3p_RX_<timestamp>.log
- *
- * CLI is intentionally simple (same as old C p2p):
- *
- *   p3p tx <spi_device> <ce_gpio> <input_file>
- *   p3p rx <spi_device> <ce_gpio> <output_file>
- *
- * Example:
- *   p3p tx /dev/spidev0.0 22 test_files/quijote.txt
- *   p3p rx /dev/spidev0.0 22 received_quijote.txt
- */
+// =============================================================
+// p3p_mode.c
+// High-level file transfer mode using all protocol layers
+// =============================================================
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <string.h>
-#include <errno.h>
+#include <unistd.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <time.h>
 
-#include <zlib.h>
+#include "libs/logger.h"
+#include "libs/app_layer.h"
+#include "libs/presentation_layer.h"
+#include "libs/transport_layer.h"
+#include "libs/link_layer.h"
+#include "libs/nrf24.h"
 
-#include "nrf24.h"
-#include "logger.h"
+// =============================================================
+// General constants
+// =============================================================
 
-/* Map old-style macros onto logger */
-#define ERROR(...) logger_error(__VA_ARGS__)
-#define WARN(...)  logger_warn(__VA_ARGS__)
-#define INFO(...)  logger_info(__VA_ARGS__)
-#define SUCC(...)  logger_succ(__VA_ARGS__)
+#define LOGS_DIR               "logs"
+#define LOG_FILE_TX_PREFIX     "p3p_tx_"
+#define LOG_FILE_RX_PREFIX     "p3p_rx_"
+#define LOG_FILE_EXT           ".log"
 
-/* ------------------------------------------------------------------------- */
-/* Constants (same spirit as previous p2p)                                   */
-/* ------------------------------------------------------------------------- */
+#define SPI_DEVICE_DEFAULT     "/dev/spidev0.0"
+#define SPI_SPEED_HZ_DEFAULT   8000000U
+#define BURST_ACK_TIMEOUT_MS   1000U   // Wait for checksum ACK (ms)
+#define BURST_MAX_RETRIES      5
 
-#define P2P_CHANNEL          76     /* same channel as before */
-
-#define MAX_PAGES            10     /* number of pages we compress separately */
-
-/* Within a burst we send multiple frames, each with:
- *   [ChunkID (1B)] + Data (<=31B)
- * so max on-air payload is 32 bytes.
- */
-#define MAX_PAYLOAD          32
-#define CHUNK_DATA_MAX       31
-
-/* For compressed bytes per burst (roughly what we used before) */
-#define BURST_DATA_MAX       7905   /* 255 frames * 31 bytes = 7905 */
-#define MAX_CHUNKS_PER_BURST 255
-
-#define CHECKSUM_TIMEOUT_MS  1000   /* wait up to 1 s for checksum from RX */
-#define CONTROL_TIMEOUT_MS   100    /* per-attempt timeout when sending control frames */
-#define DATA_TIMEOUT_MS      20     /* per-attempt timeout when sending data frames */
-
-#define CHECKSUM_SIZE        8      /* 64-bit FNV-1a checksum */
-
-/* Message types */
-#define MSG_INFO             0xFF
-#define P2P_MSG_STREAM_INFO  0xE0
-#define MSG_BURST_INFO       0xF0
-#define MSG_TRANSFER_FINISH  0x0F
-
-/* ------------------------------------------------------------------------- */
-/* Time helper                                                               */
-/* ------------------------------------------------------------------------- */
-
-static double now_seconds(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
-}
-
-/* ------------------------------------------------------------------------- */
-/* Little-endian helpers                                                     */
-/* ------------------------------------------------------------------------- */
-
-static void encode_u16_le(uint8_t *dst, uint16_t v)
-{
-    dst[0] = (uint8_t)(v & 0xFFu);
-    dst[1] = (uint8_t)((v >> 8) & 0xFFu);
-}
-
-static uint16_t decode_u16_le(const uint8_t *src)
-{
-    return (uint16_t)(src[0] | ((uint16_t)src[1] << 8));
-}
-
-/* ------------------------------------------------------------------------- */
-/* 64-bit FNV-1a checksum                                                    */
-/* ------------------------------------------------------------------------- */
-
-#define FNV64_OFFSET_BASIS  1469598103934665603ULL
-#define FNV64_PRIME         1099511628211ULL
-
-static void checksum_init(uint64_t *state)
-{
-    *state = FNV64_OFFSET_BASIS;
-}
-
-static void checksum_update(uint64_t *state, const uint8_t *data, size_t len)
-{
-    uint64_t h = *state;
-    for (size_t i = 0; i < len; ++i) {
-        h ^= (uint64_t)data[i];
-        h *= FNV64_PRIME;
-    }
-    *state = h;
-}
-
-static void checksum_final(uint64_t state, uint8_t out[CHECKSUM_SIZE])
-{
-    for (int i = 0; i < 8; ++i) {
-        out[i] = (uint8_t)(state & 0xFFu);
-        state >>= 8;
-    }
-}
-
-/* ------------------------------------------------------------------------- */
-/* nRF24 convenience wrappers (account RF usage)                             */
-/* ------------------------------------------------------------------------- */
-
-static int send_with_retries(nrf24_t *radio,
-                             const uint8_t *buf,
-                             uint8_t len,
-                             unsigned int timeout_ms,
-                             const char *what,
-                             uint64_t *rf_bytes_total,
-                             uint64_t *rf_frames_total)
-{
-    unsigned int attempt = 0;
-
-    for (;;) {
-        /* Count this attempt as on-air RF usage */
-        if (rf_bytes_total)  *rf_bytes_total  += len;
-        if (rf_frames_total) *rf_frames_total += 1;
-
-        int ret = nrf24_send_blocking(radio, buf, len, timeout_ms);
-        if (ret == 0) {
-            return 0;  /* success */
-        }
-
-        if (errno != ETIMEDOUT) {
-            ERROR("nrf24_send_blocking(%s) failed: %s", what, strerror(errno));
-            return -1;
-        }
-
-        ++attempt;
-        if (attempt == 1 || (attempt % 50) == 0) {
-            WARN("%s: timeout (no ACK) on attempt %u for %u-byte frame",
-                 what, attempt, (unsigned)len);
-        }
-
-        /* Keep retrying forever, but periodically re-configure the radio */
-        if (attempt % 500 == 0) {
-            WARN("%s: %u consecutive timeouts, reconfiguring radio",
-                 what, attempt);
-            (void)nrf24_configure_quick(radio, P2P_CHANNEL);
-        }
-    }
-}
-
-/* ------------------------------------------------------------------------- */
-/* RX-side in-memory storage for a single page                               */
-/* ------------------------------------------------------------------------- */
+// =============================================================
+// NRF24 <-> Link layer glue
+// =============================================================
 
 typedef struct {
-    unsigned frames_in_burst;
-    uint8_t *frame_data[MAX_CHUNKS_PER_BURST];
-    uint8_t  frame_len[MAX_CHUNKS_PER_BURST];
-} Burst;
+    nrf24_t dev;
+} radio_ctx_t;
 
-typedef struct {
-    Burst  *bursts;
-    size_t  count;
-    size_t  capacity;
-} PageStream;
-
-static void page_stream_init(PageStream *ps)
+static int radio_send(void *ctx, const uint8_t *payload, size_t len)
 {
-    ps->bursts   = NULL;
-    ps->count    = 0;
-    ps->capacity = 0;
+    if (!ctx || !payload || len == 0) return -1;
+    radio_ctx_t *r = (radio_ctx_t *)ctx;
+    return nrf24_send_blocking(&r->dev, payload, len, 500);
 }
 
-static void free_burst(Burst *b)
+static int radio_wait_until_sent(void *ctx)
 {
-    if (!b) return;
-    for (unsigned i = 0; i < b->frames_in_burst; ++i) {
-        free(b->frame_data[i]);
-        b->frame_data[i] = NULL;
-        b->frame_len[i]  = 0;
-    }
-    b->frames_in_burst = 0;
-}
-
-static void page_stream_free(PageStream *ps)
-{
-    if (!ps->bursts) return;
-    for (size_t i = 0; i < ps->count; ++i) {
-        free_burst(&ps->bursts[i]);
-    }
-    free(ps->bursts);
-    ps->bursts   = NULL;
-    ps->count    = 0;
-    ps->capacity = 0;
-}
-
-static Burst *page_stream_get_burst(PageStream *ps, unsigned burst_id)
-{
-    if (burst_id >= ps->capacity) {
-        size_t new_cap = ps->capacity ? ps->capacity * 2 : 8;
-        while (burst_id >= new_cap) new_cap *= 2;
-
-        Burst *new_bursts = calloc(new_cap, sizeof(Burst));
-        if (!new_bursts) {
-            return NULL;
-        }
-
-        for (size_t i = 0; i < ps->count; ++i) {
-            new_bursts[i] = ps->bursts[i];
-        }
-        free(ps->bursts);
-        ps->bursts   = new_bursts;
-        ps->capacity = new_cap;
-    }
-
-    if (burst_id >= ps->count) {
-        for (size_t i = ps->count; i <= burst_id; ++i) {
-            ps->bursts[i].frames_in_burst = 0;
-            for (unsigned j = 0; j < MAX_CHUNKS_PER_BURST; ++j) {
-                ps->bursts[i].frame_data[j] = NULL;
-                ps->bursts[i].frame_len[j]  = 0;
-            }
-        }
-        ps->count = burst_id + 1;
-    }
-
-    return &ps->bursts[burst_id];
-}
-
-static int store_burst(PageStream *ps,
-                       unsigned burst_id,
-                       unsigned frames_in_burst,
-                       uint8_t current_burst[MAX_CHUNKS_PER_BURST][MAX_PAYLOAD],
-                       const uint8_t sizes[MAX_CHUNKS_PER_BURST])
-{
-    Burst *b = page_stream_get_burst(ps, burst_id);
-    if (!b) {
-        ERROR("store_burst: out of memory for burst %u", burst_id);
-        return -1;
-    }
-
-    free_burst(b);
-    b->frames_in_burst = frames_in_burst;
-
-    for (unsigned i = 0; i < frames_in_burst; ++i) {
-        size_t len = sizes[i];
-        b->frame_data[i] = malloc(len);
-        if (!b->frame_data[i]) {
-            ERROR("store_burst: malloc failed for frame %u of burst %u", i, burst_id);
-            b->frames_in_burst = i;
-            return -1;
-        }
-        memcpy(b->frame_data[i], current_burst[i], len);
-        b->frame_len[i] = (uint8_t)len;
-    }
-
+    (void)ctx;
+    // Blocking send already waits, so just return 0
     return 0;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Compression helpers: split into pages, compress page, decompress page     */
-/* ------------------------------------------------------------------------- */
-
-static int compress_page(const uint8_t *data, size_t len,
-                         uint8_t **out_buf, size_t *out_len)
+/*
+static void radio_reset_packages_lost(void *ctx)
 {
-    *out_buf = NULL;
-    *out_len = 0;
+    if (!ctx) return;
+    radio_ctx_t *r = (radio_ctx_t *)ctx;
+    nrf24_reset_packages_lost(&r->dev);
+}
+*/
 
-    if (len == 0) {
-        *out_buf = NULL;
-        *out_len = 0;
-        return 0;
-    }
+static void radio_reset_packages_lost(void *ctx)
+{
+    (void)ctx;
+    /* No-op for now: we rely on nRF24 auto-ack internally. */
+}
 
-    /* Worst-case bound for zlib */
-    uLongf dest_len = compressBound((uLong)len);
-    uint8_t *dest = (uint8_t *)malloc(dest_len);
-    if (!dest) {
-        ERROR("compress_page: malloc(%lu) failed", (unsigned long)dest_len);
-        return -1;
-    }
+/*
+static int radio_get_packages_lost(void *ctx)
+{
+    if (!ctx) return -1;
+    radio_ctx_t *r = (radio_ctx_t *)ctx;
+    return nrf24_get_packages_lost(&r->dev);
+}
+*/
 
-    int zret = compress2(dest, &dest_len, data, (uLong)len, Z_BEST_SPEED);
-    if (zret != Z_OK) {
-        ERROR("compress_page: compress2 failed with code %d", zret);
-        free(dest);
-        return -1;
-    }
-
-    *out_buf = dest;
-    *out_len = (size_t)dest_len;
+static int radio_get_packages_lost(void *ctx)
+{
+    (void)ctx;
+    /* No per-frame lost counter exposed -> assume 0 for link_layer. */
     return 0;
 }
 
-static int decompress_page_to_file(PageStream *ps,
-                                   FILE *fout,
-                                   uint64_t *compressed_total,
-                                   uint64_t *uncompressed_total)
+/*
+static int radio_data_ready(void *ctx)
 {
-    /* First reconstruct compressed page bytes from bursts/frames */
-    size_t comp_buf_cap = 0;
-    size_t comp_buf_len = 0;
-    uint8_t *comp_buf = NULL;
+    if (!ctx) return -1;
+    radio_ctx_t *r = (radio_ctx_t *)ctx;
+    return nrf24_data_ready(&r->dev);
+}
+*/
 
-    for (size_t bid = 0; bid < ps->count; ++bid) {
-        Burst *b = &ps->bursts[bid];
-        if (b->frames_in_burst == 0) continue;
+static int radio_data_ready(void *ctx)
+{
+    (void)ctx;
+    /* We use blocking receive in radio_read_payload, so always "ready". */
+    return 1;
+}
 
-        for (unsigned i = 0; i < b->frames_in_burst; ++i) {
-            uint8_t *frame = b->frame_data[i];
-            uint8_t  flen  = b->frame_len[i];
-            if (!frame || flen <= 1) continue;
 
-            size_t data_len = flen - 1; /* skip ChunkID byte */
+static int radio_read_payload(void *ctx, uint8_t *buf, size_t *len)
+{
+    if (!ctx || !buf || !len || *len == 0) return -1;
+    radio_ctx_t *r = (radio_ctx_t *)ctx;
 
-            if (comp_buf_len + data_len > comp_buf_cap) {
-                size_t new_cap = (comp_buf_cap == 0) ? 4096 : comp_buf_cap * 2;
-                while (comp_buf_len + data_len > new_cap) {
-                    new_cap *= 2;
-                }
-                uint8_t *tmp = realloc(comp_buf, new_cap);
-                if (!tmp) {
-                    ERROR("decompress_page_to_file: realloc failed");
-                    free(comp_buf);
-                    return -1;
-                }
-                comp_buf = tmp;
-                comp_buf_cap = new_cap;
-            }
-
-            memcpy(&comp_buf[comp_buf_len], frame + 1, data_len);
-            comp_buf_len += data_len;
-        }
+    if (*len > NRF24_MAX_PAYLOAD_SIZE) {
+        *len = NRF24_MAX_PAYLOAD_SIZE;
     }
 
-    if (comp_buf_len == 0) {
-        WARN("decompress_page_to_file: no compressed data in page");
-        free(comp_buf);
-        return 0;
-    }
-
-    if (compressed_total) *compressed_total += comp_buf_len;
-
-    /* Guess an upper bound for uncompressed size; we can grow dynamically */
-    size_t decomp_cap = comp_buf_len * 5 + 1024;
-    uint8_t *decomp_buf = (uint8_t *)malloc(decomp_cap);
-    if (!decomp_buf) {
-        ERROR("decompress_page_to_file: malloc(%zu) failed", decomp_cap);
-        free(comp_buf);
+    uint8_t l = (uint8_t)*len;
+    /* 1000 ms timeout for any frame */
+    int rc = nrf24_recv_blocking(&r->dev, buf, &l, 1000);
+    if (rc != 0) {
         return -1;
     }
 
-    uLongf dest_len = (uLongf)decomp_cap;
-    int zret = uncompress(decomp_buf, &dest_len, comp_buf, (uLong)comp_buf_len);
-    if (zret == Z_BUF_ERROR || zret == Z_MEM_ERROR) {
-        /* Try once more with bigger buffer */
-        size_t new_cap = decomp_cap * 2 + 16384;
-        uint8_t *tmp = (uint8_t *)realloc(decomp_buf, new_cap);
-        if (!tmp) {
-            ERROR("decompress_page_to_file: realloc(%zu) failed", new_cap);
-            free(comp_buf);
-            free(decomp_buf);
-            return -1;
-        }
-        decomp_buf = tmp;
-        decomp_cap = new_cap;
-        dest_len   = (uLongf)decomp_cap;
-        zret = uncompress(decomp_buf, &dest_len, comp_buf, (uLong)comp_buf_len);
-    }
-
-    if (zret != Z_OK) {
-        ERROR("decompress_page_to_file: uncompress failed with code %d", zret);
-        free(comp_buf);
-        free(decomp_buf);
-        return -1;
-    }
-
-    /* Write decompressed bytes to output file */
-    if (fwrite(decomp_buf, 1, dest_len, fout) != dest_len) {
-        ERROR("decompress_page_to_file: fwrite failed");
-        free(comp_buf);
-        free(decomp_buf);
-        return -1;
-    }
-
-    if (uncompressed_total) *uncompressed_total += dest_len;
-
-    free(comp_buf);
-    free(decomp_buf);
+    *len = l;
     return 0;
 }
 
-/* ------------------------------------------------------------------------- */
-/* TX path                                                                   */
-/* ------------------------------------------------------------------------- */
+// =============================================================
+// Helper: build timestamped log filename
+// =============================================================
 
-static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
+static void make_log_filename(const char *prefix, char *out_path, size_t out_sz)
 {
-    nrf24_t radio;
-    nrf24_config_t cfg = {
-        .spi_device   = spi_dev,
-        .spi_speed_hz = 8000000,
-        .ce_gpio      = (uint8_t)ce_bcm
-    };
-
-    if (nrf24_init(&radio, &cfg) < 0) {
-        ERROR("nrf24_init failed: %s", strerror(errno));
-        return 1;
-    }
-    if (nrf24_configure_quick(&radio, P2P_CHANNEL) < 0) {
-        ERROR("nrf24_configure_quick failed");
-        nrf24_deinit(&radio);
-        return 1;
-    }
-    if (nrf24_set_mode_tx(&radio) < 0) {
-        ERROR("nrf24_set_mode_tx failed");
-        nrf24_deinit(&radio);
-        return 1;
-    }
-
-    /* Load entire input file */
-    FILE *fin = fopen(input_path, "rb");
-    if (!fin) {
-        ERROR("Cannot open input file '%s': %s", input_path, strerror(errno));
-        nrf24_deinit(&radio);
-        return 1;
-    }
-
-    if (fseek(fin, 0, SEEK_END) != 0) {
-        ERROR("fseek failed on input");
-        fclose(fin);
-        nrf24_deinit(&radio);
-        return 1;
-    }
-    long fsize = ftell(fin);
-    if (fsize < 0) fsize = 0;
-    rewind(fin);
-
-    uint64_t orig_len = (uint64_t)fsize;
-    uint8_t *orig_buf = NULL;
-
-    if (orig_len > 0) {
-        orig_buf = (uint8_t *)malloc((size_t)orig_len);
-        if (!orig_buf) {
-            ERROR("malloc failed for input");
-            fclose(fin);
-            nrf24_deinit(&radio);
-            return 1;
-        }
-        size_t r = fread(orig_buf, 1, (size_t)orig_len, fin);
-        if (r != (size_t)orig_len) {
-            ERROR("fread failed (%zu of %llu)", r, (unsigned long long)orig_len);
-            free(orig_buf);
-            fclose(fin);
-            nrf24_deinit(&radio);
-            return 1;
-        }
-    }
-
-    fclose(fin);
-
-    INFO("P3P TX: sending file '%s' (%llu bytes)",
-         input_path, (unsigned long long)orig_len);
-
-    /* Split into up to MAX_PAGES equal-ish pages */
-    uint64_t bytes_per_page = (orig_len + MAX_PAGES - 1) / MAX_PAGES;
-    if (bytes_per_page == 0) bytes_per_page = 1;
-
-    double t_start = now_seconds();
-    uint64_t tx_rf_bytes_total  = 0;
-    uint64_t tx_rf_frames_total = 0;
-
-    uint8_t total_pages = (orig_len == 0) ? 0 :
-                          (uint8_t)((orig_len + bytes_per_page - 1) / bytes_per_page);
-    if (total_pages > MAX_PAGES) total_pages = MAX_PAGES;
-
-    uint64_t offset = 0;
-
-    for (uint8_t page_id = 0; page_id < total_pages; ++page_id) {
-        uint64_t remaining = orig_len - offset;
-        uint64_t this_page_len = (remaining > bytes_per_page) ? bytes_per_page : remaining;
-
-        uint8_t *comp_page = NULL;
-        size_t   comp_len  = 0;
-
-        if (compress_page(&orig_buf[offset], (size_t)this_page_len,
-                          &comp_page, &comp_len) != 0) {
-            ERROR("P3P TX: compress_page failed for Page %u", page_id);
-            free(orig_buf);
-            nrf24_deinit(&radio);
-            return 1;
-        }
-
-        INFO("P3P TX: Page %u/%u: %llu B -> %zu B compressed",
-             (unsigned)page_id + 1, (unsigned)total_pages,
-             (unsigned long long)this_page_len, comp_len);
-
-        /* Compute bursts for this page */
-        uint16_t expected_bursts = (uint16_t)(comp_len / BURST_DATA_MAX);
-        if ((comp_len % BURST_DATA_MAX) != 0) expected_bursts++;
-
-        if (expected_bursts == 0) {
-            free(comp_page);
-            offset += this_page_len;
-            continue;
-        }
-
-        /* Precompute last burst sizes */
-        size_t last_burst_bytes = comp_len % BURST_DATA_MAX;
-        if (last_burst_bytes == 0) last_burst_bytes = BURST_DATA_MAX;
-
-        uint8_t last_burst_frames = (uint8_t)((last_burst_bytes + CHUNK_DATA_MAX - 1) / CHUNK_DATA_MAX);
-        uint8_t last_frame_bytes  = (uint8_t)(last_burst_bytes -
-                (size_t)(last_burst_frames - 1) * CHUNK_DATA_MAX);
-        if (last_frame_bytes == 0) last_frame_bytes = CHUNK_DATA_MAX;
-
-        /* STREAM_INFO for this page */
-        uint8_t stream_info[8];
-        stream_info[0] = MSG_INFO;
-        stream_info[1] = P2P_MSG_STREAM_INFO;
-        stream_info[2] = page_id;
-        stream_info[3] = total_pages;
-        encode_u16_le(&stream_info[4], expected_bursts);
-        stream_info[6] = last_burst_frames;
-        stream_info[7] = last_frame_bytes;
-
-        if (send_with_retries(&radio,
-                              stream_info,
-                              sizeof(stream_info),
-                              CONTROL_TIMEOUT_MS,
-                              "STREAM_INFO",
-                              &tx_rf_bytes_total,
-                              &tx_rf_frames_total) < 0) {
-            ERROR("P3P TX: failed to send STREAM_INFO");
-            free(comp_page);
-            free(orig_buf);
-            nrf24_deinit(&radio);
-            return 1;
-        }
-
-        /* Send each burst of this page with checksum/ack logic */
-        size_t page_offset = 0;
-        for (uint16_t burst_id = 0; burst_id < expected_bursts; ++burst_id) {
-
-            size_t burst_bytes = BURST_DATA_MAX;
-            if (burst_id == expected_bursts - 1) {
-                burst_bytes = last_burst_bytes;
-            }
-            if (page_offset + burst_bytes > comp_len) {
-                burst_bytes = comp_len - page_offset;
-            }
-
-            /* Build burst frames in memory */
-            uint8_t burst_payloads[MAX_CHUNKS_PER_BURST][MAX_PAYLOAD];
-            uint8_t burst_sizes   [MAX_CHUNKS_PER_BURST];
-            unsigned frames_in_burst = 0;
-            uint16_t burst_onair_bytes = 0;
-
-            uint64_t chk_state;
-            checksum_init(&chk_state);
-
-            size_t consumed = 0;
-            while (consumed < burst_bytes && frames_in_burst < MAX_CHUNKS_PER_BURST) {
-                size_t max_data = CHUNK_DATA_MAX;
-                size_t remaining = burst_bytes - consumed;
-                if (remaining < max_data) max_data = remaining;
-
-                uint8_t chunk_id = (uint8_t)frames_in_burst;
-                burst_payloads[frames_in_burst][0] = chunk_id;
-                memcpy(&burst_payloads[frames_in_burst][1],
-                       &comp_page[page_offset + consumed],
-                       max_data);
-
-                uint8_t payload_len = (uint8_t)(1 + max_data);
-                burst_sizes[frames_in_burst] = payload_len;
-                burst_onair_bytes += payload_len;
-
-                checksum_update(&chk_state,
-                                burst_payloads[frames_in_burst],
-                                payload_len);
-
-                consumed += max_data;
-                frames_in_burst++;
-            }
-
-            if (frames_in_burst == 0) {
-                WARN("P3P TX: burst %u of page %u had 0 frames, skipping",
-                     (unsigned)burst_id, (unsigned)page_id);
-                continue;
-            }
-
-            uint8_t checksum_bytes[CHECKSUM_SIZE];
-            checksum_final(chk_state, checksum_bytes);
-
-            INFO("P3P TX: Page %u, BURST %u -> %zu B, %u frames, checksum ready",
-                 (unsigned)page_id, (unsigned)burst_id,
-                 burst_bytes, frames_in_burst);
-
-            int burst_done = 0;
-            while (!burst_done) {
-                /* BURST_INFO */
-                uint8_t burst_info[6];
-                burst_info[0] = MSG_INFO;
-                burst_info[1] = MSG_BURST_INFO;
-                burst_info[2] = page_id;
-                burst_info[3] = (uint8_t)burst_id;
-                encode_u16_le(&burst_info[4], burst_onair_bytes);
-
-                if (send_with_retries(&radio,
-                                      burst_info,
-                                      sizeof(burst_info),
-                                      CONTROL_TIMEOUT_MS,
-                                      "BURST_INFO",
-                                      &tx_rf_bytes_total,
-                                      &tx_rf_frames_total) < 0) {
-                    ERROR("P3P TX: failed to send BURST_INFO");
-                    free(comp_page);
-                    free(orig_buf);
-                    nrf24_deinit(&radio);
-                    return 1;
-                }
-
-                /* All DATA frames */
-                for (unsigned i = 0; i < frames_in_burst; ++i) {
-                    if (send_with_retries(&radio,
-                                          burst_payloads[i],
-                                          burst_sizes[i],
-                                          DATA_TIMEOUT_MS,
-                                          "DATA",
-                                          &tx_rf_bytes_total,
-                                          &tx_rf_frames_total) < 0) {
-                        ERROR("P3P TX: failed to send DATA frame");
-                        free(comp_page);
-                        free(orig_buf);
-                        nrf24_deinit(&radio);
-                        return 1;
-                    }
-                }
-
-                /* Wait for checksum from RX */
-                if (nrf24_set_mode_rx(&radio) < 0) {
-                    ERROR("P3P TX: nrf24_set_mode_rx failed");
-                    free(comp_page);
-                    free(orig_buf);
-                    nrf24_deinit(&radio);
-                    return 1;
-                }
-
-                double wait_start = now_seconds();
-                int got_valid_checksum = 0;
-
-                while (!got_valid_checksum &&
-                       (now_seconds() - wait_start) * 1000.0 < CHECKSUM_TIMEOUT_MS) {
-                    uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
-                    uint8_t len = sizeof(buf);
-
-                    int ret = nrf24_recv_blocking(&radio, buf, &len, 50);
-                    if (ret < 0) {
-                        if (errno == ETIMEDOUT) {
-                            continue;
-                        }
-                        ERROR("P3P TX: nrf24_recv_blocking (checksum) failed: %s",
-                              strerror(errno));
-                        free(comp_page);
-                        free(orig_buf);
-                        nrf24_deinit(&radio);
-                        return 1;
-                    }
-
-                    if (len != CHECKSUM_SIZE) {
-                        WARN("P3P TX: received non-checksum frame (%u B) while waiting",
-                             len);
-                        continue;
-                    }
-
-                    if (memcmp(buf, checksum_bytes, CHECKSUM_SIZE) == 0) {
-                        SUCC("P3P TX: Page %u, BURST %u checksum confirmed by RX",
-                             (unsigned)page_id, (unsigned)burst_id);
-                        got_valid_checksum = 1;
-                    } else {
-                        WARN("P3P TX: invalid checksum received for Page %u, BURST %u",
-                             (unsigned)page_id, (unsigned)burst_id);
-                    }
-                }
-
-                if (!got_valid_checksum) {
-                    WARN("P3P TX: checksum timeout for Page %u, BURST %u, resending",
-                         (unsigned)page_id, (unsigned)burst_id);
-                    if (nrf24_set_mode_tx(&radio) < 0) {
-                        ERROR("P3P TX: nrf24_set_mode_tx failed");
-                        free(comp_page);
-                        free(orig_buf);
-                        nrf24_deinit(&radio);
-                        return 1;
-                    }
-                    continue; /* resend same burst */
-                }
-
-                burst_done = 1;
-
-                if (nrf24_set_mode_tx(&radio) < 0) {
-                    ERROR("P3P TX: nrf24_set_mode_tx failed");
-                    free(comp_page);
-                    free(orig_buf);
-                    nrf24_deinit(&radio);
-                    return 1;
-                }
-            }
-
-            page_offset += burst_bytes;
-        }
-
-        free(comp_page);
-        offset += this_page_len;
-    }
-
-    /* TRANSFER_FINISH */
-    uint8_t fin_msg[2];
-    fin_msg[0] = MSG_INFO;
-    fin_msg[1] = MSG_TRANSFER_FINISH;
-
-    (void)send_with_retries(&radio,
-                            fin_msg,
-                            sizeof(fin_msg),
-                            CONTROL_TIMEOUT_MS,
-                            "TRANSFER_FINISH",
-                            &tx_rf_bytes_total,
-                            &tx_rf_frames_total);
-
-    double t_end = now_seconds();
-    double dt    = t_end - t_start;
-
-    double user_kibps = (dt > 0.0)
-        ? ((double)orig_len / 1024.0 / dt)
-        : 0.0;
-
-    double rf_kibps = (dt > 0.0)
-        ? ((double)tx_rf_bytes_total / 1024.0 / dt)
-        : 0.0;
-
-    SUCC("P3P TX: done. User: %llu bytes in %.3f s (%.1f KiB/s). "
-         "RF on-air: %llu bytes in %.3f s (%.1f KiB/s, %llu frames).",
-         (unsigned long long)orig_len, dt, user_kibps,
-         (unsigned long long)tx_rf_bytes_total, dt, rf_kibps,
-         (unsigned long long)tx_rf_frames_total);
-
-    free(orig_buf);
-    nrf24_deinit(&radio);
-    return 0;
+    char ts[32];
+    logger_timestamp(ts, sizeof(ts));
+    snprintf(out_path, out_sz, "%s/%s%s%s", LOGS_DIR, prefix, ts, LOG_FILE_EXT);
 }
 
-/* ------------------------------------------------------------------------- */
-/* RX path                                                                   */
-/* ------------------------------------------------------------------------- */
+// =============================================================
+// Function declarations (defined later)
+// =============================================================
 
-static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
-{
-    nrf24_t radio;
-    nrf24_config_t cfg = {
-        .spi_device   = spi_dev,
-        .spi_speed_hz = 8000000,
-        .ce_gpio      = (uint8_t)ce_bcm
-    };
+static int run_tx_mode(const app_config_t *cfg, link_radio_iface_t *iface);
+static int run_rx_mode(const app_config_t *cfg, link_radio_iface_t *iface);
 
-    if (nrf24_init(&radio, &cfg) < 0) {
-        ERROR("nrf24_init failed: %s", strerror(errno));
-        return 1;
-    }
-    if (nrf24_configure_quick(&radio, P2P_CHANNEL) < 0) {
-        ERROR("nrf24_configure_quick failed");
-        nrf24_deinit(&radio);
-        return 1;
-    }
-    if (nrf24_set_mode_rx(&radio) < 0) {
-        ERROR("nrf24_set_mode_rx failed");
-        nrf24_deinit(&radio);
-        return 1;
-    }
-
-    FILE *fout = fopen(output_path, "wb");
-    if (!fout) {
-        ERROR("Cannot open output file '%s': %s", output_path, strerror(errno));
-        nrf24_deinit(&radio);
-        return 1;
-    }
-
-    PageStream stream;
-    page_stream_init(&stream);
-
-    INFO("P3P RX: waiting on channel %d...", P2P_CHANNEL);
-
-    int transfer_finished  = 0;
-    int tx_started         = 0;
-    double t_start         = 0.0;
-
-    uint64_t rf_bytes_total  = 0;
-    uint64_t rf_frames_total = 0;
-    uint64_t compressed_total   = 0;
-    uint64_t uncompressed_total = 0;
-
-    uint8_t current_page_id     = 0;
-    uint8_t total_pages         = 0;
-    uint16_t expected_bursts    = 0;
-    uint8_t last_burst_frames   = 0;
-    uint8_t last_frame_bytes    = 0;
-
-    int have_page_info = 0;
-    int page_has_data  = 0;
-
-    uint16_t bursts_completed = 0;
-    uint8_t burst_received[65536]; /* overkill but safe */
-
-    int in_burst = 0;
-    uint8_t frames_in_burst = 0;
-    uint8_t sizes[MAX_CHUNKS_PER_BURST];
-    uint8_t current_burst[MAX_CHUNKS_PER_BURST][MAX_PAYLOAD];
-
-    while (!transfer_finished) {
-        uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
-        uint8_t len = sizeof(buf);
-
-        int ret = nrf24_recv_blocking(&radio, buf, &len, 0);
-        if (ret < 0) {
-            if (errno == ETIMEDOUT) {
-                continue;
-            }
-            ERROR("P3P RX: nrf24_recv_blocking failed (errno=%d: %s). "
-                  "Stopping RX loop and assembling what we have.",
-                  errno, strerror(errno));
-            break;
-        }
-
-        if (len > 0) {
-            rf_bytes_total  += len;
-            rf_frames_total += 1;
-        }
-
-        if (!tx_started) {
-            t_start   = now_seconds();
-            tx_started = 1;
-        }
-
-        /* STREAM_INFO */
-        if (len >= 2 && buf[0] == MSG_INFO && buf[1] == P2P_MSG_STREAM_INFO) {
-            if (len < 8) {
-                WARN("P3P RX: malformed STREAM_INFO (len=%u)", len);
-                continue;
-            }
-
-            /* If we had an unfinished page with data, decompress what we have */
-            if (have_page_info && page_has_data) {
-                WARN("P3P RX: new STREAM_INFO while previous page %u has data; "
-                     "decompressing previous page as-is",
-                     (unsigned)current_page_id);
-
-                if (decompress_page_to_file(&stream, fout,
-                                            &compressed_total,
-                                            &uncompressed_total) != 0) {
-                    WARN("P3P RX: decompress_page_to_file() failed for partial page");
-                }
-                page_stream_free(&stream);
-                page_stream_init(&stream);
-                page_has_data    = 0;
-                bursts_completed = 0;
-                memset(burst_received, 0, sizeof(burst_received));
-            }
-
-            current_page_id    = buf[2];
-            total_pages        = buf[3];
-            expected_bursts    = decode_u16_le(&buf[4]);
-            last_burst_frames  = buf[6];
-            last_frame_bytes   = buf[7];
-
-            memset(burst_received, 0, sizeof(burst_received));
-            bursts_completed = 0;
-            page_has_data    = 0;
-            in_burst         = 0;
-            have_page_info   = 1;
-
-            INFO("P3P RX: STREAM_INFO Page=%u/%u -> bursts=%u, last_frames=%u, last_frame_bytes=%u",
-                 (unsigned)current_page_id, (unsigned)total_pages,
-                 (unsigned)expected_bursts,
-                 (unsigned)last_burst_frames, (unsigned)last_frame_bytes);
-            continue;
-        }
-
-        /* TRANSFER_FINISH */
-        if (len >= 2 && buf[0] == MSG_INFO && buf[1] == MSG_TRANSFER_FINISH) {
-            INFO("P3P RX: received TRANSFER_FINISH; finishing assembly");
-            transfer_finished = 1;
-            break;
-        }
-
-        /* BURST_INFO */
-        if (len >= 2 && buf[0] == MSG_INFO && buf[1] == MSG_BURST_INFO) {
-            if (len < 6) {
-                WARN("P3P RX: malformed BURST_INFO");
-                continue;
-            }
-
-            uint8_t page_id  = buf[2];
-            uint8_t burst_id = buf[3];
-            uint16_t size_of_burst = decode_u16_le(&buf[4]);
-
-            if (!have_page_info || page_id != current_page_id) {
-                WARN("P3P RX: BURST_INFO for Page %u while expecting Page %u",
-                     (unsigned)page_id, (unsigned)current_page_id);
-                continue;
-            }
-
-            if (burst_id >= expected_bursts) {
-                WARN("P3P RX: BURST_INFO burst_id=%u >= expected_bursts=%u",
-                     (unsigned)burst_id, (unsigned)expected_bursts);
-                continue;
-            }
-
-            /* Compute frames_in_burst from size_of_burst */
-            frames_in_burst = (uint8_t)((size_of_burst + MAX_PAYLOAD - 1) / MAX_PAYLOAD);
-            if (frames_in_burst == 0 || frames_in_burst > MAX_CHUNKS_PER_BURST) {
-                WARN("P3P RX: invalid frames_in_burst=%u", frames_in_burst);
-                continue;
-            }
-
-            uint8_t last_len = (uint8_t)(size_of_burst % MAX_PAYLOAD);
-            if (last_len == 0) last_len = MAX_PAYLOAD;
-
-            for (unsigned i = 0; i < frames_in_burst; ++i) {
-                sizes[i] = (i == frames_in_burst - 1) ? last_len : MAX_PAYLOAD;
-                memset(current_burst[i], 0, MAX_PAYLOAD);
-            }
-
-            in_burst = 1;
-            continue;
-        }
-
-        /* DATA frame */
-        if (!in_burst) {
-            WARN("P3P RX: DATA frame received before BURST_INFO, ignoring");
-            continue;
-        }
-
-        if (len == 0) {
-            WARN("P3P RX: empty DATA frame");
-            continue;
-        }
-
-        uint8_t frame_id = buf[0];
-        if (frame_id >= frames_in_burst) {
-            WARN("P3P RX: invalid frame_id=%u (frames_in_burst=%u)",
-                 frame_id, frames_in_burst);
-            continue;
-        }
-
-        if (len != sizes[frame_id]) {
-            WARN("P3P RX: frame len=%u does not match expected=%u for frame %u",
-                 len, sizes[frame_id], frame_id);
-            continue;
-        }
-
-        memcpy(current_burst[frame_id], buf, len);
-
-        /* If this is the last frame, compute checksum, store burst, send checksum */
-        if (frame_id == frames_in_burst - 1) {
-            uint64_t chk_state;
-            checksum_init(&chk_state);
-            for (unsigned i = 0; i < frames_in_burst; ++i) {
-                checksum_update(&chk_state, current_burst[i], sizes[i]);
-            }
-            uint8_t checksum_bytes[CHECKSUM_SIZE];
-            checksum_final(chk_state, checksum_bytes);
-
-            SUCC("P3P RX: completed BURST for Page %u, checksum=0x%016llX",
-                 (unsigned)current_page_id,
-                 (unsigned long long)chk_state);
-
-            /* STORE burst immediately; this survives lost ACKs */
-            static uint16_t this_burst_id = 0;
-            /* We do not have burst_id from BURST_INFO stored here; to keep it
-               simple, we just append bursts in arrival order. For robustness
-               with reordering we would carry burst_id around. */
-            uint16_t bid = bursts_completed; /* monotone per page */
-
-            if (store_burst(&stream,
-                            bid,
-                            frames_in_burst,
-                            current_burst,
-                            sizes) != 0) {
-                ERROR("P3P RX: store_burst failed");
-                page_stream_free(&stream);
-                fclose(fout);
-                nrf24_deinit(&radio);
-                return 1;
-            }
-
-            bursts_completed++;
-            page_has_data = 1;
-
-            /* Send checksum back to TX (bounded attempts) */
-            if (nrf24_set_mode_tx(&radio) < 0) {
-                ERROR("P3P RX: nrf24_set_mode_tx failed");
-                page_stream_free(&stream);
-                fclose(fout);
-                nrf24_deinit(&radio);
-                return 1;
-            }
-
-            const double send_deadline_ms = 500.0;
-            double send_start = now_seconds();
-            unsigned attempt = 0;
-            int checksum_sent_ok = 0;
-
-            while (!checksum_sent_ok &&
-                   (now_seconds() - send_start) * 1000.0 < send_deadline_ms) {
-                int ret2 = nrf24_send_blocking(&radio,
-                                               checksum_bytes,
-                                               CHECKSUM_SIZE,
-                                               CONTROL_TIMEOUT_MS);
-                if (ret2 == 0) {
-                    checksum_sent_ok = 1;
-                    break;
-                }
-
-                if (errno != ETIMEDOUT) {
-                    ERROR("P3P RX: nrf24_send_blocking(CHECKSUM) failed: %s",
-                          strerror(errno));
-                    page_stream_free(&stream);
-                    fclose(fout);
-                    nrf24_deinit(&radio);
-                    return 1;
-                }
-
-                attempt++;
-                if (attempt == 1 || (attempt % 50) == 0) {
-                    WARN("P3P RX: CHECKSUM timeout (no ACK) attempt %u", attempt);
-                }
-
-                if (attempt % 200 == 0) {
-                    WARN("P3P RX: %u checksum timeouts, reconfiguring radio", attempt);
-                    (void)nrf24_configure_quick(&radio, P2P_CHANNEL);
-                    (void)nrf24_set_mode_tx(&radio);
-                }
-            }
-
-            if (!checksum_sent_ok) {
-                WARN("P3P RX: checksum timeout; returning to RX (TX may resend)");
-            } else {
-                SUCC("P3P RX: checksum sent successfully for last burst");
-            }
-
-            in_burst = 0;
-
-            if (nrf24_set_mode_rx(&radio) < 0) {
-                ERROR("P3P RX: nrf24_set_mode_rx failed");
-                page_stream_free(&stream);
-                fclose(fout);
-                nrf24_deinit(&radio);
-                return 1;
-            }
-
-            /* If we think this page is complete, decompress it */
-            if (have_page_info && bursts_completed >= expected_bursts) {
-                SUCC("P3P RX: page %u seems complete, decompressing",
-                     (unsigned)current_page_id);
-
-                if (decompress_page_to_file(&stream, fout,
-                                            &compressed_total,
-                                            &uncompressed_total) != 0) {
-                    ERROR("P3P RX: decompress_page_to_file failed for page %u",
-                          (unsigned)current_page_id);
-                }
-
-                page_stream_free(&stream);
-                page_stream_init(&stream);
-                bursts_completed = 0;
-                memset(burst_received, 0, sizeof(burst_received));
-                page_has_data  = 0;
-                have_page_info = 0;
-            }
-        }
-    }
-
-    /* If we exit without TRANSFER_FINISH but still have a partial page, try to decompress */
-    if (have_page_info && page_has_data) {
-        WARN("P3P RX: transfer ended unexpectedly; decompressing last partial page %u",
-             (unsigned)current_page_id);
-        (void)decompress_page_to_file(&stream, fout,
-                                      &compressed_total,
-                                      &uncompressed_total);
-    }
-
-    double t_end = now_seconds();
-    double dt    = (tx_started ? (t_end - t_start) : 0.0);
-
-    double user_kibps = (dt > 0.0)
-        ? ((double)uncompressed_total / 1024.0 / dt)
-        : 0.0;
-
-    double rf_kibps = (dt > 0.0)
-        ? ((double)rf_bytes_total / 1024.0 / dt)
-        : 0.0;
-
-    SUCC("P3P RX: done. Compressed %llu B -> %llu B uncompressed in %.3f s "
-         "(%.1f KiB/s user data, %.1f KiB/s RF on-air, %llu RF frames).",
-         (unsigned long long)compressed_total,
-         (unsigned long long)uncompressed_total,
-         dt, user_kibps, rf_kibps,
-         (unsigned long long)rf_frames_total);
-
-    page_stream_free(&stream);
-    fclose(fout);
-    nrf24_deinit(&radio);
-    return 0;
-}
-
-/* ------------------------------------------------------------------------- */
-/* CLI + main                                                                */
-/* ------------------------------------------------------------------------- */
-
-static void usage(const char *prog)
-{
-    fprintf(stderr,
-            "Usage:\n"
-            "  %s tx <spi_device> <ce_gpio> <input_file>\n"
-            "  %s rx <spi_device> <ce_gpio> <output_file>\n"
-            "Example:\n"
-            "  %s tx /dev/spidev0.0 22 test_files/quijote.txt\n"
-            "  %s rx /dev/spidev0.0 22 received_file.txt\n",
-            prog, prog, prog, prog);
-}
-
-static void ensure_logs_dir(void)
-{
-    /* Best-effort create logs/ */
-#if defined(_WIN32)
-    _mkdir("logs");
-#else
-    mkdir("logs", 0777);
-#endif
-}
+// =============================================================
+// Main entry
+// =============================================================
 
 int main(int argc, char **argv)
 {
-    if (argc != 5) {
-        usage(argv[0]);
-        return 1;
+    int ret = EXIT_SUCCESS;
+    app_config_t cfg;
+    memset(&cfg, 0, sizeof(cfg));
+
+    // 1. Parse CLI
+    if (app_parse_arguments(argc, argv, &cfg) != 0) {
+        fprintf(stderr, "Invalid arguments. Use --help for usage.\n");
+        return EXIT_FAILURE;
     }
 
-    const char *mode    = argv[1];
-    const char *spi_dev = argv[2];
-    int ce_bcm          = atoi(argv[3]);
-    const char *path    = argv[4];
+    // 2. Prepare logs
+    char log_path[256];
+    mkdir(LOGS_DIR, 0777);
+    make_log_filename(cfg.mode == APP_MODE_TX ? LOG_FILE_TX_PREFIX : LOG_FILE_RX_PREFIX,
+                      log_path, sizeof(log_path));
 
-    if (ce_bcm < 0 || ce_bcm > 255) {
-        fprintf(stderr, "Invalid CE GPIO: %d\n", ce_bcm);
-        return 1;
+    logger_init(log_path);
+    logger_set_level(LOGGER_LEVEL_INFO);
+
+    logger_info("=== P3P MODE STARTED ===");
+    app_print_config(&cfg);
+
+    // 3. Init radio
+    radio_ctx_t rctx;
+    memset(&rctx, 0, sizeof(rctx));
+
+    nrf24_config_t ncfg = {
+        .spi_device   = SPI_DEVICE_DEFAULT,
+        .spi_speed_hz = SPI_SPEED_HZ_DEFAULT,
+        .ce_gpio      = cfg.ce_pin
+    };
+
+    if (nrf24_init(&rctx.dev, &ncfg) != 0) {
+        logger_error("Failed to initialize nRF24");
+        return EXIT_FAILURE;
     }
 
-    ensure_logs_dir();
+    nrf24_configure_quick(&rctx.dev, cfg.channel);
+    logger_info("Radio configured on channel %u", cfg.channel);
 
-    char ts[32];
-    logger_timestamp(ts, sizeof(ts));
+    // 4. Build link interface
+    link_radio_iface_t iface = {
+        .send               = radio_send,
+        .wait_until_sent    = radio_wait_until_sent,
+        .reset_packages_lost = radio_reset_packages_lost,
+        .get_packages_lost   = radio_get_packages_lost,
+        .data_ready         = radio_data_ready,
+        .read_payload       = radio_read_payload,
+        .user_ctx           = &rctx
+    };
 
-    char log_path[128];
-    if (strcmp(mode, "tx") == 0) {
-        snprintf(log_path, sizeof(log_path), "logs/p3p_TX_%s.log", ts);
-    } else if (strcmp(mode, "rx") == 0) {
-        snprintf(log_path, sizeof(log_path), "logs/p3p_RX_%s.log", ts);
+    // 5. Dispatch mode
+    if (cfg.mode == APP_MODE_TX) {
+        nrf24_set_mode_tx(&rctx.dev);
+        ret = run_tx_mode(&cfg, &iface);
+    } else if (cfg.mode == APP_MODE_RX) {
+        nrf24_set_mode_rx(&rctx.dev);
+        ret = run_rx_mode(&cfg, &iface);
     } else {
-        usage(argv[0]);
-        return 1;
+        logger_error("Unknown mode");
+        ret = EXIT_FAILURE;
     }
 
-    if (logger_init(log_path) != 0) {
-        fprintf(stderr, "[LOGGER WARN]: could not open '%s', continuing console-only\n",
-                log_path);
-    } else {
-        logger_info("Logging to file '%s'", log_path);
-    }
-
-    int ret;
-    if (strcmp(mode, "tx") == 0) {
-        ret = run_tx(spi_dev, ce_bcm, path);
-    } else {
-        ret = run_rx(spi_dev, ce_bcm, path);
-    }
-
+    logger_info("P3P finished with code %d", ret);
     logger_close();
+    nrf24_power_down(&rctx.dev);
     return ret;
+}
+
+// =============================================================
+// Helper types for RX
+// =============================================================
+
+typedef struct {
+    uint8_t  *data;           /* Compressed page bytes */
+    uint32_t expected_size;   /* Compressed size (from STREAM_INFO) */
+    uint32_t received_size;   /* How many bytes we have stored */
+    uint16_t max_bursts;      /* Max bursts this page may use */
+    bool    *burst_received;  /* Flags per burst_id */
+    bool     done;            /* True when received_size == expected_size */
+} page_rx_t;
+
+// =============================================================
+// Helper: compute original page sizes from total size
+// (must match pres_split_into_pages_default logic)
+// =============================================================
+
+static void compute_page_orig_sizes(uint32_t total_orig_size,
+                                    size_t page_count,
+                                    size_t *out_sizes)
+{
+    if (!out_sizes || page_count == 0) {
+        return;
+    }
+
+    size_t total   = (size_t)total_orig_size;
+    size_t base    = total / page_count;
+    size_t rem     = total % page_count;
+
+    for (size_t i = 0; i < page_count; ++i) {
+        out_sizes[i] = base + ((i < rem) ? 1 : 0);
+    }
+}
+
+// =============================================================
+// Helper: check if all pages with expected_size > 0 are done
+// =============================================================
+
+static bool all_pages_completed(const page_rx_t *pages,
+                                const uint32_t comp_sizes[],
+                                size_t page_count)
+{
+    if (!pages || !comp_sizes) return false;
+
+    for (size_t i = 0; i < page_count; ++i) {
+        if (comp_sizes[i] == 0) {
+            continue;
+        }
+        if (!pages[i].done) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// =============================================================
+// Helper: TX – send one burst with checksum handshake
+// =============================================================
+
+static int tx_send_burst_with_retry(const app_config_t *cfg,
+                                    const link_radio_iface_t *iface,
+                                    uint8_t page_id,
+                                    uint8_t burst_id,
+                                    const trans_burst_t *burst)
+{
+    (void)cfg; /* unused for now, kept for future policy tuning */
+
+    if (!iface || !burst) {
+        logger_error("tx_send_burst_with_retry: invalid arguments");
+        return -1;
+    }
+
+    const radio_ctx_t *rctx = (const radio_ctx_t *)iface->user_ctx;
+
+    uint64_t expected_checksum = trans_compute_burst_checksum(burst);
+    uint8_t  checksum_bytes[8];
+    trans_checksum_to_bytes(expected_checksum, checksum_bytes);
+
+    for (unsigned int attempt = 0; attempt < BURST_MAX_RETRIES; ++attempt) {
+        logger_info("TX: Page %u Burst %u attempt %u",
+                    (unsigned)page_id, (unsigned)burst_id, attempt + 1);
+
+        uint8_t info[6];
+        trans_build_burst_info(page_id, burst_id, burst, info);
+
+        if (link_send_frame(iface, info, sizeof(info)) != LINK_STATUS_OK) {
+            logger_error("TX: failed to send BURST_INFO (page %u, burst %u)",
+                         (unsigned)page_id, (unsigned)burst_id);
+            return -1;
+        }
+
+        /* Send all frames in this burst */
+        for (size_t f = 0; f < burst->frame_count; ++f) {
+            const trans_frame_t *fr = &burst->frames[f];
+
+            if (fr->len == 0 || fr->len > TRANS_FRAME_MAX_LEN) {
+                logger_error("TX: invalid frame length %u in burst", fr->len);
+                return -1;
+            }
+
+            if (link_send_frame(iface, fr->data, fr->len) != LINK_STATUS_OK) {
+                logger_error("TX: failed to send frame %zu in burst", f);
+                return -1;
+            }
+        }
+
+        /* Switch to RX to wait for checksum ACK */
+        nrf24_set_mode_rx(&((radio_ctx_t *)rctx)->dev);
+
+        uint8_t ack_buf[32];
+        size_t  ack_len = sizeof(ack_buf);
+
+        link_status_t st = link_read_frame(iface, ack_buf, &ack_len);
+        if (st != LINK_STATUS_OK) {
+            logger_warn("TX: did not receive checksum ACK (attempt %u)", attempt + 1);
+            nrf24_set_mode_tx(&((radio_ctx_t *)rctx)->dev);
+            continue;
+        }
+
+        if (ack_len != 8) {
+            logger_warn("TX: checksum ACK has wrong length %zu (expected 8)", ack_len);
+            nrf24_set_mode_tx(&((radio_ctx_t *)rctx)->dev);
+            continue;
+        }
+
+        uint64_t recv_cs = trans_checksum_from_bytes(ack_buf);
+        if (recv_cs == expected_checksum) {
+            logger_info("TX: checksum OK for Page %u Burst %u",
+                        (unsigned)page_id, (unsigned)burst_id);
+            nrf24_set_mode_tx(&((radio_ctx_t *)rctx)->dev);
+            return 0;
+        }
+
+        logger_warn("TX: checksum mismatch for Page %u Burst %u "
+                    "(expected 0x%016llX, got 0x%016llX)",
+                    (unsigned)page_id, (unsigned)burst_id,
+                    (unsigned long long)expected_checksum,
+                    (unsigned long long)recv_cs);
+
+        nrf24_set_mode_tx(&((radio_ctx_t *)rctx)->dev);
+    }
+
+    logger_error("TX: giving up on Page %u Burst %u after %u attempts",
+                 (unsigned)page_id, (unsigned)burst_id, BURST_MAX_RETRIES);
+    return -1;
+}
+
+// =============================================================
+// TX mode implementation
+// =============================================================
+
+static int run_tx_mode(const app_config_t *cfg, link_radio_iface_t *iface)
+{
+    if (!cfg || !iface) {
+        logger_error("run_tx_mode: invalid arguments");
+        return EXIT_FAILURE;
+    }
+
+    uint8_t *file_data = NULL;
+    size_t   file_len  = 0;
+
+    if (app_load_file_bytes(cfg->file_path_tx, &file_data, &file_len) != 0) {
+        logger_error("TX: failed to load input file");
+        return EXIT_FAILURE;
+    }
+
+    logger_info("TX: loaded file with %zu bytes", file_len);
+
+    /* Split into pages and compress */
+    pres_page_t *pages_raw  = NULL;
+    pres_page_t *pages_comp = NULL;
+    size_t       page_count = 0;
+    size_t       comp_count = 0;
+
+    if (pres_split_into_pages_default(file_data, file_len,
+                                      &pages_raw, &page_count) != 0) {
+        logger_error("TX: pres_split_into_pages_default failed");
+        free(file_data);
+        return EXIT_FAILURE;
+    }
+
+    if (page_count > TRANS_NUM_PAGES) {
+        logger_error("TX: page_count=%zu exceeds TRANS_NUM_PAGES=%u",
+                     page_count, (unsigned)TRANS_NUM_PAGES);
+        pres_free_pages(pages_raw, page_count);
+        free(file_data);
+        return EXIT_FAILURE;
+    }
+
+    if (pres_compress_pages(pages_raw, page_count,
+                            &pages_comp, &comp_count) != 0) {
+        logger_error("TX: pres_compress_pages failed");
+        pres_free_pages(pages_raw, page_count);
+        free(file_data);
+        return EXIT_FAILURE;
+    }
+
+    if (comp_count != page_count) {
+        logger_warn("TX: compressed page count (%zu) differs from raw (%zu)",
+                    comp_count, page_count);
+    }
+
+    /* Build compressed sizes array for STREAM_INFO */
+    uint32_t comp_sizes[TRANS_NUM_PAGES] = {0};
+
+    for (size_t i = 0; i < comp_count && i < TRANS_NUM_PAGES; ++i) {
+        if (pages_comp[i].size > 0x1FFFFFu) { /* 21-bit max */
+            logger_error("TX: page %zu compressed size %zu exceeds 21-bit field",
+                         i, pages_comp[i].size);
+            pres_free_pages(pages_comp, comp_count);
+            pres_free_pages(pages_raw, page_count);
+            free(file_data);
+            return EXIT_FAILURE;
+        }
+        comp_sizes[i] = (uint32_t)pages_comp[i].size;
+    }
+
+    /* Build and send STREAM_INFO */
+    uint8_t stream_info[32];
+    if (trans_build_stream_info((uint32_t)file_len, comp_sizes, stream_info) != 0) {
+        logger_error("TX: trans_build_stream_info failed");
+        pres_free_pages(pages_comp, comp_count);
+        pres_free_pages(pages_raw, page_count);
+        free(file_data);
+        return EXIT_FAILURE;
+    }
+
+    logger_info("TX: sending STREAM_INFO");
+    if (link_send_frame(iface, stream_info, sizeof(stream_info)) != LINK_STATUS_OK) {
+        logger_error("TX: failed to send STREAM_INFO");
+        pres_free_pages(pages_comp, comp_count);
+        pres_free_pages(pages_raw, page_count);
+        free(file_data);
+        return EXIT_FAILURE;
+    }
+
+    /* Send all pages, burst by burst */
+    for (size_t p = 0; p < comp_count; ++p) {
+        const pres_page_t *pg = &pages_comp[p];
+
+        if (!pg->data || pg->size == 0) {
+            logger_info("TX: skipping empty page %zu", p);
+            continue;
+        }
+
+        logger_info("TX: splitting Page %zu (%zu bytes compressed) into bursts",
+                    p, pg->size);
+
+        trans_burst_t *bursts     = NULL;
+        size_t         burst_count = 0;
+
+        if (trans_split_page_into_bursts(pg->data, pg->size,
+                                         &bursts, &burst_count) != 0) {
+            logger_error("TX: trans_split_page_into_bursts failed for page %zu", p);
+            pres_free_pages(pages_comp, comp_count);
+            pres_free_pages(pages_raw, page_count);
+            free(file_data);
+            return EXIT_FAILURE;
+        }
+
+        for (size_t b = 0; b < burst_count; ++b) {
+            if (tx_send_burst_with_retry(cfg, iface,
+                                         (uint8_t)p, (uint8_t)b,
+                                         &bursts[b]) != 0) {
+                logger_error("TX: failed to transmit Page %zu Burst %zu", p, b);
+                trans_free_bursts(bursts, burst_count);
+                pres_free_pages(pages_comp, comp_count);
+                pres_free_pages(pages_raw, page_count);
+                free(file_data);
+                return EXIT_FAILURE;
+            }
+        }
+
+        trans_free_bursts(bursts, burst_count);
+        logger_info("TX: finished Page %zu", p);
+    }
+
+    /* Send TRANSFER_FINISH */
+    uint8_t finish_msg[2];
+    trans_build_transfer_finish(finish_msg);
+    logger_info("TX: sending TRANSFER_FINISH");
+    if (link_send_frame(iface, finish_msg, sizeof(finish_msg)) != LINK_STATUS_OK) {
+        logger_warn("TX: failed to send TRANSFER_FINISH");
+    }
+
+    /* Cleanup */
+    pres_free_pages(pages_comp, comp_count);
+    pres_free_pages(pages_raw, page_count);
+    free(file_data);
+
+    logger_succ("TX: file transfer completed");
+    return EXIT_SUCCESS;
+}
+
+// =============================================================
+// Helper: RX – receive one burst and send checksum back
+// =============================================================
+
+static int rx_receive_burst_and_ack(const app_config_t *cfg,
+                                    const link_radio_iface_t *iface,
+                                    uint8_t page_id,
+                                    uint8_t burst_id,
+                                    uint16_t burst_size,
+                                    page_rx_t *page)
+{
+    (void)cfg;
+
+    if (!iface || !page) {
+        logger_error("rx_receive_burst_and_ack: invalid arguments");
+        return -1;
+    }
+
+    radio_ctx_t *rctx = (radio_ctx_t *)iface->user_ctx;
+
+    uint8_t frame_count = 0;
+    uint8_t frame_lengths[TRANS_MAX_FRAMES_PER_BURST];
+
+    if (trans_derive_frame_layout(burst_size, &frame_count, frame_lengths) != 0) {
+        logger_error("RX: trans_derive_frame_layout failed (burst_size=%u)",
+                     (unsigned)burst_size);
+        return -1;
+    }
+
+    bool already_received = false;
+    if (burst_id < page->max_bursts && page->burst_received) {
+        already_received = page->burst_received[burst_id];
+    }
+
+    uint64_t cs_state = 0;
+    trans_checksum_init(&cs_state);
+
+    logger_info("RX: receiving Page %u Burst %u (%u frames)",
+                (unsigned)page_id, (unsigned)burst_id, (unsigned)frame_count);
+
+    for (uint8_t f = 0; f < frame_count; ++f) {
+        uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
+        size_t  len = sizeof(buf);
+
+        link_status_t st = link_read_frame(iface, buf, &len);
+        if (st != LINK_STATUS_OK) {
+            logger_error("RX: failed to read frame %u in burst", (unsigned)f);
+            return -1;
+        }
+
+        if (len != frame_lengths[f]) {
+            logger_warn("RX: frame %u length mismatch (got %zu, expected %u)",
+                        (unsigned)f, len, (unsigned)frame_lengths[f]);
+        }
+
+        /* Update checksum over whole frame (including FrameID) */
+        trans_checksum_update(&cs_state, buf, len);
+
+        /* Store payload (without FrameID) only if this is a new burst and page not done */
+        if (!already_received && !page->done) {
+            if (len > 0) {
+                size_t payload_len = len - 1;
+                if (page->received_size + payload_len > page->expected_size) {
+                    logger_error("RX: page buffer overflow (page_id=%u)", (unsigned)page_id);
+                    return -1;
+                }
+
+                memcpy(page->data + page->received_size,
+                       buf + 1, payload_len);
+                page->received_size += (uint32_t)payload_len;
+            }
+        }
+    }
+
+    /* Finalize checksum and send ACK */
+    uint64_t checksum = trans_checksum_final(cs_state);
+    uint8_t  checksum_bytes[8];
+    trans_checksum_to_bytes(checksum, checksum_bytes);
+
+    nrf24_set_mode_tx(&rctx->dev);
+    if (link_send_frame(iface, checksum_bytes, sizeof(checksum_bytes)) != LINK_STATUS_OK) {
+        logger_warn("RX: failed to send checksum ACK for Page %u Burst %u",
+                    (unsigned)page_id, (unsigned)burst_id);
+        nrf24_set_mode_rx(&rctx->dev);
+        return -1;
+    }
+    nrf24_set_mode_rx(&rctx->dev);
+
+    /* Mark burst as received if it was new */
+    if (!already_received && burst_id < page->max_bursts && page->burst_received) {
+        page->burst_received[burst_id] = true;
+    }
+
+    /* Mark page as done if we filled it */
+    if (!page->done && page->received_size == page->expected_size) {
+        page->done = true;
+        logger_info("RX: Page %u fully received (%u bytes)",
+                    (unsigned)page_id, (unsigned)page->expected_size);
+    }
+
+    return 0;
+}
+
+// =============================================================
+// RX mode implementation
+// =============================================================
+
+static int run_rx_mode(const app_config_t *cfg, link_radio_iface_t *iface)
+{
+    if (!cfg || !iface) {
+        logger_error("run_rx_mode: invalid arguments");
+        return EXIT_FAILURE;
+    }
+
+    radio_ctx_t *rctx = (radio_ctx_t *)iface->user_ctx;
+    nrf24_set_mode_rx(&rctx->dev);
+
+    /* 1) Receive STREAM_INFO */
+    uint8_t stream_info[32];
+    size_t  info_len = sizeof(stream_info);
+    uint32_t total_orig_size = 0;
+    uint32_t comp_sizes[TRANS_NUM_PAGES] = {0};
+
+    logger_info("RX: waiting for STREAM_INFO");
+
+    for (;;) {
+        info_len = sizeof(stream_info);
+        link_status_t st = link_read_frame(iface, stream_info, &info_len);
+        if (st != LINK_STATUS_OK) {
+            logger_error("RX: failed to read STREAM_INFO");
+            return EXIT_FAILURE;
+        }
+
+        if (info_len == sizeof(stream_info) &&
+            trans_parse_stream_info(stream_info,
+                                    &total_orig_size,
+                                    comp_sizes) == 0) {
+            logger_info("RX: STREAM_INFO received. Total original size = %u bytes",
+                        (unsigned)total_orig_size);
+            break;
+        }
+
+        logger_warn("RX: ignoring non-STREAM_INFO frame (len=%zu)", info_len);
+    }
+
+    /* 2) Prepare per-page RX state */
+    size_t page_count = TRANS_NUM_PAGES; /* matches PRES_DEFAULT_PAGE_COUNT */
+    size_t page_orig_sizes[TRANS_NUM_PAGES];
+    compute_page_orig_sizes(total_orig_size, page_count, page_orig_sizes);
+
+    page_rx_t pages[TRANS_NUM_PAGES];
+    memset(pages, 0, sizeof(pages));
+
+    for (size_t i = 0; i < page_count; ++i) {
+        if (comp_sizes[i] == 0) {
+            continue;
+        }
+
+        pages[i].expected_size = comp_sizes[i];
+        pages[i].received_size = 0;
+        pages[i].done          = false;
+
+        pages[i].data = (uint8_t *)malloc(pages[i].expected_size);
+        if (!pages[i].data) {
+            logger_error("RX: malloc failed for compressed page %zu", i);
+            for (size_t j = 0; j < i; ++j) {
+                free(pages[j].data);
+                free(pages[j].burst_received);
+            }
+            return EXIT_FAILURE;
+        }
+
+        pages[i].max_bursts =
+            (uint16_t)((pages[i].expected_size + TRANS_DATA_BYTES_PER_BURST - 1) /
+                       TRANS_DATA_BYTES_PER_BURST);
+        if (pages[i].max_bursts == 0) {
+            pages[i].max_bursts = 1;
+        }
+
+        pages[i].burst_received =
+            (bool *)calloc(pages[i].max_bursts, sizeof(bool));
+        if (!pages[i].burst_received) {
+            logger_error("RX: calloc failed for burst_received of page %zu", i);
+            for (size_t j = 0; j <= i; ++j) {
+                free(pages[j].data);
+                free(pages[j].burst_received);
+            }
+            return EXIT_FAILURE;
+        }
+
+        logger_info("RX: prepared Page %zu (compressed %u bytes, orig %zu bytes, max_bursts=%u)",
+                    i, (unsigned)pages[i].expected_size,
+                    page_orig_sizes[i],
+                    (unsigned)pages[i].max_bursts);
+    }
+
+    /* 3) Main loop: receive BURST_INFO / TRANSFER_FINISH */
+    bool got_finish = false;
+
+    logger_info("RX: starting to receive bursts");
+
+    while (!got_finish) {
+        uint8_t buf[32];
+        size_t  len = sizeof(buf);
+
+        link_status_t st = link_read_frame(iface, buf, &len);
+        if (st != LINK_STATUS_OK) {
+            logger_error("RX: link_read_frame failed in main loop");
+            goto rx_cleanup_error;
+        }
+
+        /* Try BURST_INFO first */
+        uint8_t  page_id = 0;
+        uint8_t  burst_id = 0;
+        uint16_t burst_size = 0;
+
+        if (trans_parse_burst_info(buf, len,
+                                   &page_id, &burst_id, &burst_size) == 0) {
+            if (page_id >= page_count) {
+                logger_warn("RX: received BURST_INFO with invalid page_id=%u",
+                            (unsigned)page_id);
+                /* Still need to drain the burst frames, but we have no buffer.
+                 * For now, just continue; TX will time out and retry.
+                 */
+                continue;
+            }
+
+            page_rx_t *page = &pages[page_id];
+
+            if (page->expected_size == 0) {
+                logger_warn("RX: BURST_INFO for page_id=%u with expected_size=0",
+                            (unsigned)page_id);
+                continue;
+            }
+
+            if (burst_id >= page->max_bursts) {
+                logger_warn("RX: BURST_INFO with burst_id=%u exceeding max_bursts=%u",
+                            (unsigned)burst_id, (unsigned)page->max_bursts);
+                continue;
+            }
+
+            if (rx_receive_burst_and_ack(cfg, iface,
+                                         page_id, burst_id, burst_size,
+                                         page) != 0) {
+                logger_warn("RX: error while receiving Page %u Burst %u",
+                            (unsigned)page_id, (unsigned)burst_id);
+                /* We keep going; TX may retry. */
+                continue;
+            }
+
+            if (all_pages_completed(pages, comp_sizes, page_count)) {
+                logger_info("RX: all pages completed; waiting for TRANSFER_FINISH");
+            }
+
+            continue;
+        }
+
+        /* Not BURST_INFO – maybe TRANSFER_FINISH? */
+        if (trans_parse_transfer_finish(buf, len) == 0) {
+            logger_info("RX: TRANSFER_FINISH received");
+            got_finish = true;
+            break;
+        }
+
+        logger_warn("RX: ignoring unknown control frame (len=%zu)", len);
+    }
+
+    /* 4) Build compressed pages array and decompress */
+    {
+        pres_page_t *comp_pages = (pres_page_t *)calloc(page_count, sizeof(pres_page_t));
+        if (!comp_pages) {
+            logger_error("RX: calloc failed for comp_pages");
+            goto rx_cleanup_error;
+        }
+
+        for (size_t i = 0; i < page_count; ++i) {
+            comp_pages[i].data      = pages[i].data;
+            comp_pages[i].size      = pages[i].received_size;
+            comp_pages[i].orig_size = page_orig_sizes[i];
+        }
+
+        pres_page_t *raw_pages = NULL;
+        size_t       raw_count = 0;
+
+        if (pres_decompress_pages(comp_pages, page_count,
+                                  &raw_pages, &raw_count) != 0) {
+            logger_error("RX: pres_decompress_pages failed");
+            /* comp_pages owns 'data'; free with pres_free_pages */
+            pres_free_pages(comp_pages, page_count);
+            goto rx_cleanup_error_no_free_pages; /* pages[].data already freed */
+        }
+
+        /* comp_pages owns the compressed buffers, free them now */
+        pres_free_pages(comp_pages, page_count);
+
+        uint8_t *file_data = NULL;
+        size_t   file_len  = 0;
+
+        if (pres_merge_pages(raw_pages, raw_count,
+                             &file_data, &file_len) != 0) {
+            logger_error("RX: pres_merge_pages failed");
+            pres_free_pages(raw_pages, raw_count);
+            goto rx_cleanup_error_no_free_pages;
+        }
+
+        pres_free_pages(raw_pages, raw_count);
+
+        if (file_len != (size_t)total_orig_size) {
+            logger_warn("RX: reconstructed file length %zu differs from advertised %u",
+                        file_len, (unsigned)total_orig_size);
+        }
+
+        if (app_store_file_bytes(cfg->file_path_rx, file_data, file_len) != 0) {
+            logger_error("RX: app_store_file_bytes failed");
+            free(file_data);
+            goto rx_cleanup_error_no_free_pages;
+        }
+
+        free(file_data);
+        logger_succ("RX: file stored successfully");
+    }
+
+    /* Cleanup success path */
+    for (size_t i = 0; i < page_count; ++i) {
+        free(pages[i].burst_received);
+        /* pages[i].data already freed via pres_free_pages(comp_pages, ...) */
+    }
+
+    return EXIT_SUCCESS;
+
+rx_cleanup_error:
+    /* Free per-page buffers on error */
+    for (size_t i = 0; i < page_count; ++i) {
+        free(pages[i].data);
+        free(pages[i].burst_received);
+    }
+    return EXIT_FAILURE;
+
+rx_cleanup_error_no_free_pages:
+    for (size_t i = 0; i < page_count; ++i) {
+        free(pages[i].burst_received);
+    }
+    return EXIT_FAILURE;
 }

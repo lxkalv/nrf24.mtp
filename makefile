@@ -1,22 +1,84 @@
+# ==========================
+#  nRF24 C Project Makefile
+# ==========================
+
 CC      = gcc
-CFLAGS  = -Wall -Wextra -O3 -std=c11
+SRCDIR  = src
+LIBDIR  = libs
+BINDIR  = bin
+
+CFLAGS  = -Wall -Wextra -O2 -I. -I$(LIBDIR)
 LDFLAGS = -lz
 
-OBJS_COMMON = nrf24.o logger.o
-OBJS_P3P    = p3p_mode.o $(OBJS_COMMON)
-all: p3p_mode
+# Programs (names only)
+PROGS     = quick_mode fast_mode p2p_mode p3p_mode
+BIN_PROGS = $(addprefix $(BINDIR)/,$(PROGS))
 
-p3p_mode: $(OBJS_P3P)
-	$(CC) $(CFLAGS) -o $@ $(OBJS_P3P) $(LDFLAGS)
+# Library objects
+LIB_OBJS = \
+    $(LIBDIR)/nrf24.o \
+    $(LIBDIR)/utils.o \
+    $(LIBDIR)/logger.o \
+    $(LIBDIR)/app_layer.o \
+    $(LIBDIR)/presentation_layer.o \
+    $(LIBDIR)/transport_layer.o \
+    $(LIBDIR)/link_layer.o
 
-p3p_mode.o: p3p_mode.c nrf24.h logger.h
-	$(CC) $(CFLAGS) -c p3p_mode.c
+# ---------- Default target ----------
 
-nrf24.o: nrf24.c nrf24.h
-	$(CC) $(CFLAGS) -c nrf24.c
+.PHONY: all clean
+all: $(BIN_PROGS)
 
-logger.o: logger.c logger.h
-	$(CC) $(CFLAGS) -c logger.c
+# ---------- Generic compilation rules ----------
+
+$(SRCDIR)/%.o: $(SRCDIR)/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(LIBDIR)/%.o: $(LIBDIR)/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# ---------- Link targets ----------
+
+$(BINDIR)/quick_mode: $(SRCDIR)/quick_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o
+	mkdir -p $(BINDIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+$(BINDIR)/fast_mode: $(SRCDIR)/fast_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o
+	mkdir -p $(BINDIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+$(BINDIR)/p2p_mode: $(SRCDIR)/p2p_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o
+	mkdir -p $(BINDIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+# New p3p_mode: uses all layered libs
+$(BINDIR)/p3p_mode: $(SRCDIR)/p3p_mode.o $(LIB_OBJS)
+	mkdir -p $(BINDIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+# ---------- Explicit dependencies (nice to have) ----------
+
+$(SRCDIR)/quick_mode.o: $(SRCDIR)/quick_mode.c $(LIBDIR)/nrf24.h
+$(SRCDIR)/fast_mode.o:  $(SRCDIR)/fast_mode.c  $(LIBDIR)/nrf24.h
+$(SRCDIR)/p2p_mode.o:   $(SRCDIR)/p2p_mode.c   $(LIBDIR)/nrf24.h $(LIBDIR)/utils.h
+$(SRCDIR)/p3p_mode.o:   $(SRCDIR)/p3p_mode.c   \
+                        $(LIBDIR)/logger.h \
+                        $(LIBDIR)/app_layer.h \
+                        $(LIBDIR)/presentation_layer.h \
+                        $(LIBDIR)/transport_layer.h \
+                        $(LIBDIR)/link_layer.h \
+                        $(LIBDIR)/nrf24.h
+
+$(LIBDIR)/nrf24.o:            $(LIBDIR)/nrf24.c            $(LIBDIR)/nrf24.h
+$(LIBDIR)/utils.o:            $(LIBDIR)/utils.c            $(LIBDIR)/utils.h
+$(LIBDIR)/logger.o:           $(LIBDIR)/logger.c           $(LIBDIR)/logger.h
+$(LIBDIR)/app_layer.o:        $(LIBDIR)/app_layer.c        $(LIBDIR)/app_layer.h
+$(LIBDIR)/presentation_layer.o: $(LIBDIR)/presentation_layer.c $(LIBDIR)/presentation_layer.h
+$(LIBDIR)/transport_layer.o:  $(LIBDIR)/transport_layer.c  $(LIBDIR)/transport_layer.h
+$(LIBDIR)/link_layer.o:       $(LIBDIR)/link_layer.c       $(LIBDIR)/link_layer.h $(LIBDIR)/nrf24.h
+
+# ---------- Cleanup ----------
 
 clean:
-	rm -f *.o p3p_mode
+	rm -f $(BIN_PROGS) $(SRCDIR)/*.o $(LIBDIR)/*.o
+	@rmdir $(BINDIR) 2>/dev/null || true

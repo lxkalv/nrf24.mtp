@@ -4,10 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* Status codes returned by the Link layer */
 typedef enum {
     LINK_STATUS_OK          = 0,
@@ -125,9 +121,5 @@ link_status_t link_send_frame(const link_radio_iface_t *iface,
 link_status_t link_read_frame(const link_radio_iface_t *iface,
                               uint8_t *buf,
                               size_t *inout_len);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* LINK_LAYER_H */
