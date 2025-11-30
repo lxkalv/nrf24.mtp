@@ -10,6 +10,7 @@
 #else
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <dirent.h>
 #endif
 
 #include "logger.h"
@@ -353,11 +354,197 @@ void app_print_usage(const char *prog_name)
 /* ------------------------------------------------------------------------- */
 
 /* For now USB detection is not implemented (cross-platform issue). */
+#if !defined(_WIN32)
+static int app_is_mount_point(const char *path)
+{
+    if (!path || !path[0]) {
+        return 0;
+    }
+
+    struct stat st_path;
+    if (stat(path, &st_path) != 0) {
+        return 0;
+    }
+
+    char parent[512];
+    strncpy(parent, path, sizeof(parent));
+    parent[sizeof(parent) - 1] = '\0';
+
+    char *slash = strrchr(parent, '/');
+    if (!slash) {
+        return 0;
+    }
+
+    if (slash == parent) {
+        /* Parent is "/" */
+        if (slash[1] != '\0') {
+            parent[1] = '\0';
+        }
+    } else {
+        *slash = '\0';
+    }
+
+    struct stat st_parent;
+    if (stat(parent, &st_parent) != 0) {
+        return 0;
+    }
+
+    /* Different device usually means a mount point */
+    if (st_path.st_dev != st_parent.st_dev) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int app_find_mount_recursive(const char *base,
+                                    char *out_path,
+                                    size_t out_size)
+{
+    DIR *dir = opendir(base);
+    if (!dir) {
+        return 0;
+    }
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        const char *name = ent->d_name;
+
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+            continue;
+        }
+
+        char path[512];
+        if (snprintf(path, sizeof(path), "%s/%s", base, name) >= (int)sizeof(path)) {
+            continue;
+        }
+
+        struct stat st;
+        if (stat(path, &st) != 0) {
+            continue;
+        }
+
+        if (!S_ISDIR(st.st_mode)) {
+            continue;
+        }
+
+        if (app_is_mount_point(path)) {
+            strncpy(out_path, path, out_size);
+            out_path[out_size - 1] = '\0';
+            closedir(dir);
+            return 1;
+        }
+
+        if (app_find_mount_recursive(path, out_path, out_size)) {
+            closedir(dir);
+            return 1;
+        }
+    }
+
+    closedir(dir);
+    return 0;
+}
+#endif /* !_WIN32 */
+
 static char *app_get_usb_mount_path(void)
 {
-    (void)0; /* suppress unused warnings if any */
+#if defined(_WIN32)
+    /* USB auto-detection is not implemented on Windows */
     return NULL;
+#else
+    char tmp[512];
+    tmp[0] = '\0';
+
+    if (!app_find_mount_recursive("/media", tmp, sizeof(tmp))) {
+        return NULL;
+    }
+
+    size_t len = strlen(tmp);
+    char *res = (char *)malloc(len + 1);
+    if (!res) {
+        logger_error("malloc failed in app_get_usb_mount_path()");
+        return NULL;
+    }
+
+    memcpy(res, tmp, len + 1);
+    return res;
+#endif
 }
+
+#if !defined(_WIN32)
+static int app_find_valid_txt_file_in_usb(const char *usb_mount_path,
+                                          char *out_path,
+                                          size_t out_size)
+{
+    if (!usb_mount_path || !out_path || out_size == 0) {
+        return -1;
+    }
+
+    DIR *dir = opendir(usb_mount_path);
+    if (!dir) {
+        logger_warn("Could not open USB mount directory: %s", usb_mount_path);
+        return -1;
+    }
+
+    char best[512];
+    best[0] = '\0';
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        const char *name = ent->d_name;
+
+        /* Skip hidden entries */
+        if (name[0] == '.') {
+            continue;
+        }
+
+        char full[512];
+        if (snprintf(full, sizeof(full), "%s/%s", usb_mount_path, name) >= (int)sizeof(full)) {
+            continue;
+        }
+
+        struct stat st;
+        if (stat(full, &st) != 0) {
+            continue;
+        }
+
+        if (!S_ISREG(st.st_mode)) {
+            continue;
+        }
+
+        size_t len = strlen(full);
+        if (len < 4 || strcmp(full + len - 4, ".txt") != 0) {
+            continue;
+        }
+
+        if (best[0] == '\0' || strcmp(full, best) < 0) {
+            strncpy(best, full, sizeof(best));
+            best[sizeof(best) - 1] = '\0';
+        }
+    }
+
+    closedir(dir);
+
+    if (best[0] == '\0') {
+        return -1;
+    }
+
+    strncpy(out_path, best, out_size);
+    out_path[out_size - 1] = '\0';
+    return 0;
+}
+#else
+static int app_find_valid_txt_file_in_usb(const char *usb_mount_path,
+                                          char *out_path,
+                                          size_t out_size)
+{
+    (void)usb_mount_path;
+    (void)out_path;
+    (void)out_size;
+    return -1;
+}
+#endif
+
 
 int app_load_file_bytes(const char *file_path,
                         uint8_t **out_data,
@@ -371,19 +558,29 @@ int app_load_file_bytes(const char *file_path,
     *out_len  = 0;
 
     const char *path_to_use = file_path;
+    char path_buf[512];
 
     if (!path_to_use || path_to_use[0] == '\0') {
-        /* No explicit path: try USB, then fallback to test_files/quijote.txt */
-        char *usb_path = app_get_usb_mount_path();
-        if (usb_path) {
-            path_to_use = usb_path;
-        } else {
-            path_to_use = "test_files/quijote.txt";
+        /* No explicit path: try USB, then fallback to tx_files/quijote.txt */
+        char *usb_mount = app_get_usb_mount_path();
+        if (usb_mount) {
+            if (app_find_valid_txt_file_in_usb(usb_mount,
+                                               path_buf, sizeof(path_buf)) == 0) {
+                path_to_use = path_buf;
+                logger_info("Using .txt file from USB: %s", path_to_use);
+            } else {
+                logger_warn("USB device found at %s but no valid .txt file in top level",
+                            usb_mount);
+            }
+            free(usb_mount);
+        }
+
+        if (!path_to_use || path_to_use[0] == '\0') {
+            snprintf(path_buf, sizeof(path_buf), "tx_files/quijote.txt");
+            path_to_use = path_buf;
             logger_warn("USB file candidate not found, using fallback file: %s",
                         path_to_use);
         }
-        /* usb_path, if allocated, would need free() here.
-           Currently app_get_usb_mount_path() returns NULL. */
     }
 
     FILE *f = fopen(path_to_use, "rb");
@@ -430,7 +627,10 @@ int app_load_file_bytes(const char *file_path,
         }
     }
 
-    fclose(f);
+    if (fclose(f) != 0) {
+        logger_warn("Error while closing file %s: %s",
+                    path_to_use, strerror(errno));
+    }
 
     *out_data = buf;
     *out_len  = read_bytes;
@@ -438,6 +638,7 @@ int app_load_file_bytes(const char *file_path,
     logger_succ("Loaded %zu bytes from file: %s", read_bytes, path_to_use);
     return 0;
 }
+
 
 static int app_mkdir_if_needed(const char *dir)
 {
@@ -465,26 +666,30 @@ int app_store_file_bytes(const char *output_path,
     }
 
     char path_buf[512];
-
     const char *path_to_use = output_path;
 
     if (!path_to_use || path_to_use[0] == '\0') {
-        /* Try USB mount (unimplemented) */
-        char *usb_dir = app_get_usb_mount_path();
-        if (usb_dir) {
-            /* Compose usb_dir/<timestamp>.txt */
+        /* Try USB mount first */
+        char *usb_mount = app_get_usb_mount_path();
+        if (usb_mount) {
             char ts[32];
             logger_timestamp(ts, sizeof(ts));
+            /* Store file as <mount>/received_<timestamp>.txt */
+            if (snprintf(path_buf, sizeof(path_buf),
+                         "%s/received_%s.txt", usb_mount, ts) >= (int)sizeof(path_buf)) {
+                logger_warn("USB path too long, falling back to local directory");
+                path_buf[0] = '\0';
+            } else {
+                path_to_use = path_buf;
+            }
+            free(usb_mount);
+        }
 
-            snprintf(path_buf, sizeof(path_buf), "%s/%s.txt", usb_dir, ts);
-            path_to_use = path_buf;
-
-            free(usb_dir); /* if app_get_usb_mount_path ever allocates */
-        } else {
+        if (!path_to_use || path_to_use[0] == '\0') {
             /* Fallback to local received_files/<timestamp>.txt */
             if (app_mkdir_if_needed("received_files") != 0) {
-                logger_warn("Could not create directory 'received_files' "
-                            "(%s). Continuing anyway.", strerror(errno));
+                logger_warn("Could not create directory 'received_files' (%s). "
+                            "Continuing anyway.", strerror(errno));
             }
 
             char ts[32];
@@ -522,3 +727,4 @@ int app_store_file_bytes(const char *output_path,
     logger_succ("Stored %zu bytes into file: %s", len, path_to_use);
     return 0;
 }
+
