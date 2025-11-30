@@ -11,6 +11,7 @@
 #include <linux/spi/spidev.h>
 #include <dirent.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "logger.h"
 

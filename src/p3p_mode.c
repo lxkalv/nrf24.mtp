@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <time.h>
 #include <sys/stat.h> 
+#include <errno.h>
 
 #include "libs/logger.h"
 #include "libs/app_layer.h"
@@ -207,8 +208,8 @@ int main(int argc, char **argv)
         data_rate_kbps = 2000;
         break;
     default:
-        ERROR("Invalid data rate in app config: %d", (int)cfg.data_rate);
-        goto out;
+        logger_error("Invalid data rate in app config: %d", (int)cfg.data_rate);
+        return 1;
     }
 
     int pa_level_dbm;
@@ -226,8 +227,8 @@ int main(int argc, char **argv)
         pa_level_dbm = 0;
         break;
     default:
-        ERROR("Invalid PA level in app config: %d", (int)cfg.pa_level);
-        goto out;
+        logger_error("Invalid PA level in app config: %d", (int)cfg.pa_level);
+        return 1;
     }
 
     unsigned int crc_bytes;
@@ -242,8 +243,8 @@ int main(int argc, char **argv)
         crc_bytes = 2;
         break;
     default:
-        ERROR("Invalid CRC bytes in app config: %d", (int)cfg.crc_bytes);
-        goto out;
+        logger_error("Invalid CRC bytes in app config: %d", (int)cfg.crc_bytes);
+        return 1;
     }
 
     /* retransmission_delay and retransmission_tries are already 0..15 */
@@ -254,11 +255,11 @@ int main(int argc, char **argv)
                                  crc_bytes,
                                  cfg.retransmission_delay,
                                  cfg.retransmission_tries) < 0) {
-        ERROR("Failed to configure nRF24 radio: %s", strerror(errno));
-        goto out;
+        logger_error("Failed to configure nRF24 radio: %s", strerror(errno));
+        return 1;
     }
 
-    INFO("Radio configured on channel %u", cfg.channel);
+    logger_info("Radio configured on channel %u", cfg.channel);
 
     if (cfg.print_config) {
         (void)nrf24_dump_config(&rctx.dev);
