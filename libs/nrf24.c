@@ -93,7 +93,7 @@ static int get_gpio_base(void)
         if (strncmp(de->d_name, "gpiochip", 8) != 0)
             continue;
 
-        char path[128];
+        char path[512];
         snprintf(path, sizeof(path), "/sys/class/gpio/%s/base", de->d_name);
 
         int fd = open(path, O_RDONLY);
