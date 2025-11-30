@@ -69,7 +69,7 @@ $(SRCDIR)/p3p_mode.o:   $(SRCDIR)/p3p_mode.c   \
                         $(LIBDIR)/link_layer.h \
                         $(LIBDIR)/nrf24.h
 
-$(LIBDIR)/nrf24.o:            $(LIBDIR)/nrf24.c            $(LIBDIR)/nrf24.h
+$(LIBDIR)/nrf24.o:            $(LIBDIR)/nrf24.c            $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h
 $(LIBDIR)/utils.o:            $(LIBDIR)/utils.c            $(LIBDIR)/utils.h
 $(LIBDIR)/logger.o:           $(LIBDIR)/logger.c           $(LIBDIR)/logger.h
 $(LIBDIR)/app_layer.o:        $(LIBDIR)/app_layer.c        $(LIBDIR)/app_layer.h
