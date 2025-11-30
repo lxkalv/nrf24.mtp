@@ -126,6 +126,28 @@ static int configure_radio_runtime(nrf24_t *radio)
                                     g_radio_runtime.retr_tries);
 }
 
+static int maybe_verify_radio_config(const app_config_t *cfg,
+                                     nrf24_t *radio,
+                                     const char *label)
+{
+    if (!cfg || !cfg->verify_config) {
+        return 0;
+    }
+
+    if (label) {
+        logger_info("Verifying radio configuration (phase: %s) via module readback",
+                    label);
+    } else {
+        logger_info("Verifying radio configuration via module readback");
+    }
+
+    if (nrf24_dump_config(radio) < 0) {
+        logger_error("nrf24_dump_config failed: %s", strerror(errno));
+        return -1;
+    }
+    return 0;
+}
+
 typedef struct {
     uint8_t *data;
     size_t   len;
@@ -531,6 +553,10 @@ static int run_tx(const char *spi_dev,
         nrf24_deinit(&radio);
         return 1;
     }
+    if (maybe_verify_radio_config(cfg, &radio, "TX setup") < 0) {
+        nrf24_deinit(&radio);
+        return 1;
+    }
 
     uint64_t orig_len = (uint64_t)input_len;
     const uint8_t *orig_buf = input_data;
@@ -894,6 +920,10 @@ static int run_rx(const char *spi_dev,
     }
     if (nrf24_set_mode_rx(&radio) < 0) {
         logger_error("nrf24_set_mode_rx failed");
+        nrf24_deinit(&radio);
+        return 1;
+    }
+    if (maybe_verify_radio_config(cfg, &radio, "RX setup") < 0) {
         nrf24_deinit(&radio);
         return 1;
     }

@@ -51,6 +51,7 @@ typedef struct {
 
     bool            autostart;             /* If true, start transfer immediately */
     bool            print_config;          /* If true, print config before starting */
+    bool            verify_config;         /* If true, dump radio config after setup */
 } app_config_t;
 
 /* Fill cfg with default configuration values. */
@@ -71,6 +72,7 @@ void app_set_default_config(app_config_t *cfg);
  *   --retransmission-delay N        (0..15, default 2)
  *   --autostart                     (flag)
  *   --print-config                  (flag)
+ *   --verify-config                 (flag)
  *
  * Returns 0 on success, -1 on error.
  * On error, cfg contents are undefined.

@@ -82,6 +82,7 @@ void app_set_default_config(app_config_t *cfg)
 
     cfg->autostart  = false;
     cfg->print_config = false;
+    cfg->verify_config = false;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -256,6 +257,9 @@ int app_parse_arguments(int argc, char **argv, app_config_t *cfg)
         else if (strcmp(arg, "--print-config") == 0) {
             cfg->print_config = true;
         }
+        else if (strcmp(arg, "--verify-config") == 0) {
+            cfg->verify_config = true;
+        }
         else if (strcmp(arg, "--help") == 0) {
             /* Let caller handle usage printing and exit code. */
             return -1;
@@ -319,6 +323,7 @@ void app_print_config(const app_config_t *cfg)
     logger_info("  Retransmission delay: %d", cfg->retransmission_delay);
     logger_info("  Autostart:            %s", cfg->autostart ? "true" : "false");
     logger_info("  Print config:         %s", cfg->print_config ? "true" : "false");
+    logger_info("  Verify module config: %s", cfg->verify_config ? "true" : "false");
 }
 
 void app_print_usage(const char *prog_name)
@@ -344,6 +349,7 @@ void app_print_usage(const char *prog_name)
         "  --retransmission-delay N        Auto-retry delay (0..15, default 2)\n"
         "  --autostart                     Start transmission automatically\n"
         "  --print-config                  Print parsed configuration\n"
+        "  --verify-config                Dump nRF24 config read from module after setup\n"
         "  --help                          Show this help message\n"
         "\n",
         p);
