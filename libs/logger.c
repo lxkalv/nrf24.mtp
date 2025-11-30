@@ -43,10 +43,11 @@ static void logger_time_iso8601(char *buf, size_t buf_len)
     }
 
     time_t sec = tv.tv_sec;
-    struct tm tm_info;
     struct tm *tm_ptr = NULL;
 
 #if defined(_WIN32) && !defined(__MINGW32__)
+    /* Windows secure version */
+    struct tm tm_info;
     if (localtime_s(&tm_info, &sec) != 0) {
         snprintf(buf, buf_len, "0000-00-00 00:00:00.000");
         return;
@@ -69,6 +70,7 @@ static void logger_time_iso8601(char *buf, size_t buf_len)
     int millis = (int)(tv.tv_usec / 1000);
     snprintf(buf, buf_len, "%s.%03d", date_part, millis);
 }
+
 
 /* ------------------------------------------------------------------------- */
 /* Public API                                                                */
