@@ -200,8 +200,17 @@ static int rx_output_append(RxOutputBuffer *buf, const uint8_t *chunk, size_t le
     return 0;
 }
 
-typedef struct Burst Burst;
-typedef struct PageStream PageStream;
+typedef struct {
+    unsigned frames_in_burst;
+    uint8_t *frame_data[MAX_CHUNKS_PER_BURST];
+    uint8_t  frame_len[MAX_CHUNKS_PER_BURST];
+} Burst;
+
+typedef struct {
+    Burst  *bursts;
+    size_t  count;
+    size_t  capacity;
+} PageStream;
 
 static int extract_page_compressed_data(PageStream *ps,
                                         uint8_t **out_data,
@@ -379,18 +388,6 @@ static int send_with_retries(nrf24_t *radio,
 }
 
 /* ---- RX-side in-memory burst storage (one page at a time) ---- */
-
-struct Burst {
-    unsigned frames_in_burst;
-    uint8_t *frame_data[MAX_CHUNKS_PER_BURST];
-    uint8_t  frame_len[MAX_CHUNKS_PER_BURST];
-};
-
-struct PageStream {
-    Burst  *bursts;
-    size_t  count;
-    size_t  capacity;
-};
 
 /* Initialise an empty page stream */
 static void page_stream_init(PageStream *ps)
