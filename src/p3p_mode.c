@@ -153,7 +153,7 @@ int main(int argc, char **argv)
 
     // 1. Parse CLI
     if (app_parse_arguments(argc, argv, &cfg) != 0) {
-        fprintf(stderr, "Invalid arguments. Use --help for usage.\n");
+        app_print_usage(argv[0]);
         return EXIT_FAILURE;
     }
 
