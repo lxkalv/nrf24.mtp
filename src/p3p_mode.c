@@ -12,6 +12,7 @@
 #include "libs/app_layer.h"
 #include "libs/presentation_layer.h"
 #include "libs/transport_layer.h"
+#include "libs/link_layer.h"
 
 /* ---- Protocol constants ---- */
 
@@ -61,6 +62,194 @@ static RadioRuntimeConfig g_radio_runtime = {
     .retr_delay     = 2,
     .retr_tries     = 15
 };
+
+typedef struct {
+    nrf24_t        *radio;
+    uint8_t         tx_buf[NRF24_MAX_PAYLOAD_SIZE];
+    uint8_t         tx_len;
+    int             tx_pending;
+    unsigned        tx_retry_count;
+    unsigned        current_timeout_ms;
+    const char     *current_label;
+    uint8_t         rx_buf[NRF24_MAX_PAYLOAD_SIZE];
+    uint8_t         rx_len;
+    int             rx_pending;
+    unsigned        rx_poll_timeout_ms;
+    uint64_t       *tx_rf_bytes_total;
+    uint64_t       *tx_rf_frames_total;
+    uint64_t       *rx_rf_bytes_total;
+    uint64_t       *rx_rf_frames_total;
+} RadioLinkAdapter;
+
+static void radio_link_adapter_init(RadioLinkAdapter *adp,
+                                    nrf24_t *radio,
+                                    unsigned rx_poll_timeout_ms)
+{
+    if (!adp) {
+        return;
+    }
+    memset(adp, 0, sizeof(*adp));
+    adp->radio = radio;
+    adp->rx_poll_timeout_ms = rx_poll_timeout_ms ? rx_poll_timeout_ms : 5;
+}
+
+static void radio_link_set_send_profile(RadioLinkAdapter *adp,
+                                        unsigned timeout_ms,
+                                        const char *label)
+{
+    if (!adp) {
+        return;
+    }
+    adp->current_timeout_ms = timeout_ms;
+    adp->current_label = label;
+}
+
+static const char *radio_link_label(const RadioLinkAdapter *adp)
+{
+    return (adp && adp->current_label) ? adp->current_label : "frame";
+}
+
+static unsigned radio_link_timeout(const RadioLinkAdapter *adp, unsigned fallback_ms)
+{
+    return (adp && adp->current_timeout_ms) ? adp->current_timeout_ms : fallback_ms;
+}
+
+static int radio_link_send_cb(void *ctx, const uint8_t *payload, size_t len)
+{
+    RadioLinkAdapter *adp = (RadioLinkAdapter *)ctx;
+    if (!adp || !adp->radio || !payload || len == 0 || len > NRF24_MAX_PAYLOAD_SIZE) {
+        logger_error("radio_link_send_cb: invalid parameters (len=%zu)", len);
+        return -1;
+    }
+
+    memcpy(adp->tx_buf, payload, len);
+    adp->tx_len = (uint8_t)len;
+    adp->tx_pending = 1;
+    return 0;
+}
+
+static int radio_link_wait_cb(void *ctx)
+{
+    RadioLinkAdapter *adp = (RadioLinkAdapter *)ctx;
+    if (!adp || !adp->radio || !adp->tx_pending) {
+        logger_error("radio_link_wait_cb: no pending frame");
+        return -1;
+    }
+
+    const unsigned timeout_ms = radio_link_timeout(adp, DATA_TIMEOUT_MS);
+    const char *label = radio_link_label(adp);
+
+    if (adp->tx_rf_bytes_total) {
+        *adp->tx_rf_bytes_total += adp->tx_len;
+    }
+    if (adp->tx_rf_frames_total) {
+        *adp->tx_rf_frames_total += 1;
+    }
+
+    int ret = nrf24_send_blocking(adp->radio,
+                                  adp->tx_buf,
+                                  adp->tx_len,
+                                  timeout_ms);
+    if (ret == 0) {
+        adp->tx_pending = 0;
+        adp->tx_retry_count = 0;
+        return 0;
+    }
+
+    if (errno == ETIMEDOUT) {
+        adp->tx_retry_count++;
+        if ((adp->tx_retry_count % 200u) == 0u) {
+            logger_warn("LinkLayer: %u consecutive %s timeouts, reconfiguring radio",
+                        adp->tx_retry_count, label);
+            if (configure_radio_runtime(adp->radio) < 0) {
+                logger_error("LinkLayer: radio reconfigure failed during %s retries: %s",
+                             label, strerror(errno));
+                adp->tx_pending = 0;
+                return -1;
+            }
+            (void)nrf24_set_mode_tx(adp->radio);
+        }
+        return 1;
+    }
+
+    logger_error("LinkLayer: nrf24_send_blocking(%s) failed: %s",
+                 label, strerror(errno));
+    adp->tx_pending = 0;
+    return -1;
+}
+
+static void radio_link_reset_cb(void *ctx)
+{
+    (void)ctx;
+}
+
+static int radio_link_get_lost_cb(void *ctx)
+{
+    (void)ctx;
+    return 0;
+}
+
+static int radio_link_data_ready_cb(void *ctx)
+{
+    RadioLinkAdapter *adp = (RadioLinkAdapter *)ctx;
+    if (!adp || !adp->radio) {
+        return -1;
+    }
+
+    if (adp->rx_pending) {
+        return 1;
+    }
+
+    uint8_t len = NRF24_MAX_PAYLOAD_SIZE;
+    int ret = nrf24_recv_blocking(adp->radio,
+                                  adp->rx_buf,
+                                  &len,
+                                  adp->rx_poll_timeout_ms);
+    if (ret < 0) {
+        if (errno == ETIMEDOUT) {
+            return 0;
+        }
+        logger_error("LinkLayer: nrf24_recv_blocking failed: %s", strerror(errno));
+        return -1;
+    }
+
+    adp->rx_len = len;
+    adp->rx_pending = 1;
+
+    if (adp->rx_rf_bytes_total) {
+        *adp->rx_rf_bytes_total += len;
+    }
+    if (adp->rx_rf_frames_total) {
+        *adp->rx_rf_frames_total += 1;
+    }
+
+    return 1;
+}
+
+static int radio_link_read_payload_cb(void *ctx, uint8_t *buf, size_t *inout_len)
+{
+    RadioLinkAdapter *adp = (RadioLinkAdapter *)ctx;
+    if (!adp || !buf || !inout_len || *inout_len == 0) {
+        logger_error("radio_link_read_payload_cb: invalid arguments");
+        return -1;
+    }
+
+    if (!adp->rx_pending) {
+        return 1;
+    }
+
+    size_t copy_len = adp->rx_len;
+    if (copy_len > *inout_len) {
+        logger_error("LinkLayer: RX buffer too small (%zu < %zu)", *inout_len, copy_len);
+        adp->rx_pending = 0;
+        return -1;
+    }
+
+    memcpy(buf, adp->rx_buf, copy_len);
+    *inout_len = copy_len;
+    adp->rx_pending = 0;
+    return 0;
+}
 
 static unsigned map_data_rate_kbps(app_data_rate_t rate)
 {
@@ -314,49 +503,6 @@ static size_t compute_page_orig_len(uint64_t total_len, size_t page_index)
 
 /* ---- nRF24 convenience wrappers ---- */
 /* Counts every on-air attempt (including retries) into rf_bytes_total / rf_frames_total. */
-
-static int send_with_retries(nrf24_t *radio,
-                             const uint8_t *buf,
-                             uint8_t len,
-                             unsigned int timeout_ms,
-                             const char *what,
-                             uint64_t *rf_bytes_total,
-                             uint64_t *rf_frames_total)
-{
-    unsigned int attempt = 0;
-
-    for (;;) {
-        /* Account RF usage for this attempt */
-        if (rf_bytes_total)  *rf_bytes_total  += len;
-        if (rf_frames_total) *rf_frames_total += 1;
-
-        int ret = nrf24_send_blocking(radio, buf, len, timeout_ms);
-        if (ret == 0) {
-            return 0;  /* success */
-        }
-
-        if (errno != ETIMEDOUT) {
-            logger_error("nrf24_send_blocking(%s) failed: %s", what, strerror(errno));
-            return -1;
-        }
-
-        ++attempt;
-        if (attempt == 1 || (attempt % 50) == 0) {
-            logger_warn("%s: timeout (no ACK) on attempt %u for %u-byte frame",
-                 what, attempt, (unsigned)len);
-        }
-
-        /* Keep retrying forever, but every so often we reconfigure the radio */
-        if (attempt % 500 == 0) {
-            logger_warn("%s: %u consecutive timeouts, reconfiguring radio",
-                 what, attempt);
-            if (configure_radio_runtime(radio) < 0) {
-                logger_error("%s: radio reconfigure failed: %s", what, strerror(errno));
-                return -1;
-            }
-        }
-    }
-}
 
 /* ---- RX-side in-memory burst storage (one page at a time) ---- */
 
@@ -631,13 +777,23 @@ static int run_tx(const char *spi_dev,
     uint64_t tx_rf_bytes_total  = 0;
     uint64_t tx_rf_frames_total = 0;
 
-    if (send_with_retries(&radio,
-                          stream_info,
-                          sizeof(stream_info),
-                          CONTROL_TIMEOUT_MS,
-                          "STREAM_INFO",
-                          &tx_rf_bytes_total,
-                          &tx_rf_frames_total) < 0) {
+    RadioLinkAdapter tx_link_adapter;
+    radio_link_adapter_init(&tx_link_adapter, &radio, 5);
+    tx_link_adapter.tx_rf_bytes_total  = &tx_rf_bytes_total;
+    tx_link_adapter.tx_rf_frames_total = &tx_rf_frames_total;
+
+    link_radio_iface_t tx_link_iface = {
+        .user_ctx            = &tx_link_adapter,
+        .send                = radio_link_send_cb,
+        .wait_until_sent     = radio_link_wait_cb,
+        .reset_packages_lost = radio_link_reset_cb,
+        .get_packages_lost   = radio_link_get_lost_cb,
+        .data_ready          = radio_link_data_ready_cb,
+        .read_payload        = radio_link_read_payload_cb
+    };
+
+    radio_link_set_send_profile(&tx_link_adapter, CONTROL_TIMEOUT_MS, "STREAM_INFO");
+    if (link_send_frame(&tx_link_iface, stream_info, sizeof(stream_info)) != LINK_STATUS_OK) {
         logger_error("P2P TX: failed to send STREAM_INFO");
         goto cleanup;
     }
@@ -688,13 +844,10 @@ static int run_tx(const char *spi_dev,
                                        burst,
                                        burst_info);
 
-                if (send_with_retries(&radio,
-                                      burst_info,
-                                      sizeof(burst_info),
-                                      CONTROL_TIMEOUT_MS,
-                                      "BURST_INFO",
-                                      &tx_rf_bytes_total,
-                                      &tx_rf_frames_total) < 0) {
+                radio_link_set_send_profile(&tx_link_adapter, CONTROL_TIMEOUT_MS, "BURST_INFO");
+                if (link_send_frame(&tx_link_iface,
+                                    burst_info,
+                                    sizeof(burst_info)) != LINK_STATUS_OK) {
                     logger_error("Failed to send BURST_INFO (page %zu, burst %zu)",
                                  page_id, burst_id);
                     trans_free_bursts(bursts, burst_count);
@@ -703,13 +856,10 @@ static int run_tx(const char *spi_dev,
 
                 for (size_t frame_idx = 0; frame_idx < burst->frame_count; ++frame_idx) {
                     const trans_frame_t *fr = &burst->frames[frame_idx];
-                    if (send_with_retries(&radio,
-                                          fr->data,
-                                          fr->len,
-                                          DATA_TIMEOUT_MS,
-                                          "DATA",
-                                          &tx_rf_bytes_total,
-                                          &tx_rf_frames_total) < 0) {
+                    radio_link_set_send_profile(&tx_link_adapter, DATA_TIMEOUT_MS, "DATA");
+                    if (link_send_frame(&tx_link_iface,
+                                        fr->data,
+                                        fr->len) != LINK_STATUS_OK) {
                         logger_error("Failed to send DATA frame (page %zu, burst %zu)",
                                      page_id, burst_id);
                         trans_free_bursts(bursts, burst_count);
@@ -783,13 +933,10 @@ static int run_tx(const char *spi_dev,
     uint8_t fin_msg[2];
     trans_build_transfer_finish(fin_msg);
 
-    (void)send_with_retries(&radio,
-                            fin_msg,
-                            sizeof(fin_msg),
-                            CONTROL_TIMEOUT_MS,
-                            "TRANSFER_FINISH",
-                            &tx_rf_bytes_total,
-                            &tx_rf_frames_total);
+    radio_link_set_send_profile(&tx_link_adapter, CONTROL_TIMEOUT_MS, "TRANSFER_FINISH");
+    if (link_send_frame(&tx_link_iface, fin_msg, sizeof(fin_msg)) != LINK_STATUS_OK) {
+        logger_warn("P2P TX: failed to send TRANSFER_FINISH acknowledgment");
+    }
 
     double t_end = now_seconds();
     double dt    = t_end - t_start;
@@ -898,24 +1045,35 @@ static int run_rx(const char *spi_dev,
     uint64_t rf_bytes_total      = 0;
     uint64_t rf_frames_total     = 0;
 
+    RadioLinkAdapter rx_link_adapter;
+    radio_link_adapter_init(&rx_link_adapter, &radio, 10);
+    rx_link_adapter.rx_rf_bytes_total = &rf_bytes_total;
+    rx_link_adapter.rx_rf_frames_total = &rf_frames_total;
+    rx_link_adapter.tx_rf_bytes_total = &rf_bytes_total;
+    rx_link_adapter.tx_rf_frames_total = &rf_frames_total;
+
+    link_radio_iface_t rx_link_iface = {
+        .user_ctx            = &rx_link_adapter,
+        .send                = radio_link_send_cb,
+        .wait_until_sent     = radio_link_wait_cb,
+        .reset_packages_lost = radio_link_reset_cb,
+        .get_packages_lost   = radio_link_get_lost_cb,
+        .data_ready          = radio_link_data_ready_cb,
+        .read_payload        = radio_link_read_payload_cb
+    };
+
     while (!transfer_finished) {
         uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
-        uint8_t len = sizeof(buf);
+        size_t frame_size = sizeof(buf);
 
-        int ret = nrf24_recv_blocking(&radio, buf, &len, 0);
-        if (ret < 0) {
-            if (errno == ETIMEDOUT) {
-                continue;
-            }
-            logger_error("nrf24_recv_blocking failed (errno=%d: %s). Assembling buffered data.",
-                         errno, strerror(errno));
+        link_status_t rx_status = link_read_frame(&rx_link_iface, buf, &frame_size);
+        if (rx_status != LINK_STATUS_OK) {
+            logger_error("P2P RX: link_read_frame failed (status=%d). Assembling buffered data.",
+                         (int)rx_status);
             break;
         }
 
-        if (len > 0) {
-            rf_bytes_total  += len;
-            rf_frames_total += 1;
-        }
+        uint8_t len = (uint8_t)frame_size;
 
         if (!tx_started) {
             t_start    = now_seconds();

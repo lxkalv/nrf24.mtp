@@ -75,15 +75,22 @@ link_status_t link_send_frame(const link_radio_iface_t *iface,
     for (;;) {
         iface->reset_packages_lost(iface->user_ctx);
 
-        if (iface->send(iface->user_ctx, frame, len) != 0) {
-            /* Treat send() failures (timeouts, MAX_RT, etc.) as retryable. */
-            logger_warn("link_send_frame: send() failed, retrying...");
+        int sret = iface->send(iface->user_ctx, frame, len);
+        if (sret < 0) {
+            logger_error("link_send_frame: send() returned %d (fatal)", sret);
+            return LINK_STATUS_IO_ERROR;
+        }
+        if (sret > 0) {
+            logger_warn("link_send_frame: send() returned %d, retrying...", sret);
             continue;
         }
 
-        /* Any non-zero from wait_until_sent() is treated as retryable. */
         int wret = iface->wait_until_sent(iface->user_ctx);
-        if (wret != 0) {
+        if (wret < 0) {
+            logger_error("link_send_frame: wait_until_sent() returned %d (fatal)", wret);
+            return LINK_STATUS_IO_ERROR;
+        }
+        if (wret > 0) {
             logger_warn("link_send_frame: wait_until_sent() returned %d, retrying...", wret);
             continue;
         }
@@ -138,9 +145,13 @@ link_status_t link_read_frame(const link_radio_iface_t *iface,
             */
         }
 
-        if (iface->read_payload(iface->user_ctx, buf, inout_len) != 0) {
-            /* Typically a timeout inside nrf24_recv_blocking: retry. */
-            logger_warn("link_read_frame: read_payload() failed, retrying...");
+        int rp = iface->read_payload(iface->user_ctx, buf, inout_len);
+        if (rp < 0) {
+            logger_error("link_read_frame: read_payload() returned %d (fatal)", rp);
+            return LINK_STATUS_IO_ERROR;
+        }
+        if (rp > 0) {
+            logger_warn("link_read_frame: read_payload() returned %d, retrying...", rp);
             continue;
         }
 

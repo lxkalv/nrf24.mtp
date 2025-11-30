@@ -25,24 +25,23 @@ typedef struct link_radio_iface {
 
     /*
      * send(ctx, payload, len)
-     *  - Should initiate sending 'len' bytes from 'payload'.
-     *  - Return 0 on success; non-zero on fatal error.
+     *  - Should stage 'len' bytes from 'payload' for transmission.
+     *  - Return values:
+     *        0 : success, proceed to wait_until_sent().
+     *       >0 : transient issue, Link layer will retry the frame.
+     *       <0 : fatal error, link_send_frame() aborts with LINK_STATUS_IO_ERROR.
      */
     int  (*send)(void *ctx, const uint8_t *payload, size_t len);
 
     /*
      * wait_until_sent(ctx)
-     *  - Should block until the previous send operation has finished
-     *    (either ACKed or considered failed).
-     *  - Return 0 on success; non-zero on timeout or error.
-     *
-     * IMPORTANT:
-     *  - The Link layer treats ANY non-zero return as "retryable":
-     *      - it will WARN and retry sending the frame.
-     *  - If you want a truly fatal condition, you should instead make
-     *    send() return non-zero, which will cause link_send_frame()
-     *    to return LINK_STATUS_IO_ERROR.
-     */
+    *  - Should block until the previously staged frame has finished
+    *    transmitting (ACKed or considered failed).
+    *  - Return values:
+    *        0 : success, frame considered delivered.
+    *       >0 : retryable issue (timeout, missing ACK) → Link layer retries.
+    *       <0 : fatal error → link_send_frame() aborts with LINK_STATUS_IO_ERROR.
+    */
     int  (*wait_until_sent)(void *ctx);
 
     /*
@@ -77,8 +76,8 @@ typedef struct link_radio_iface {
      *      - copy up to *inout_len bytes into 'buf'
      *      - set *inout_len to the actual number of bytes copied
      *      - return 0
-     *  - On error:
-     *      - return non-zero (Link layer will treat it as fatal)
+     *  - On transient issues (e.g. races) return >0 → Link layer retries.
+     *  - On fatal errors return <0 → Link layer aborts with LINK_STATUS_IO_ERROR.
      */
     int  (*read_payload)(void *ctx, uint8_t *buf, size_t *inout_len);
 
