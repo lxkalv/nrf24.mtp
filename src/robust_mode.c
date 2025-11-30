@@ -256,7 +256,9 @@ static int send_with_retries(nrf24_t *radio,
                              const uint8_t *buf,
                              uint8_t len,
                              unsigned timeout_ms,
-                             const char *label)
+                             const char *label,
+                             uint64_t *rf_bytes_total,
+                             uint64_t *rf_frames_total)
 {
     if (!radio || !buf || len == 0) {
         logger_error("send_with_retries(%s): invalid args", label ? label : "frame");
@@ -265,6 +267,13 @@ static int send_with_retries(nrf24_t *radio,
 
     unsigned attempt = 0;
     while (1) {
+        if (rf_bytes_total) {
+            *rf_bytes_total += len;
+        }
+        if (rf_frames_total) {
+            *rf_frames_total += 1;
+        }
+
         int ret = nrf24_send_blocking(radio, buf, len, timeout_ms);
         if (ret == 0) {
             return 0;
@@ -313,7 +322,9 @@ static int send_stream_info(nrf24_t *radio,
                             uint8_t id_bytes,
                             uint32_t comp_len,
                             uint32_t total_frames,
-                            uint32_t orig_len)
+                            uint32_t orig_len,
+                            uint64_t *rf_bytes_total,
+                            uint64_t *rf_frames_total)
 {
     uint8_t msg[STREAM_INFO_SIZE] = {0};
     msg[0] = CONTROL_PREFIX;
@@ -323,16 +334,23 @@ static int send_stream_info(nrf24_t *radio,
     encode_u32_le(&msg[4], comp_len);
     encode_u32_le(&msg[8], total_frames);
     encode_u32_le(&msg[12], orig_len);
-    return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_INFO");
+    return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_INFO",
+                             rf_bytes_total, rf_frames_total);
 }
 
-static int send_stream_finish(nrf24_t *radio)
+static int send_stream_finish(nrf24_t *radio,
+                              uint64_t *rf_bytes_total,
+                              uint64_t *rf_frames_total)
 {
     uint8_t msg[2] = { CONTROL_PREFIX, MSG_STREAM_FINISH };
-    return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_FINISH");
+    return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_FINISH",
+                             rf_bytes_total, rf_frames_total);
 }
 
-static int send_checksum_with_timeout(nrf24_t *radio, uint64_t checksum)
+static int send_checksum_with_timeout(nrf24_t *radio,
+                                      uint64_t checksum,
+                                      uint64_t *rf_bytes_total,
+                                      uint64_t *rf_frames_total)
 {
     uint8_t msg[2 + CHECKSUM_SIZE];
     msg[0] = CONTROL_PREFIX;
@@ -343,6 +361,13 @@ static int send_checksum_with_timeout(nrf24_t *radio, uint64_t checksum)
     unsigned attempt = 0;
 
     while ((now_seconds() - start) * 1000.0 < CHECKSUM_SEND_WINDOW_MS) {
+        if (rf_bytes_total) {
+            *rf_bytes_total += sizeof(msg);
+        }
+        if (rf_frames_total) {
+            *rf_frames_total += 1;
+        }
+
         int ret = nrf24_send_blocking(radio,
                                       msg,
                                       sizeof(msg),
@@ -441,7 +466,9 @@ static int wait_for_stream_ready(nrf24_t *radio,
 static int send_stream_ready(nrf24_t *radio,
                              uint8_t id_bytes,
                              uint32_t expected_frames,
-                             uint32_t compressed_len)
+                             uint32_t compressed_len,
+                             uint64_t *rf_bytes_total,
+                             uint64_t *rf_frames_total)
 {
     if (ensure_mode_tx(radio) != 0) {
         return -1;
@@ -454,7 +481,13 @@ static int send_stream_ready(nrf24_t *radio,
     encode_u32_le(&msg[3], expected_frames);
     encode_u32_le(&msg[7], compressed_len);
 
-    if (send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_READY") != 0) {
+    if (send_with_retries(radio,
+                          msg,
+                          sizeof(msg),
+                          CONTROL_TIMEOUT_MS,
+                          "STREAM_READY",
+                          rf_bytes_total,
+                          rf_frames_total) != 0) {
         logger_error("robust RX: failed to send STREAM_READY");
         return -1;
     }
@@ -476,6 +509,9 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
     uint8_t *compressed = NULL;
     size_t compressed_len = 0;
     int exit_code = 1;
+    uint64_t tx_rf_bytes = 0;
+    uint64_t tx_rf_frames = 0;
+    double tx_start = 0.0;
 
     if (read_file_bytes(input_path, &file_data, &file_len) != 0) {
         goto cleanup;
@@ -524,11 +560,15 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
         goto cleanup;
     }
 
+    tx_start = now_seconds();
+
     if (send_stream_info(&radio,
                          (uint8_t)id_bytes,
                          (uint32_t)compressed_len,
                          total_frames,
-                         (uint32_t)file_len) != 0) {
+                         (uint32_t)file_len,
+                         &tx_rf_bytes,
+                         &tx_rf_frames) != 0) {
         logger_error("Failed to send STREAM_INFO");
         nrf24_deinit(&radio);
         goto cleanup;
@@ -573,7 +613,9 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
                                   payload,
                                   (uint8_t)(1 + id_bytes + chunk),
                                   DATA_TIMEOUT_MS,
-                                  "DATA") != 0) {
+                                  "DATA",
+                                  &tx_rf_bytes,
+                                  &tx_rf_frames) != 0) {
                 logger_error("Failed to send DATA frame %u", frame);
                 nrf24_deinit(&radio);
                 goto cleanup;
@@ -656,11 +698,28 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
             goto cleanup;
         }
 
-        if (send_stream_finish(&radio) != 0) {
+        if (send_stream_finish(&radio, &tx_rf_bytes, &tx_rf_frames) != 0) {
             logger_warn("robust TX: failed to send STREAM_FINISH");
         }
 
         transfer_complete = 1;
+    }
+
+    if (tx_start > 0.0) {
+        double tx_end = now_seconds();
+        double elapsed = tx_end - tx_start;
+        if (elapsed <= 0.0) {
+            elapsed = 1e-9;
+        }
+        double user_rate_kib = ((double)file_len / 1024.0) / elapsed;
+        double rf_rate_kib   = ((double)tx_rf_bytes / 1024.0) / elapsed;
+        logger_info("robust TX throughput: user=%.2f KiB/s (%zu bytes in %.2fs), rf=%.2f KiB/s (%llu bytes, %llu frames)",
+                    user_rate_kib,
+                    file_len,
+                    elapsed,
+                    rf_rate_kib,
+                    (unsigned long long)tx_rf_bytes,
+                    (unsigned long long)tx_rf_frames);
     }
 
     logger_succ("robust TX: transfer complete (%zu bytes -> %zu bytes)",
@@ -709,6 +768,11 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
     uint32_t original_len = 0;
     int checksum_sent = 0;
     int have_info = 0;
+    uint64_t rf_rx_bytes = 0;
+    uint64_t rf_rx_frames = 0;
+    uint64_t rf_tx_bytes = 0;
+    uint64_t rf_tx_frames = 0;
+    double rx_start = now_seconds();
 
     logger_info("robust RX: waiting for STREAM_INFO");
 
@@ -724,6 +788,9 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
             logger_error("robust RX: nrf24_recv_blocking failed: %s", strerror(errno));
             goto cleanup;
         }
+
+        rf_rx_bytes += len;
+        rf_rx_frames += 1;
 
         if (len < 1) {
             logger_warn("robust RX: empty frame");
@@ -804,7 +871,9 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
                 if (send_stream_ready(&radio,
                                       id_bytes,
                                       expected_frames,
-                                      (uint32_t)compressed_len) != 0) {
+                                      (uint32_t)compressed_len,
+                                      &rf_tx_bytes,
+                                      &rf_tx_frames) != 0) {
                     goto cleanup;
                 }
                 continue;
@@ -880,7 +949,10 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
             if (ensure_mode_tx(&radio) != 0) {
                 goto cleanup;
             }
-            if (send_checksum_with_timeout(&radio, rx_checksum) != 0) {
+            if (send_checksum_with_timeout(&radio,
+                                           rx_checksum,
+                                           &rf_tx_bytes,
+                                           &rf_tx_frames) != 0) {
                 logger_warn("robust RX: checksum send window elapsed, expecting resend");
                 if (ensure_mode_rx(&radio) != 0) {
                     goto cleanup;
@@ -910,6 +982,30 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
         }
         free(output);
         logger_succ("robust RX: stored '%s' (%u bytes)", output_path, original_len);
+    }
+
+    if (rx_start > 0.0) {
+        double rx_end = now_seconds();
+        double elapsed = rx_end - rx_start;
+        if (elapsed <= 0.0) {
+            elapsed = 1e-9;
+        }
+        double user_rate_kib = ((double)original_len / 1024.0) / elapsed;
+        double rf_rate_kib   = ((double)rf_rx_bytes / 1024.0) / elapsed;
+        logger_info("robust RX throughput: user=%.2f KiB/s (%u bytes in %.2fs), rf=%.2f KiB/s (%llu bytes, %llu frames)",
+                    user_rate_kib,
+                    original_len,
+                    elapsed,
+                    rf_rate_kib,
+                    (unsigned long long)rf_rx_bytes,
+                    (unsigned long long)rf_rx_frames);
+        if (rf_tx_bytes > 0 || rf_tx_frames > 0) {
+            double rf_ack_rate = ((double)rf_tx_bytes / 1024.0) / elapsed;
+            logger_info("robust RX control TX: %.2f KiB/s (%llu bytes, %llu frames)",
+                        rf_ack_rate,
+                        (unsigned long long)rf_tx_bytes,
+                        (unsigned long long)rf_tx_frames);
+        }
     }
 
     nrf24_deinit(&radio);
