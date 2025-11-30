@@ -25,6 +25,25 @@ static void logger_vlog(logger_level_t level,
                         const char *fmt,
                         va_list args);
 
+/* Small helper: convert logger_timestamp() output to "YYYY-MM-DD HH-MM-SS" */
+static void logger_time_iso8601(char *buf, size_t buf_len)
+{
+    if (buf == NULL || buf_len == 0) {
+        return;
+    }
+
+    /* logger_timestamp gives "YYYY-MM-DD_HH-MM-SS" */
+    logger_timestamp(buf, buf_len);
+
+    /* Replace the first '_' with a space for nicer readability */
+    for (size_t i = 0; i < buf_len && buf[i] != '\0'; ++i) {
+        if (buf[i] == '_') {
+            buf[i] = ' ';
+            break;
+        }
+    }
+}
+
 /* ------------------------------------------------------------------------- */
 /* Public API                                                                */
 /* ------------------------------------------------------------------------- */
@@ -43,14 +62,60 @@ int logger_init(const char *file_path)
         return 0;
     }
 
-    logger_fp = fopen(file_path, "a");
+    /* Build timestamped path inside "logs" directory.
+     *
+     * Example:
+     *   file_path = "p2p_tx.log"
+     *   -> logs/p2p_tx_YYYY-MM-DD_HH-MM-SS.log
+     */
+
+    char ts[32];
+    logger_timestamp(ts, sizeof(ts));
+
+    /* Extract basename: strip directory components ('/' or '\\') */
+    const char *base = file_path;
+    const char *slash_fwd  = strrchr(file_path, '/');
+    const char *slash_back = strrchr(file_path, '\\');
+    const char *slash = slash_fwd;
+
+    if (slash_back && (!slash || slash_back > slash)) {
+        slash = slash_back;
+    }
+    if (slash) {
+        base = slash + 1;
+    }
+
+    /* Strip extension from basename (e.g., ".log") */
+    const char *dot = strrchr(base, '.');
+    size_t base_len = dot ? (size_t)(dot - base) : strlen(base);
+
+    char final_path[512];
+    if (base_len > 0) {
+        (void)snprintf(final_path, sizeof(final_path),
+                       "logs/%.*s_%s.log",
+                       (int)base_len, base, ts);
+    } else {
+        /* Fallback: just use the original name under logs/ */
+        (void)snprintf(final_path, sizeof(final_path),
+                       "logs/%s", ts);
+    }
+
+    logger_fp = fopen(final_path, "w");
     if (!logger_fp) {
         /* Not fatal: we still log to console */
         fprintf(stderr,
-                "[LOGGER WARN]: Could not open log file '%s': %s\n",
-                file_path, strerror(errno));
+                "[LOGGER WARN]: Could not open log file '%s' (requested '%s'): %s\n",
+                final_path, file_path, strerror(errno));
         return -1;
     }
+
+    /* Optional header line with creation timestamp */
+    char human_ts[32];
+    logger_time_iso8601(human_ts, sizeof(human_ts));
+    fprintf(logger_fp,
+            "[%s] Log file created (requested name '%s')\n",
+            human_ts, file_path);
+    fflush(logger_fp);
 
     return 0;
 }
@@ -179,7 +244,9 @@ static void logger_vlog(logger_level_t level,
                 LOGGER_COLOR_RESET);
         fflush(stdout);
         if (logger_fp) {
-            fprintf(logger_fp, "[ERR ]: <formatting error>\n");
+            char ts[32];
+            logger_time_iso8601(ts, sizeof(ts));
+            fprintf(logger_fp, "[%s] [ERR ]: <formatting error>\n", ts);
             fflush(logger_fp);
         }
         return;
@@ -194,9 +261,11 @@ static void logger_vlog(logger_level_t level,
             color_code, plain_prefix, LOGGER_COLOR_RESET, msg_buf);
     fflush(stdout);
 
-    /* File output without color codes */
+    /* File output: timestamp + prefix + message (no colors) */
     if (logger_fp) {
-        fprintf(logger_fp, "%s %s\n", plain_prefix, msg_buf);
+        char ts[32];
+        logger_time_iso8601(ts, sizeof(ts));
+        fprintf(logger_fp, "[%s] %s %s\n", ts, plain_prefix, msg_buf);
         fflush(logger_fp);
     }
 }

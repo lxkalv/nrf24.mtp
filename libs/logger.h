@@ -14,7 +14,13 @@ typedef enum {
 /**
  * Initialize the logger.
  *
- * If file_path is non-NULL, the logger will append to that file.
+ * If file_path is non-NULL, the logger will create a log file inside the
+ * "logs" directory. The actual filename will be:
+ *
+ *   logs/<basename>_YYYY-MM-DD_HH-MM-SS.log
+ *
+ * where <basename> is file_path without any directory and without extension.
+ *
  * If opening the file fails, the logger will still work for console output,
  * and logger_init() will return non-zero.
  *
@@ -31,8 +37,7 @@ void logger_close(void);
 
 /**
  * Optional: set minimum log level to output.
- * For now, this is implemented but not strictly necessary;
- * default level is LOGGER_LEVEL_DEBUG (everything printed).
+ * Default level is LOGGER_LEVEL_DEBUG (everything printed).
  */
 void logger_set_level(logger_level_t level);
 
@@ -54,5 +59,6 @@ void logger_succ (const char *fmt, ...);
  * buf_len must be > 0. If something fails, a fallback string is written.
  */
 void logger_timestamp(char *buf, size_t buf_len);
+
 
 #endif /* LOGGER_H */
