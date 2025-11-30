@@ -19,13 +19,16 @@
 #define MSG_STREAM_INFO     0x01
 #define MSG_STREAM_FINISH   0x02
 #define MSG_CHECKSUM        0x03
+#define MSG_STREAM_READY    0x04
 
 #define CHECKSUM_SIZE       8
+#define READY_TIMEOUT_MS    2000
 #define CONTROL_TIMEOUT_MS  100
 #define DATA_TIMEOUT_MS     20
 #define CHECKSUM_TIMEOUT_MS 1000
 
 #define STREAM_INFO_SIZE    16
+#define STREAM_READY_SIZE   11
 
 #define FNV64_OFFSET_BASIS  1469598103934665603ULL
 #define FNV64_PRIME         1099511628211ULL
@@ -337,6 +340,100 @@ static int send_checksum(nrf24_t *radio, uint64_t checksum)
     return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "CHECKSUM");
 }
 
+static int wait_for_stream_ready(nrf24_t *radio,
+                                 uint8_t expected_id_bytes,
+                                 uint32_t expected_frames,
+                                 uint32_t expected_comp_len)
+{
+    if (ensure_mode_rx(radio) != 0) {
+        return -1;
+    }
+
+    double wait_start = now_seconds();
+    while ((now_seconds() - wait_start) * 1000.0 < READY_TIMEOUT_MS) {
+        uint8_t buf[MAX_PAYLOAD];
+        uint8_t len = sizeof(buf);
+        int ret = nrf24_recv_blocking(radio, buf, &len, 200);
+        if (ret < 0) {
+            if (errno == ETIMEDOUT) {
+                continue;
+            }
+            logger_error("robust TX: waiting for STREAM_READY failed: %s", strerror(errno));
+            return -1;
+        }
+
+        if (len < 2 || buf[0] != CONTROL_PREFIX) {
+            logger_warn("robust TX: ignoring unexpected frame while waiting for READY");
+            continue;
+        }
+
+        if (buf[1] == MSG_STREAM_READY) {
+            uint8_t rx_id_bytes = (len >= 3) ? buf[2] : 0;
+            uint32_t rx_frames  = (len >= 7) ? decode_u32_le(&buf[3]) : 0;
+            uint32_t rx_comp    = (len >= 11) ? decode_u32_le(&buf[7]) : 0;
+
+            if (rx_id_bytes != expected_id_bytes) {
+                logger_warn("robust TX: RX id_bytes=%u differs from TX=%u",
+                            rx_id_bytes,
+                            expected_id_bytes);
+            }
+            if (expected_frames && rx_frames && rx_frames != expected_frames) {
+                logger_warn("robust TX: RX expects %u frames but TX planned %u",
+                            rx_frames,
+                            expected_frames);
+            }
+            if (expected_comp_len && rx_comp && rx_comp != expected_comp_len) {
+                logger_warn("robust TX: RX reported comp_len=%u but TX has %u",
+                            rx_comp,
+                            expected_comp_len);
+            }
+
+            logger_info("robust TX: RX ready (frames=%u, comp=%u)", rx_frames, rx_comp);
+
+            if (ensure_mode_tx(radio) != 0) {
+                return -1;
+            }
+            return 0;
+        }
+
+        logger_warn("robust TX: control 0x%02X while waiting for READY", buf[1]);
+    }
+
+    logger_error("robust TX: timeout waiting for STREAM_READY");
+    return -1;
+}
+
+static int send_stream_ready(nrf24_t *radio,
+                             uint8_t id_bytes,
+                             uint32_t expected_frames,
+                             uint32_t compressed_len)
+{
+    if (ensure_mode_tx(radio) != 0) {
+        return -1;
+    }
+
+    uint8_t msg[STREAM_READY_SIZE] = {0};
+    msg[0] = CONTROL_PREFIX;
+    msg[1] = MSG_STREAM_READY;
+    msg[2] = id_bytes;
+    encode_u32_le(&msg[3], expected_frames);
+    encode_u32_le(&msg[7], compressed_len);
+
+    if (send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_READY") != 0) {
+        logger_error("robust RX: failed to send STREAM_READY");
+        return -1;
+    }
+
+    logger_info("robust RX: sent STREAM_READY (frames=%u, comp=%u)",
+                expected_frames,
+                compressed_len);
+
+    if (ensure_mode_rx(radio) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
 static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
 {
     uint8_t *file_data = NULL;
@@ -398,6 +495,15 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
                          total_frames,
                          (uint32_t)file_len) != 0) {
         logger_error("Failed to send STREAM_INFO");
+        nrf24_deinit(&radio);
+        goto cleanup;
+    }
+
+    if (wait_for_stream_ready(&radio,
+                              (uint8_t)id_bytes,
+                              total_frames,
+                              (uint32_t)compressed_len) != 0) {
+        logger_error("robust TX: RX failed to signal readiness");
         nrf24_deinit(&radio);
         goto cleanup;
     }
@@ -561,7 +667,6 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
     size_t compressed_len = 0;
     size_t compressed_cap = 0;
     uint8_t *frame_received = NULL;
-    uint32_t total_frames = 0;
     unsigned id_bytes = 0;
     size_t payload_bytes = 0;
     uint32_t frames_received = 0;
@@ -648,7 +753,9 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
                     }
                 }
 
-                memset(compressed, 0, compressed_len);
+                if (compressed_len > 0 && compressed) {
+                    memset(compressed, 0, compressed_len);
+                }
                 frames_received = 0;
                 checksum_sent = 0;
                 have_info = 1;
@@ -658,6 +765,13 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
                             original_len,
                             expected_frames,
                             id_bytes);
+
+                if (send_stream_ready(&radio,
+                                      id_bytes,
+                                      expected_frames,
+                                      (uint32_t)compressed_len) != 0) {
+                    goto cleanup;
+                }
                 continue;
             }
 
