@@ -17,7 +17,6 @@ BIN_PROGS = $(addprefix $(BINDIR)/,$(PROGS))
 # Library objects
 LIB_OBJS = \
     $(LIBDIR)/nrf24.o \
-    $(LIBDIR)/utils.o \
     $(LIBDIR)/logger.o \
     $(LIBDIR)/app_layer.o \
     $(LIBDIR)/presentation_layer.o \
