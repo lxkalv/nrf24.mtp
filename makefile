@@ -39,15 +39,15 @@ $(LIBDIR)/%.o: $(LIBDIR)/%.c
 
 # ---------- Link targets ----------
 
-$(BINDIR)/quick_mode: $(SRCDIR)/quick_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o
+$(BINDIR)/quick_mode: $(SRCDIR)/quick_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o $(LIBDIR)/logger.o
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(BINDIR)/fast_mode: $(SRCDIR)/fast_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o
+$(BINDIR)/fast_mode: $(SRCDIR)/fast_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o $(LIBDIR)/logger.o
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(BINDIR)/p2p_mode: $(SRCDIR)/p2p_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o
+$(BINDIR)/p2p_mode: $(SRCDIR)/p2p_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o $(LIBDIR)/logger.o
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
@@ -60,7 +60,7 @@ $(BINDIR)/p3p_mode: $(SRCDIR)/p3p_mode.o $(LIB_OBJS)
 
 $(SRCDIR)/quick_mode.o: $(SRCDIR)/quick_mode.c $(LIBDIR)/nrf24.h
 $(SRCDIR)/fast_mode.o:  $(SRCDIR)/fast_mode.c  $(LIBDIR)/nrf24.h
-$(SRCDIR)/p2p_mode.o:   $(SRCDIR)/p2p_mode.c   $(LIBDIR)/nrf24.h $(LIBDIR)/utils.h
+$(SRCDIR)/p2p_mode.o:   $(SRCDIR)/p2p_mode.c   $(LIBDIR)/nrf24.h
 $(SRCDIR)/p3p_mode.o:   $(SRCDIR)/p3p_mode.c   \
                         $(LIBDIR)/logger.h \
                         $(LIBDIR)/app_layer.h \
