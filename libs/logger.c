@@ -6,6 +6,7 @@
 #include <time.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/time.h>  /* gettimeofday for milliseconds */
 
 /* ANSI color codes for console output */
 #define LOGGER_COLOR_RED    "\x1b[31m"
@@ -25,23 +26,48 @@ static void logger_vlog(logger_level_t level,
                         const char *fmt,
                         va_list args);
 
-/* Small helper: convert logger_timestamp() output to "YYYY-MM-DD HH-MM-SS" */
+/* Small helper: get current local time with milliseconds as
+ * "YYYY-MM-DD HH:MM:SS.mmm"
+ */
 static void logger_time_iso8601(char *buf, size_t buf_len)
 {
     if (buf == NULL || buf_len == 0) {
         return;
     }
 
-    /* logger_timestamp gives "YYYY-MM-DD_HH-MM-SS" */
-    logger_timestamp(buf, buf_len);
-
-    /* Replace the first '_' with a space for nicer readability */
-    for (size_t i = 0; i < buf_len && buf[i] != '\0'; ++i) {
-        if (buf[i] == '_') {
-            buf[i] = ' ';
-            break;
-        }
+    struct timeval tv;
+    if (gettimeofday(&tv, NULL) != 0) {
+        /* Fallback */
+        snprintf(buf, buf_len, "0000-00-00 00:00:00.000");
+        return;
     }
+
+    time_t sec = tv.tv_sec;
+    struct tm tm_info;
+    struct tm *tm_ptr = NULL;
+
+#if defined(_WIN32) && !defined(__MINGW32__)
+    if (localtime_s(&tm_info, &sec) != 0) {
+        snprintf(buf, buf_len, "0000-00-00 00:00:00.000");
+        return;
+    }
+    tm_ptr = &tm_info;
+#else
+    tm_ptr = localtime(&sec);
+    if (tm_ptr == NULL) {
+        snprintf(buf, buf_len, "0000-00-00 00:00:00.000");
+        return;
+    }
+#endif
+
+    char date_part[32];
+    if (strftime(date_part, sizeof(date_part), "%Y-%m-%d %H:%M:%S", tm_ptr) == 0) {
+        snprintf(buf, buf_len, "0000-00-00 00:00:00.000");
+        return;
+    }
+
+    int millis = (int)(tv.tv_usec / 1000);
+    snprintf(buf, buf_len, "%s.%03d", date_part, millis);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -70,7 +96,7 @@ int logger_init(const char *file_path)
      */
 
     char ts[32];
-    logger_timestamp(ts, sizeof(ts));
+    logger_timestamp(ts, sizeof(ts));  /* seconds precision, with '_' */
 
     /* Extract basename: strip directory components ('/' or '\\') */
     const char *base = file_path;
@@ -97,7 +123,7 @@ int logger_init(const char *file_path)
     } else {
         /* Fallback: just use the original name under logs/ */
         (void)snprintf(final_path, sizeof(final_path),
-                       "logs/%s", ts);
+                       "logs/%s.log", ts);
     }
 
     logger_fp = fopen(final_path, "w");
@@ -109,8 +135,8 @@ int logger_init(const char *file_path)
         return -1;
     }
 
-    /* Optional header line with creation timestamp */
-    char human_ts[32];
+    /* Optional header line with creation timestamp (with milliseconds) */
+    char human_ts[64];
     logger_time_iso8601(human_ts, sizeof(human_ts));
     fprintf(logger_fp,
             "[%s] Log file created (requested name '%s')\n",
@@ -210,13 +236,12 @@ void logger_timestamp(char *buf, size_t buf_len)
     }
 #endif
 
-    /* Format: YYYY-MM-DD_HH-MM-SS */
+    /* Format: YYYY-MM-DD_HH-MM-SS (for filenames) */
     if (strftime(buf, buf_len, "%Y-%m-%d_%H-%M-%S", tm_ptr) == 0) {
         /* strftime returns 0 if the buffer is too small */
         snprintf(buf, buf_len, "0000-00-00_00-00-00");
     }
 }
-
 
 /* ------------------------------------------------------------------------- */
 /* Internal helper                                                           */
@@ -239,14 +264,14 @@ static void logger_vlog(logger_level_t level,
     if (n < 0) {
         /* Formatting error; just print something minimal */
         fprintf(stdout,
-                "%s[ERR ]:%s <formatting error>\n",
+                "%s[ERRO]:%s <formatting error>\n",
                 LOGGER_COLOR_RED,
                 LOGGER_COLOR_RESET);
         fflush(stdout);
         if (logger_fp) {
-            char ts[32];
+            char ts[64];
             logger_time_iso8601(ts, sizeof(ts));
-            fprintf(logger_fp, "[%s] [ERR ]: <formatting error>\n", ts);
+            fprintf(logger_fp, "[%s] [ERRO]: <formatting error>\n", ts);
             fflush(logger_fp);
         }
         return;
@@ -261,9 +286,9 @@ static void logger_vlog(logger_level_t level,
             color_code, plain_prefix, LOGGER_COLOR_RESET, msg_buf);
     fflush(stdout);
 
-    /* File output: timestamp + prefix + message (no colors) */
+    /* File output: timestamp (with ms) + prefix + message (no colors) */
     if (logger_fp) {
-        char ts[32];
+        char ts[64];
         logger_time_iso8601(ts, sizeof(ts));
         fprintf(logger_fp, "[%s] %s %s\n", ts, plain_prefix, msg_buf);
         fflush(logger_fp);
