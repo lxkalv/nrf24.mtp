@@ -78,7 +78,7 @@ $(BINDIR)/p3p_mode: $(SRCDIR)/p3p_mode.o $(LIB_OBJS)
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(BINDIR)/robust_mode: $(SRCDIR)/robust_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/logger.o
+$(BINDIR)/robust_mode: $(SRCDIR)/robust_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/logger.o $(LIBDIR)/app_layer.o
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
@@ -94,7 +94,7 @@ $(SRCDIR)/p3p_mode.o:   $(SRCDIR)/p3p_mode.c   \
                         $(LIBDIR)/transport_layer.h \
                         $(LIBDIR)/link_layer.h \
                         $(LIBDIR)/nrf24.h
-$(SRCDIR)/robust_mode.o: $(SRCDIR)/robust_mode.c $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h
+$(SRCDIR)/robust_mode.o: $(SRCDIR)/robust_mode.c $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h $(LIBDIR)/app_layer.h
 
 $(LIBDIR)/nrf24.o:            $(LIBDIR)/nrf24.c            $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h
 $(LIBDIR)/utils.o:            $(LIBDIR)/utils.c            $(LIBDIR)/utils.h
