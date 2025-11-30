@@ -63,6 +63,8 @@ static RadioRuntimeConfig g_radio_runtime = {
     .retr_tries     = 15
 };
 
+static int configure_radio_runtime(nrf24_t *radio);
+
 typedef struct {
     nrf24_t        *radio;
     uint8_t         tx_buf[NRF24_MAX_PAYLOAD_SIZE];
@@ -456,33 +458,6 @@ static double now_seconds(void)
 }
 
 /* ---- Little-endian helpers ---- */
-
-static void encode_u16_le(uint8_t *dst, uint16_t v)
-{
-    dst[0] = (uint8_t)(v & 0xFFu);
-    dst[1] = (uint8_t)((v >> 8) & 0xFFu);
-}
-
-static uint16_t decode_u16_le(const uint8_t *src)
-{
-    return (uint16_t)(src[0] | ((uint16_t)src[1] << 8));
-}
-
-static void encode_u32_le(uint8_t *dst, uint32_t v)
-{
-    dst[0] = (uint8_t)(v & 0xFFu);
-    dst[1] = (uint8_t)((v >> 8) & 0xFFu);
-    dst[2] = (uint8_t)((v >> 16) & 0xFFu);
-    dst[3] = (uint8_t)((v >> 24) & 0xFFu);
-}
-
-static uint32_t decode_u32_le(const uint8_t *src)
-{
-    return (uint32_t)(src[0] |
-                      ((uint32_t)src[1] << 8) |
-                      ((uint32_t)src[2] << 16) |
-                      ((uint32_t)src[3] << 24));
-}
 
 static size_t compute_page_orig_len(uint64_t total_len, size_t page_index)
 {
