@@ -22,6 +22,7 @@
 #define MSG_STREAM_READY    0x04
 
 #define CHECKSUM_SIZE       8
+#define CHECKSUM_SEND_WINDOW_MS 500
 #define READY_TIMEOUT_MS    2000
 #define CONTROL_TIMEOUT_MS  100
 #define DATA_TIMEOUT_MS     20
@@ -331,13 +332,47 @@ static int send_stream_finish(nrf24_t *radio)
     return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_FINISH");
 }
 
-static int send_checksum(nrf24_t *radio, uint64_t checksum)
+static int send_checksum_with_timeout(nrf24_t *radio, uint64_t checksum)
 {
     uint8_t msg[2 + CHECKSUM_SIZE];
     msg[0] = CONTROL_PREFIX;
     msg[1] = MSG_CHECKSUM;
     encode_u64_le(&msg[2], checksum);
-    return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "CHECKSUM");
+
+    double start = now_seconds();
+    unsigned attempt = 0;
+
+    while ((now_seconds() - start) * 1000.0 < CHECKSUM_SEND_WINDOW_MS) {
+        int ret = nrf24_send_blocking(radio,
+                                      msg,
+                                      sizeof(msg),
+                                      CONTROL_TIMEOUT_MS);
+        if (ret == 0) {
+            return 0;
+        }
+
+        if (errno != ETIMEDOUT) {
+            logger_error("robust RX: nrf24_send_blocking(CHECKSUM) failed: %s",
+                         strerror(errno));
+            return -1;
+        }
+
+        ++attempt;
+        if (attempt == 1 || (attempt % 50) == 0) {
+            logger_warn("robust RX: checksum timeout (attempt %u)", attempt);
+        }
+
+        if ((attempt % 200) == 0) {
+            logger_warn("robust RX: %u checksum timeouts, reconfiguring radio", attempt);
+            (void)nrf24_configure_quick(radio, ROBUST_CHANNEL);
+            if (ensure_mode_tx(radio) != 0) {
+                return -1;
+            }
+        }
+    }
+
+    errno = ETIMEDOUT;
+    return -1;
 }
 
 static int wait_for_stream_ready(nrf24_t *radio,
@@ -845,9 +880,12 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
             if (ensure_mode_tx(&radio) != 0) {
                 goto cleanup;
             }
-            if (send_checksum(&radio, rx_checksum) != 0) {
-                logger_error("robust RX: failed to send checksum");
-                goto cleanup;
+            if (send_checksum_with_timeout(&radio, rx_checksum) != 0) {
+                logger_warn("robust RX: checksum send window elapsed, expecting resend");
+                if (ensure_mode_rx(&radio) != 0) {
+                    goto cleanup;
+                }
+                continue;
             }
             checksum_sent = 1;
             if (ensure_mode_rx(&radio) != 0) {
