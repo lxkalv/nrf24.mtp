@@ -10,11 +10,12 @@
 
 #include "libs/nrf24.h"
 #include "libs/logger.h"
+#include "libs/app_layer.h"
 
-#define ROBUST_CHANNEL      90
 #define MAX_PAYLOAD         32
 #define CONTROL_PREFIX      0xFF
 #define DATA_PREFIX         0x00
+#define DEFAULT_SPI_DEVICE  "/dev/spidev0.0"
 
 #define MSG_STREAM_INFO     0x01
 #define MSG_STREAM_FINISH   0x02
@@ -33,6 +34,110 @@
 
 #define FNV64_OFFSET_BASIS  1469598103934665603ULL
 #define FNV64_PRIME         1099511628211ULL
+
+typedef struct {
+    uint8_t  channel;
+    unsigned data_rate_kbps;
+    int      pa_level_dbm;
+    unsigned crc_bytes;
+    unsigned retr_delay;
+    unsigned retr_tries;
+} robust_radio_params_t;
+
+static robust_radio_params_t g_radio_params = {
+    .channel        = 76,
+    .data_rate_kbps = 1000,
+    .pa_level_dbm   = -18,
+    .crc_bytes      = 2,
+    .retr_delay     = 2,
+    .retr_tries     = 15
+};
+
+static unsigned map_data_rate_kbps(app_data_rate_t rate)
+{
+    switch (rate) {
+    case APP_DATA_RATE_250KBPS: return 250;
+    case APP_DATA_RATE_2MBPS:   return 2000;
+    case APP_DATA_RATE_1MBPS:
+    default:                    return 1000;
+    }
+}
+
+static int map_pa_level_dbm(app_pa_level_t level)
+{
+    switch (level) {
+    case APP_PA_MAX:  return 0;
+    case APP_PA_HIGH: return -6;
+    case APP_PA_LOW:  return -12;
+    case APP_PA_MIN:
+    default:          return -18;
+    }
+}
+
+static unsigned map_crc_bytes(app_crc_bytes_t crc)
+{
+    switch (crc) {
+    case APP_CRC_OFF: return 0;
+    case APP_CRC_8:   return 1;
+    case APP_CRC_16:
+    default:          return 2;
+    }
+}
+
+static void update_radio_params_from_config(const app_config_t *cfg)
+{
+    if (!cfg) {
+        return;
+    }
+
+    g_radio_params.channel        = (uint8_t)cfg->channel;
+    g_radio_params.data_rate_kbps = map_data_rate_kbps(cfg->data_rate);
+    g_radio_params.pa_level_dbm   = map_pa_level_dbm(cfg->pa_level);
+    g_radio_params.crc_bytes      = map_crc_bytes(cfg->crc_bytes);
+    g_radio_params.retr_delay     = (unsigned)cfg->retransmission_delay;
+    g_radio_params.retr_tries     = (unsigned)cfg->retransmission_tries;
+}
+
+static int configure_radio_runtime(nrf24_t *radio)
+{
+    return nrf24_configure_advanced(radio,
+                                    g_radio_params.channel,
+                                    g_radio_params.data_rate_kbps,
+                                    g_radio_params.pa_level_dbm,
+                                    g_radio_params.crc_bytes,
+                                    g_radio_params.retr_delay,
+                                    g_radio_params.retr_tries);
+}
+
+static int maybe_verify_radio_config(const app_config_t *cfg,
+                                     nrf24_t *radio,
+                                     const char *phase)
+{
+    if (!cfg || !cfg->verify_config) {
+        return 0;
+    }
+
+    if (phase) {
+        logger_info("Verifying radio configuration (%s phase) via module readback", phase);
+    } else {
+        logger_info("Verifying radio configuration via module readback");
+    }
+
+    if (nrf24_dump_config(radio) < 0) {
+        logger_error("nrf24_dump_config failed: %s", strerror(errno));
+        return -1;
+    }
+    return 0;
+}
+
+static const char *get_spi_device_path(void)
+{
+    const char *env = getenv("NRF24_SPI_DEVICE");
+    if (env && *env) {
+        return env;
+    }
+    return DEFAULT_SPI_DEVICE;
+}
 
 static double now_seconds(void)
 {
@@ -91,74 +196,6 @@ static uint64_t decode_u64_le(const uint8_t *src)
     return v;
 }
 
-static int read_file_bytes(const char *path, uint8_t **out_buf, size_t *out_len)
-{
-    if (!path || !out_buf || !out_len) {
-        logger_error("read_file_bytes: invalid arguments");
-        return -1;
-    }
-
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        logger_error("Failed to open '%s': %s", path, strerror(errno));
-        return -1;
-    }
-
-    if (fseek(f, 0, SEEK_END) != 0) {
-        logger_error("fseek failed on '%s'", path);
-        fclose(f);
-        return -1;
-    }
-
-    long sz = ftell(f);
-    if (sz < 0) sz = 0;
-    rewind(f);
-
-    uint8_t *buf = NULL;
-    size_t len = (size_t)sz;
-    if (len > 0) {
-        buf = (uint8_t *)malloc(len);
-        if (!buf) {
-            logger_error("malloc(%zu) failed", len);
-            fclose(f);
-            return -1;
-        }
-        if (fread(buf, 1, len, f) != len) {
-            logger_error("fread failed for '%s'", path);
-            free(buf);
-            fclose(f);
-            return -1;
-        }
-    }
-
-    fclose(f);
-    *out_buf = buf;
-    *out_len = len;
-    return 0;
-}
-
-static int write_file_bytes(const char *path, const uint8_t *data, size_t len)
-{
-    if (!path) {
-        logger_error("write_file_bytes: invalid path");
-        return -1;
-    }
-
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        logger_error("Failed to open '%s' for writing: %s", path, strerror(errno));
-        return -1;
-    }
-
-    if (len > 0 && fwrite(data, 1, len, f) != len) {
-        logger_error("fwrite failed for '%s'", path);
-        fclose(f);
-        return -1;
-    }
-
-    fclose(f);
-    return 0;
-}
 
 static int compress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf, size_t *out_len)
 {
@@ -295,7 +332,10 @@ static int send_with_retries(nrf24_t *radio,
         if ((attempt % 200) == 0) {
             logger_warn("%s: %u consecutive timeouts, reconfiguring radio",
                         label ? label : "frame", attempt);
-            (void)nrf24_configure_quick(radio, ROBUST_CHANNEL);
+            if (configure_radio_runtime(radio) != 0) {
+                logger_error("Failed to reconfigure radio during retries: %s", strerror(errno));
+                return -1;
+            }
         }
     }
 }
@@ -389,7 +429,10 @@ static int send_checksum_with_timeout(nrf24_t *radio,
 
         if ((attempt % 200) == 0) {
             logger_warn("robust RX: %u checksum timeouts, reconfiguring radio", attempt);
-            (void)nrf24_configure_quick(radio, ROBUST_CHANNEL);
+            if (configure_radio_runtime(radio) != 0) {
+                logger_error("robust RX: failed to reconfigure radio during checksum retries");
+                return -1;
+            }
             if (ensure_mode_tx(radio) != 0) {
                 return -1;
             }
@@ -505,10 +548,11 @@ static int send_stream_ready(nrf24_t *radio,
     return 0;
 }
 
-static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
+static int run_tx(const char *spi_dev,
+                  const app_config_t *cfg,
+                  const uint8_t *file_data,
+                  size_t file_len)
 {
-    uint8_t *file_data = NULL;
-    size_t file_len = 0;
     uint8_t *compressed = NULL;
     size_t compressed_len = 0;
     int exit_code = 1;
@@ -516,8 +560,13 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
     uint64_t tx_rf_frames = 0;
     double tx_start = 0.0;
 
-    if (read_file_bytes(input_path, &file_data, &file_len) != 0) {
-        goto cleanup;
+    if (!spi_dev) {
+        logger_error("run_tx: missing SPI device");
+        return 1;
+    }
+    if (!file_data && file_len > 0) {
+        logger_error("run_tx: input buffer is NULL but length > 0");
+        return 1;
     }
 
     if (compress_buffer(file_data, file_len, &compressed, &compressed_len) != 0) {
@@ -536,25 +585,35 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
         goto cleanup;
     }
 
+    const char *input_label = (cfg && cfg->file_path_tx && cfg->file_path_tx[0])
+                            ? cfg->file_path_tx
+                            : "(auto)";
+
     logger_info("robust TX: '%s' -> %zu bytes compressed (%u frames, %u ID bytes)",
-                input_path,
+                input_label,
                 compressed_len,
                 (unsigned)total_frames,
                 id_bytes);
 
     nrf24_t radio;
-    nrf24_config_t cfg = {
+    uint8_t ce_pin = (uint8_t)((cfg && cfg->ce_pin >= 0 && cfg->ce_pin <= 255)
+                               ? cfg->ce_pin : 22);
+    nrf24_config_t radio_cfg = {
         .spi_device   = spi_dev,
         .spi_speed_hz = 8000000,
-        .ce_gpio      = (uint8_t)ce_gpio
+        .ce_gpio      = ce_pin
     };
 
-    if (nrf24_init(&radio, &cfg) < 0) {
+    if (nrf24_init(&radio, &radio_cfg) < 0) {
         logger_error("nrf24_init failed: %s", strerror(errno));
         goto cleanup;
     }
-    if (nrf24_configure_quick(&radio, ROBUST_CHANNEL) < 0) {
-        logger_error("nrf24_configure_quick failed");
+    if (configure_radio_runtime(&radio) < 0) {
+        logger_error("configure_radio_runtime failed: %s", strerror(errno));
+        nrf24_deinit(&radio);
+        goto cleanup;
+    }
+    if (maybe_verify_radio_config(cfg, &radio, "TX init") != 0) {
         nrf24_deinit(&radio);
         goto cleanup;
     }
@@ -768,26 +827,36 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
     exit_code = 0;
 
 cleanup:
-    free(file_data);
     free(compressed);
     return exit_code;
 }
 
-static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
+static int run_rx(const char *spi_dev, const app_config_t *cfg)
 {
+    if (!spi_dev) {
+        logger_error("run_rx: missing SPI device");
+        return 1;
+    }
+
     nrf24_t radio;
-    nrf24_config_t cfg = {
+    uint8_t ce_pin = (uint8_t)((cfg && cfg->ce_pin >= 0 && cfg->ce_pin <= 255)
+                               ? cfg->ce_pin : 22);
+    nrf24_config_t radio_cfg = {
         .spi_device   = spi_dev,
         .spi_speed_hz = 8000000,
-        .ce_gpio      = (uint8_t)ce_gpio
+        .ce_gpio      = ce_pin
     };
 
-    if (nrf24_init(&radio, &cfg) < 0) {
+    if (nrf24_init(&radio, &radio_cfg) < 0) {
         logger_error("nrf24_init failed: %s", strerror(errno));
         return 1;
     }
-    if (nrf24_configure_quick(&radio, ROBUST_CHANNEL) < 0) {
-        logger_error("nrf24_configure_quick failed");
+    if (configure_radio_runtime(&radio) < 0) {
+        logger_error("configure_radio_runtime failed: %s", strerror(errno));
+        nrf24_deinit(&radio);
+        return 1;
+    }
+    if (maybe_verify_radio_config(cfg, &radio, "RX init") != 0) {
         nrf24_deinit(&radio);
         return 1;
     }
@@ -1032,12 +1101,18 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
             goto cleanup;
         }
 
-        if (write_file_bytes(output_path, output, original_len) != 0) {
+        const char *dest_label = (cfg && cfg->file_path_rx && cfg->file_path_rx[0])
+                               ? cfg->file_path_rx
+                               : "(auto)";
+        if (app_store_file_bytes(cfg ? cfg->file_path_rx : NULL,
+                                 output,
+                                 original_len) != 0) {
+            logger_error("robust RX: failed to store output bytes");
             free(output);
             goto cleanup;
         }
         free(output);
-        logger_succ("robust RX: stored '%s' (%u bytes)", output_path, original_len);
+        logger_succ("robust RX: stored '%s' (%u bytes)", dest_label, original_len);
     }
 
     if (rx_start > 0.0) {
@@ -1069,55 +1144,63 @@ cleanup:
     return 1;
 }
 
-static void usage(const char *prog)
-{
-    fprintf(stderr,
-            "Usage:\n"
-            "  %s tx <spi_dev> <ce_gpio> <input_file>\n"
-            "  %s rx <spi_dev> <ce_gpio> <output_file>\n",
-            prog, prog);
-}
-
 int main(int argc, char **argv)
 {
-    if (argc != 5) {
-        usage(argv[0]);
+    app_config_t cfg;
+    if (app_parse_arguments(argc, argv, &cfg) != 0) {
+        app_print_usage(argv[0]);
         return 1;
     }
 
-    const char *mode = argv[1];
-    const char *spi_dev = argv[2];
-    int ce_gpio = atoi(argv[3]);
-    const char *file_path = argv[4];
-
-    if (ce_gpio < 0 || ce_gpio > 255) {
-        logger_error("Invalid CE GPIO: %d", ce_gpio);
-        return 1;
-    }
-
-    char log_path[32];
-    if (strcmp(mode, "tx") == 0) {
+    char log_path[64];
+    if (cfg.mode == APP_MODE_TX) {
         snprintf(log_path, sizeof(log_path), "robust_tx.log");
-    } else if (strcmp(mode, "rx") == 0) {
+    } else if (cfg.mode == APP_MODE_RX) {
         snprintf(log_path, sizeof(log_path), "robust_rx.log");
     } else {
-        usage(argv[0]);
-        return 1;
+        snprintf(log_path, sizeof(log_path), "robust.log");
     }
 
     if (logger_init(log_path) != 0) {
-        logger_warn("Could not open log file '%s'", log_path);
+        logger_warn("Could not open log file '%s' (continuing without file log)", log_path);
     } else {
         logger_info("Logging to file '%s'", log_path);
     }
 
-    int ret;
-    if (strcmp(mode, "tx") == 0) {
-        ret = run_tx(spi_dev, ce_gpio, file_path);
-    } else {
-        ret = run_rx(spi_dev, ce_gpio, file_path);
+    if (cfg.print_config) {
+        app_print_config(&cfg);
     }
 
+    const char *spi_dev = get_spi_device_path();
+    update_radio_params_from_config(&cfg);
+
+    logger_info("Using SPI device: %s", spi_dev);
+
+    int exit_code = 0;
+
+    if (cfg.mode == APP_MODE_TX) {
+        uint8_t *data = NULL;
+        size_t   len  = 0;
+        if (app_load_file_bytes(cfg.file_path_tx, &data, &len) != 0) {
+            logger_error("robust TX: failed to load input bytes");
+            exit_code = 1;
+            goto cleanup;
+        }
+
+        exit_code = run_tx(spi_dev, &cfg, data, len);
+        free(data);
+        goto cleanup;
+    }
+
+    if (cfg.mode == APP_MODE_RX) {
+        exit_code = run_rx(spi_dev, &cfg);
+        goto cleanup;
+    }
+
+    logger_error("Unsupported mode: %s", app_mode_str(cfg.mode));
+    exit_code = 1;
+
+cleanup:
     logger_close();
-    return ret;
+    return exit_code;
 }
