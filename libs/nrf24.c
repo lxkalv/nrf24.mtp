@@ -12,6 +12,8 @@
 #include <dirent.h>
 #include <stdlib.h>
 
+#include "logger.h"
+
 /* --------- nRF24L01+ command / register definitions --------- */
 
 #define NRF24_CMD_R_REGISTER       0x00
@@ -509,6 +511,150 @@ int nrf24_configure_quick(nrf24_t *dev, uint8_t channel)
 
     return 0;
 }
+
+int nrf24_dump_config(nrf24_t *dev)
+{
+    if (!dev) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    uint8_t config     = 0;
+    uint8_t en_aa      = 0;
+    uint8_t en_rxaddr  = 0;
+    uint8_t setup_aw   = 0;
+    uint8_t setup_retr = 0;
+    uint8_t rf_ch      = 0;
+    uint8_t rf_setup   = 0;
+    uint8_t rx_pw_p0   = 0;
+    uint8_t dynpd      = 0;
+    uint8_t feature    = 0;
+    uint8_t rx_addr_p0[5] = {0};
+    uint8_t tx_addr[5]    = {0};
+
+    /* Read all relevant registers. */
+    if (nrf24_read_reg(dev, NRF24_REG_CONFIG,      &config)     < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_EN_AA,       &en_aa)      < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_EN_RXADDR,   &en_rxaddr)  < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_SETUP_AW,    &setup_aw)   < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_SETUP_RETR,  &setup_retr) < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_RF_CH,       &rf_ch)      < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_RF_SETUP,    &rf_setup)   < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_RX_PW_P0,    &rx_pw_p0)   < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_DYNPD,       &dynpd)      < 0 ||
+        nrf24_read_reg(dev, NRF24_REG_FEATURE,     &feature)    < 0) {
+        return -1;
+    }
+
+    /* Addresses (max 5 bytes). */
+    if (nrf24_read_buf(dev,
+                       NRF24_CMD_R_REGISTER | NRF24_REG_RX_ADDR_P0,
+                       rx_addr_p0, sizeof(rx_addr_p0)) < 0) {
+        return -1;
+    }
+    if (nrf24_read_buf(dev,
+                       NRF24_CMD_R_REGISTER | NRF24_REG_TX_ADDR,
+                       tx_addr, sizeof(tx_addr)) < 0) {
+        return -1;
+    }
+
+    /* Decode CONFIG: mode and CRC. */
+    int pwr_up  = (config & NRF24_CONFIG_PWR_UP)  ? 1 : 0;
+    int prim_rx = (config & NRF24_CONFIG_PRIM_RX) ? 1 : 0;
+    int en_crc  = (config & NRF24_CONFIG_EN_CRC)  ? 1 : 0;
+    int crco    = (config & NRF24_CONFIG_CRCO)    ? 1 : 0;
+
+    unsigned int crc_bytes;
+    if (!en_crc) {
+        crc_bytes = 0;
+    } else {
+        crc_bytes = crco ? 2u : 1u;
+    }
+
+    const char *mode_str;
+    if (!pwr_up) {
+        mode_str = "POWER DOWN";
+    } else if (prim_rx) {
+        mode_str = "RX";
+    } else {
+        mode_str = "TX";
+    }
+
+    /* Decode RF_SETUP: data rate and PA level. */
+    int dr_low  = (rf_setup & NRF24_RF_SETUP_RF_DR_LOW)  ? 1 : 0;
+    int dr_high = (rf_setup & NRF24_RF_SETUP_RF_DR_HIGH) ? 1 : 0;
+
+    const char *data_rate_str;
+    if (dr_low && !dr_high) {
+        data_rate_str = "250 kbps";
+    } else if (!dr_low && !dr_high) {
+        data_rate_str = "1 Mbps";
+    } else if (!dr_low && dr_high) {
+        data_rate_str = "2 Mbps";
+    } else {
+        data_rate_str = "RESERVED";
+    }
+
+    unsigned int pa_bits = (unsigned int)((rf_setup >> 1) & 0x03u);
+    const char *pa_str;
+    switch (pa_bits) {
+    case 0: pa_str = "-18 dBm"; break;
+    case 1: pa_str = "-12 dBm"; break;
+    case 2: pa_str = "-6 dBm";  break;
+    case 3: pa_str = "0 dBm";   break;
+    default: pa_str = "UNKNOWN"; break;
+    }
+
+    /* Decode SETUP_RETR: auto-retransmit delay/count.
+     * ARD = (value+1)*250us, ARC = number of retries. 
+     */
+    unsigned int ard = (unsigned int)((setup_retr >> 4) & 0x0Fu);
+    unsigned int arc = (unsigned int)(setup_retr & 0x0Fu);
+    unsigned int ard_us = (ard + 1u) * 250u;
+
+    /* Decode address width (bytes). */
+    unsigned int aw_code = (unsigned int)(setup_aw & 0x03u);
+    unsigned int addr_width_bytes = 0;
+    switch (aw_code) {
+    case 1: addr_width_bytes = 3; break;
+    case 2: addr_width_bytes = 4; break;
+    case 3: addr_width_bytes = 5; break;
+    default: addr_width_bytes = 0; break; /* illegal / not set */
+    }
+
+    int dynpl_feature = (feature & NRF24_FEATURE_EN_DPL)   ? 1 : 0;
+    int dynpl_p0      = (dynpd   & NRF24_DYNPD_DPL_P0)     ? 1 : 0;
+    const char *dynpl_str =
+        (dynpl_feature && dynpl_p0) ? "ENABLED (pipe0)" : "disabled";
+
+    int aa_p0    = (en_aa     & 0x01u) ? 1 : 0;
+    int rxaddr_p0= (en_rxaddr & 0x01u) ? 1 : 0;
+
+    /* Now print everything nicely. */
+    logger_info("nRF24 configuration (read from chip):");
+    logger_info("  Mode           : %s (PWR_UP=%d, PRIM_RX=%d)",
+                mode_str, pwr_up, prim_rx);
+    logger_info("  Channel        : %u", (unsigned int)rf_ch);
+    logger_info("  Data rate      : %s", data_rate_str);
+    logger_info("  PA level       : %s", pa_str);
+    logger_info("  CRC bytes      : %u", crc_bytes);
+    logger_info("  Auto retry     : delay=%u us, count=%u",
+                ard_us, arc);
+    logger_info("  Auto-ACK pipe0 : %s", aa_p0 ? "ENABLED" : "disabled");
+    logger_info("  RX pipe0       : %s", rxaddr_p0 ? "ENABLED" : "disabled");
+    logger_info("  RX payload P0  : %u bytes", (unsigned int)rx_pw_p0);
+    logger_info("  Address width  : %u bytes", addr_width_bytes);
+    logger_info("  Dynamic payload: %s", dynpl_str);
+    logger_info("  RX_ADDR_P0     : %02X %02X %02X %02X %02X",
+                rx_addr_p0[0], rx_addr_p0[1], rx_addr_p0[2],
+                rx_addr_p0[3], rx_addr_p0[4]);
+    logger_info("  TX_ADDR        : %02X %02X %02X %02X %02X",
+                tx_addr[0], tx_addr[1], tx_addr[2],
+                tx_addr[3], tx_addr[4]);
+
+    return 0;
+}
+
 
 
 int nrf24_set_mode_rx(nrf24_t *dev)

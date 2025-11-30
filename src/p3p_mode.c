@@ -159,7 +159,13 @@ int main(int argc, char **argv)
 
     // 2. Prepare logs
     char log_path[256];
-    mkdir(LOGS_DIR, 0777);
+    
+    #if defined(_WIN32)
+        mkdir(LOGS_DIR);
+    #else
+        mkdir(LOGS_DIR, 0777);
+    #endif
+
     make_log_filename(cfg.mode == APP_MODE_TX ? LOG_FILE_TX_PREFIX : LOG_FILE_RX_PREFIX,
                       log_path, sizeof(log_path));
 
@@ -167,7 +173,10 @@ int main(int argc, char **argv)
     logger_set_level(LOGGER_LEVEL_INFO);
 
     logger_info("=== P3P MODE STARTED ===");
-    app_print_config(&cfg);
+
+    if (cfg.print_config) {
+        app_print_config(&cfg);
+    }
 
     // 3. Init radio
     radio_ctx_t rctx;
@@ -186,6 +195,10 @@ int main(int argc, char **argv)
 
     nrf24_configure_quick(&rctx.dev, cfg.channel);
     logger_info("Radio configured on channel %u", cfg.channel);
+
+    if (cfg.print_config) {
+        nrf24_dump_config(&rctx.dev);
+    }
 
     // 4. Build link interface
     link_radio_iface_t iface = {

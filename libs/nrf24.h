@@ -32,6 +32,16 @@ void nrf24_deinit(nrf24_t *dev);
 /* Configure channel, data rate, auto-ack, addresses, payload size, etc. */
 int  nrf24_configure_quick(nrf24_t *dev, uint8_t channel);
 
+/* Dump current radio configuration (read from registers) in human-readable form.
+ *
+ * This reads the main configuration registers from the chip and prints a
+ * human-readable summary using the logger (logger_info()).
+ *
+ * Returns 0 on success, -1 on SPI/GPIO error (errno is set).
+ */
+int nrf24_dump_config(nrf24_t *dev);
+
+
 /* Put radio into RX or TX mode (CE handled internally) */
 int  nrf24_set_mode_rx(nrf24_t *dev);
 int  nrf24_set_mode_tx(nrf24_t *dev);
