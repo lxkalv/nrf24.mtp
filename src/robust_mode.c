@@ -31,6 +31,8 @@
 
 #define STREAM_INFO_SIZE    16
 #define STREAM_READY_SIZE   11
+#define STREAM_READY_MAX_ATTEMPTS 400
+#define STREAM_READY_WINDOW_MS    2000
 
 #define FNV64_OFFSET_BASIS  1469598103934665603ULL
 #define FNV64_PRIME         1099511628211ULL
@@ -527,15 +529,62 @@ static int send_stream_ready(nrf24_t *radio,
     encode_u32_le(&msg[3], expected_frames);
     encode_u32_le(&msg[7], compressed_len);
 
-    if (send_with_retries(radio,
-                          msg,
-                          sizeof(msg),
-                          CONTROL_TIMEOUT_MS,
-                          "STREAM_READY",
-                          rf_bytes_total,
-                          rf_frames_total) != 0) {
-        logger_error("robust RX: failed to send STREAM_READY");
-        return -1;
+    double start = now_seconds();
+    unsigned attempt = 0;
+    int sent = 0;
+
+    while (attempt < STREAM_READY_MAX_ATTEMPTS &&
+           (now_seconds() - start) * 1000.0 < STREAM_READY_WINDOW_MS) {
+        if (rf_bytes_total) {
+            *rf_bytes_total += sizeof(msg);
+        }
+        if (rf_frames_total) {
+            *rf_frames_total += 1;
+        }
+
+        if (nrf24_send_blocking(radio,
+                                 msg,
+                                 sizeof(msg),
+                                 CONTROL_TIMEOUT_MS) == 0) {
+            sent = 1;
+            break;
+        }
+
+        if (errno != ETIMEDOUT) {
+            logger_error("robust RX: STREAM_READY send failed: %s", strerror(errno));
+            if (ensure_mode_rx(radio) != 0) {
+                return -1;
+            }
+            return -1;
+        }
+
+        ++attempt;
+        if (attempt == 1 || (attempt % 50) == 0) {
+            logger_warn("STREAM_READY: timeout waiting for ACK (attempt %u)", attempt);
+        }
+
+        if ((attempt % 200) == 0) {
+            logger_warn("STREAM_READY: %u consecutive timeouts, reconfiguring radio", attempt);
+            if (configure_radio_runtime(radio) != 0) {
+                logger_error("robust RX: failed to reconfigure radio while sending STREAM_READY");
+                if (ensure_mode_rx(radio) != 0) {
+                    return -1;
+                }
+                return -1;
+            }
+            if (ensure_mode_tx(radio) != 0) {
+                return -1;
+            }
+        }
+    }
+
+    if (!sent) {
+        logger_warn("robust RX: STREAM_READY not acknowledged after %u attempts", attempt);
+        if (ensure_mode_rx(radio) != 0) {
+            return -1;
+        }
+        errno = ETIMEDOUT;
+        return 1; /* indicate timeout */
     }
 
     logger_info("robust RX: sent STREAM_READY (frames=%u, comp=%u)",
@@ -997,13 +1046,18 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                             expected_frames,
                             id_bytes);
 
-                if (send_stream_ready(&radio,
-                                      id_bytes,
-                                      expected_frames,
-                                      (uint32_t)compressed_len,
-                                      &rf_tx_bytes,
-                                      &rf_tx_frames) != 0) {
+                int ready_send = send_stream_ready(&radio,
+                                                   id_bytes,
+                                                   expected_frames,
+                                                   (uint32_t)compressed_len,
+                                                   &rf_tx_bytes,
+                                                   &rf_tx_frames);
+                if (ready_send < 0) {
                     goto cleanup;
+                }
+                if (ready_send > 0) {
+                    logger_warn("robust RX: STREAM_READY delivery timed out, waiting for retransmit");
+                    continue;
                 }
                 continue;
             }
