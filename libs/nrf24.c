@@ -262,6 +262,19 @@ static int nrf24_flush_rx(nrf24_t *dev)
     return spi_transfer(dev->spi_fd, &cmd, NULL, 1);
 }
 
+/* Flush both TX and RX FIFOs */
+static int nrf24_flush_tx_rx(nrf24_t *dev)
+{
+    if (nrf24_flush_tx(dev) < 0)
+        return -1;
+
+    if (nrf24_flush_rx(dev) < 0)
+        return -1;
+
+    return 0;
+}
+
+
 static int nrf24_clear_interrupts(nrf24_t *dev)
 {
     return nrf24_write_reg(dev, NRF24_REG_STATUS,
