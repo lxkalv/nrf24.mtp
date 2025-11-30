@@ -76,8 +76,9 @@ link_status_t link_send_frame(const link_radio_iface_t *iface,
         iface->reset_packages_lost(iface->user_ctx);
 
         if (iface->send(iface->user_ctx, frame, len) != 0) {
-            logger_error("link_send_frame: send() failed, giving up");
-            return LINK_STATUS_IO_ERROR;
+            /* Treat send() failures (timeouts, MAX_RT, etc.) as retryable. */
+            logger_warn("link_send_frame: send() failed, retrying...");
+            continue;
         }
 
         /* Any non-zero from wait_until_sent() is treated as retryable. */
@@ -119,28 +120,30 @@ link_status_t link_read_frame(const link_radio_iface_t *iface,
      *      pass
      *  return nrf.get_payload()
      */
-
     for (;;) {
-        int ready = iface->data_ready(iface->user_ctx);
+        for (;;) {
+            int ready = iface->data_ready(iface->user_ctx);
 
-        if (ready < 0) {
-            logger_error("link_read_frame: data_ready() returned %d (fatal)", ready);
-            return LINK_STATUS_IO_ERROR;
+            if (ready < 0) {
+                logger_error("link_read_frame: data_ready() returned %d (fatal)", ready);
+                return LINK_STATUS_IO_ERROR;
+            }
+
+            if (ready > 0) {
+                break;
+            }
+
+            /* Busy-wait (like Python). If you want to be nicer to the CPU,
+            * you can add a small sleep here in your own fork.
+            */
         }
 
-        if (ready > 0) {
-            break;
+        if (iface->read_payload(iface->user_ctx, buf, inout_len) != 0) {
+            /* Typically a timeout inside nrf24_recv_blocking: retry. */
+            logger_warn("link_read_frame: read_payload() failed, retrying...");
+            continue;
         }
 
-        /* Busy-wait (like Python). If you want to be nicer to the CPU,
-         * you can add a small sleep here in your own fork.
-         */
+        return LINK_STATUS_OK;
     }
-
-    if (iface->read_payload(iface->user_ctx, buf, inout_len) != 0) {
-        logger_error("link_read_frame: read_payload() failed");
-        return LINK_STATUS_IO_ERROR;
-    }
-
-    return LINK_STATUS_OK;
 }
