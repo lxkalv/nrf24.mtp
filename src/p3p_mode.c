@@ -1205,9 +1205,9 @@ int main(int argc, char **argv)
     /* Choose logfile name based on mode */
     char log_path[64];
     if (strcmp(mode, "tx") == 0) {
-        snprintf(log_path, sizeof(log_path), "p2p_tx.log");
+        snprintf(log_path, sizeof(log_path), "p3p_tx.log");
     } else if (strcmp(mode, "rx") == 0) {
-        snprintf(log_path, sizeof(log_path), "p2p_rx.log");
+        snprintf(log_path, sizeof(log_path), "p3p_rx.log");
     } else {
         usage(argv[0]);
         return 1;
