@@ -590,6 +590,7 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
 
     int transfer_complete = 0;
     unsigned resend_round = 0;
+    unsigned next_tx_progress_pct = 10;
 
     while (!transfer_complete) {
         logger_info("robust TX: sending data (round %u)", resend_round + 1);
@@ -622,6 +623,22 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
             }
 
             offset += chunk;
+
+            if (total_frames > 0 && resend_round == 0) {
+                uint32_t pct = (uint32_t)(((uint64_t)(frame + 1) * 100u) / total_frames);
+                if (frame + 1 == total_frames) {
+                    pct = 100;
+                }
+                if (pct >= next_tx_progress_pct) {
+                    logger_info("robust TX: progress %u%% (%u/%u frames)",
+                                pct,
+                                frame + 1,
+                                total_frames);
+                    while (next_tx_progress_pct <= pct && next_tx_progress_pct < 100) {
+                        next_tx_progress_pct += 10;
+                    }
+                }
+            }
         }
 
         if (ensure_mode_rx(&radio) != 0) {
@@ -772,6 +789,7 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
     uint64_t rf_rx_frames = 0;
     uint64_t rf_tx_bytes = 0;
     uint64_t rf_tx_frames = 0;
+    unsigned next_rx_progress_pct = 10;
     double rx_start = now_seconds();
 
     logger_info("robust RX: waiting for STREAM_INFO");
@@ -932,6 +950,22 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
         if (frame_received && !frame_received[frame_id]) {
             frame_received[frame_id] = 1;
             ++frames_received;
+
+            if (expected_frames > 0) {
+                uint32_t pct = (uint32_t)(((uint64_t)frames_received * 100u) / expected_frames);
+                if (frames_received == expected_frames) {
+                    pct = 100;
+                }
+                if (pct >= next_rx_progress_pct) {
+                    logger_info("robust RX: progress %u%% (%u/%u frames)",
+                                pct,
+                                frames_received,
+                                expected_frames);
+                    while (next_rx_progress_pct <= pct && next_rx_progress_pct < 100) {
+                        next_rx_progress_pct += 10;
+                    }
+                }
+            }
         }
 
         if (expected_frames == 0) {
@@ -999,13 +1033,6 @@ static int run_rx(const char *spi_dev, int ce_gpio, const char *output_path)
                     rf_rate_kib,
                     (unsigned long long)rf_rx_bytes,
                     (unsigned long long)rf_rx_frames);
-        if (rf_tx_bytes > 0 || rf_tx_frames > 0) {
-            double rf_ack_rate = ((double)rf_tx_bytes / 1024.0) / elapsed;
-            logger_info("robust RX control TX: %.2f KiB/s (%llu bytes, %llu frames)",
-                        rf_ack_rate,
-                        (unsigned long long)rf_tx_bytes,
-                        (unsigned long long)rf_tx_frames);
-        }
     }
 
     nrf24_deinit(&radio);
