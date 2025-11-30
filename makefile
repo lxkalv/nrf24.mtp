@@ -23,10 +23,30 @@ LIB_OBJS = \
     $(LIBDIR)/transport_layer.o \
     $(LIBDIR)/link_layer.o
 
-# ---------- Default target ----------
+.DEFAULT_GOAL := help
 
-.PHONY: all clean
+# ---------- Default / convenience targets ----------
+
+.PHONY: help all quick fast p2p p3p clean
+
+help:
+	@echo "Available targets:"
+	@echo "  make quick   -> build bin/quick_mode"
+	@echo "  make fast    -> build bin/fast_mode"
+	@echo "  make p2p     -> build bin/p2p_mode"
+	@echo "  make p3p     -> build bin/p3p_mode"
+	@echo "  make all     -> build every mode"
+	@echo "  make clean   -> remove binaries and objects"
+
 all: $(BIN_PROGS)
+
+quick: $(BINDIR)/quick_mode
+
+fast: $(BINDIR)/fast_mode
+
+p2p: $(BINDIR)/p2p_mode
+
+p3p: $(BINDIR)/p3p_mode
 
 # ---------- Generic compilation rules ----------
 
