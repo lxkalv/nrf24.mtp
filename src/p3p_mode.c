@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -9,6 +10,7 @@
 
 #include "libs/nrf24.h"
 #include "libs/logger.h"
+#include "libs/app_layer.h"
 
 /* ---- Protocol constants ---- */
 
@@ -39,6 +41,152 @@
 #define P2P_NUM_PAGES        10
 #define MAX_BURSTS_PER_PAGE  255   /* burst_id is 8-bit on the air */
 #define MAX_PAGES            16    /* safety margin for page_finished array */
+
+/* Default SPI device can be overridden via NRF24_SPI_DEVICE env var */
+#if defined(_WIN32)
+#define DEFAULT_SPI_DEVICE    "SPI0"
+#else
+#define DEFAULT_SPI_DEVICE    "/dev/spidev0.0"
+#endif
+
+static uint8_t g_radio_channel = P2P_CHANNEL;
+
+typedef struct {
+    uint8_t  channel;
+    unsigned data_rate_kbps;
+    int      pa_level_dbm;
+    unsigned crc_bytes;
+    unsigned retr_delay;
+    unsigned retr_tries;
+} RadioRuntimeConfig;
+
+static RadioRuntimeConfig g_radio_runtime = {
+    .channel        = P2P_CHANNEL,
+    .data_rate_kbps = 1000,
+    .pa_level_dbm   = -18,
+    .crc_bytes      = 2,
+    .retr_delay     = 2,
+    .retr_tries     = 15
+};
+
+static unsigned map_data_rate_kbps(app_data_rate_t rate)
+{
+    switch (rate) {
+    case APP_DATA_RATE_250KBPS: return 250;
+    case APP_DATA_RATE_2MBPS:   return 2000;
+    case APP_DATA_RATE_1MBPS:
+    default:                    return 1000;
+    }
+}
+
+static int map_pa_level_dbm(app_pa_level_t level)
+{
+    switch (level) {
+    case APP_PA_MAX:  return 0;
+    case APP_PA_HIGH: return -6;
+    case APP_PA_LOW:  return -12;
+    case APP_PA_MIN:
+    default:          return -18;
+    }
+}
+
+static unsigned map_crc_bytes(app_crc_bytes_t crc)
+{
+    switch (crc) {
+    case APP_CRC_OFF: return 0;
+    case APP_CRC_8:   return 1;
+    case APP_CRC_16:
+    default:          return 2;
+    }
+}
+
+static void update_radio_runtime_from_config(const app_config_t *cfg)
+{
+    if (!cfg) {
+        return;
+    }
+
+    g_radio_channel = (uint8_t)cfg->channel;
+    g_radio_runtime.channel        = g_radio_channel;
+    g_radio_runtime.data_rate_kbps = map_data_rate_kbps(cfg->data_rate);
+    g_radio_runtime.pa_level_dbm   = map_pa_level_dbm(cfg->pa_level);
+    g_radio_runtime.crc_bytes      = map_crc_bytes(cfg->crc_bytes);
+    g_radio_runtime.retr_delay     = (unsigned)cfg->retransmission_delay;
+    g_radio_runtime.retr_tries     = (unsigned)cfg->retransmission_tries;
+}
+
+static int configure_radio_runtime(nrf24_t *radio)
+{
+    return nrf24_configure_advanced(radio,
+                                    g_radio_runtime.channel,
+                                    g_radio_runtime.data_rate_kbps,
+                                    g_radio_runtime.pa_level_dbm,
+                                    g_radio_runtime.crc_bytes,
+                                    g_radio_runtime.retr_delay,
+                                    g_radio_runtime.retr_tries);
+}
+
+typedef struct {
+    uint8_t *data;
+    size_t   len;
+    size_t   cap;
+} RxOutputBuffer;
+
+static void rx_output_init(RxOutputBuffer *buf)
+{
+    if (!buf) return;
+    buf->data = NULL;
+    buf->len  = 0;
+    buf->cap  = 0;
+}
+
+static void rx_output_free(RxOutputBuffer *buf)
+{
+    if (!buf) return;
+    free(buf->data);
+    buf->data = NULL;
+    buf->len  = 0;
+    buf->cap  = 0;
+}
+
+static int rx_output_append(RxOutputBuffer *buf, const uint8_t *chunk, size_t len)
+{
+    if (!buf || (!chunk && len > 0)) {
+        logger_error("rx_output_append: invalid parameters");
+        return -1;
+    }
+    if (len == 0) {
+        return 0;
+    }
+
+    size_t needed = buf->len + len;
+    if (needed > buf->cap) {
+        size_t new_cap = buf->cap ? buf->cap * 2 : 4096;
+        while (new_cap < needed) {
+            new_cap *= 2;
+        }
+        uint8_t *tmp = (uint8_t *)realloc(buf->data, new_cap);
+        if (!tmp) {
+            logger_error("rx_output_append: realloc failed (need %zu bytes)", needed);
+            return -1;
+        }
+        buf->data = tmp;
+        buf->cap  = new_cap;
+    }
+
+    memcpy(buf->data + buf->len, chunk, len);
+    buf->len = needed;
+    return 0;
+}
+
+static const char *get_spi_device_path(void)
+{
+    const char *env = getenv("NRF24_SPI_DEVICE");
+    if (env && *env) {
+        return env;
+    }
+    return DEFAULT_SPI_DEVICE;
+}
 
 /* ---- Time helper ---- */
 
@@ -133,7 +281,10 @@ static int send_with_retries(nrf24_t *radio,
         if (attempt % 500 == 0) {
             logger_warn("%s: %u consecutive timeouts, reconfiguring radio",
                  what, attempt);
-            (void)nrf24_configure_quick(radio, P2P_CHANNEL);
+            if (configure_radio_runtime(radio) < 0) {
+                logger_error("%s: radio reconfigure failed: %s", what, strerror(errno));
+                return -1;
+            }
         }
     }
 }
@@ -251,12 +402,12 @@ static int store_burst(PageStream *ps,
     return 0;
 }
 
-/* ---- Decompress a single page (PageStream) and append to fout ---- */
+/* ---- Decompress a single page (PageStream) and append to RX buffer ---- */
 
-static int decompress_page_to_file(PageStream *ps,
-                                   FILE *fout,
-                                   uint64_t *compressed_total,
-                                   uint64_t *uncompressed_total)
+static int decompress_page_to_buffer(PageStream *ps,
+                                     RxOutputBuffer *out,
+                                     uint64_t *compressed_total,
+                                     uint64_t *uncompressed_total)
 {
     if (!ps->bursts || ps->count == 0) {
         return 0; /* nothing in this page */
@@ -278,8 +429,7 @@ static int decompress_page_to_file(PageStream *ps,
                 uint8_t  flen  = b->frame_len[i];
                 if (!frame || flen <= 1) continue;
                 size_t data_len = flen - 1;
-                if (fwrite(frame + 1, 1, data_len, fout) != data_len) {
-                    logger_error("P2P RX: fwrite failed in fallback");
+                if (rx_output_append(out, frame + 1, data_len) != 0) {
                     return -1;
                 }
                 *compressed_total += data_len;
@@ -323,8 +473,7 @@ static int decompress_page_to_file(PageStream *ps,
 
                 size_t have = sizeof(outbuf) - zs.avail_out;
                 if (have > 0) {
-                    if (fwrite(outbuf, 1, have, fout) != have) {
-                        logger_error("P2P RX: fwrite failed during decompression");
+                    if (rx_output_append(out, outbuf, have) != 0) {
                         inflateEnd(&zs);
                         return -1;
                     }
@@ -345,23 +494,35 @@ static int decompress_page_to_file(PageStream *ps,
     return 0;
 }
 
-/* ---- TX: read whole file and send in 10 compressed pages ---- */
+/* ---- TX: send preloaded bytes and split into 10 compressed pages ---- */
 
-static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
+static int run_tx(const char *spi_dev,
+                  const app_config_t *cfg,
+                  const uint8_t *input_data,
+                  size_t input_len)
 {
+    if (!cfg) {
+        logger_error("run_tx: cfg is NULL");
+        return 1;
+    }
+    if (input_len > 0 && !input_data) {
+        logger_error("run_tx: input buffer is NULL but length=%zu", input_len);
+        return 1;
+    }
+
     nrf24_t radio;
-    nrf24_config_t cfg = {
+    nrf24_config_t hw_cfg = {
         .spi_device   = spi_dev,
         .spi_speed_hz = 8000000,
-        .ce_gpio      = (uint8_t)ce_bcm
+        .ce_gpio      = (uint8_t)cfg->ce_pin
     };
 
-    if (nrf24_init(&radio, &cfg) < 0) {
+    if (nrf24_init(&radio, &hw_cfg) < 0) {
         logger_error("nrf24_init failed: %s", strerror(errno));
         return 1;
     }
-    if (nrf24_configure_quick(&radio, P2P_CHANNEL) < 0) {
-        logger_error("nrf24_configure_quick failed");
+    if (configure_radio_runtime(&radio) < 0) {
+        logger_error("nrf24_configure_advanced failed: %s", strerror(errno));
         nrf24_deinit(&radio);
         return 1;
     }
@@ -371,48 +532,12 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
         return 1;
     }
 
-    FILE *fin = fopen(input_path, "rb");
-    if (!fin) {
-        logger_error("Cannot open input file '%s': %s", input_path, strerror(errno));
-        nrf24_deinit(&radio);
-        return 1;
-    }
+    uint64_t orig_len = (uint64_t)input_len;
+    const uint8_t *orig_buf = input_data;
 
-    /* Read entire file into memory */
-    if (fseek(fin, 0, SEEK_END) != 0) {
-        logger_error("fseek failed on input");
-        fclose(fin);
-        nrf24_deinit(&radio);
-        return 1;
-    }
-    long fsize = ftell(fin);
-    if (fsize < 0) fsize = 0;
-    rewind(fin);
-
-    uint64_t orig_len = (uint64_t)fsize;
-
-    uint8_t *orig_buf = NULL;
-    if (orig_len > 0) {
-        orig_buf = (uint8_t *)malloc((size_t)orig_len);
-        if (!orig_buf) {
-            logger_error("P2P TX: malloc(%ld) for input buffer failed", fsize);
-            fclose(fin);
-            nrf24_deinit(&radio);
-            return 1;
-        }
-        size_t nread = fread(orig_buf, 1, (size_t)orig_len, fin);
-        if (nread != (size_t)orig_len) {
-            logger_error("P2P TX: fread() got %zu / %llu bytes", nread, (unsigned long long)orig_len);
-            free(orig_buf);
-            fclose(fin);
-            nrf24_deinit(&radio);
-            return 1;
-        }
-    }
-    fclose(fin);
-
-    logger_info("P2P TX: sending file '%s' (%llu bytes, split into %d pages)",
-         input_path, (unsigned long long)orig_len, P2P_NUM_PAGES);
+    const char *input_label = cfg->file_path_tx ? cfg->file_path_tx : "(auto-selected)";
+    logger_info("P2P TX: sending '%s' (%llu bytes, split into %d pages)",
+         input_label, (unsigned long long)orig_len, P2P_NUM_PAGES);
 
     double t_start = now_seconds();
 
@@ -438,13 +563,19 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
         logger_info("P2P TX: Page %u -> %llu bytes", page_id, (unsigned long long)page_len);
 
         /* Compress this page with zlib (level 6) */
-        const uint8_t *page_src = orig_buf + page_start;
+        const uint8_t *page_src = (orig_buf && page_len > 0)
+            ? (orig_buf + page_start)
+            : NULL;
+        if (page_len > 0 && !page_src) {
+            logger_error("P2P TX: invalid page source pointer");
+            nrf24_deinit(&radio);
+            return 1;
+        }
         uLong src_len  = (uLong)page_len;
         uLong dest_len = compressBound(src_len);
         uint8_t *comp_page = (uint8_t *)malloc(dest_len);
         if (!comp_page) {
             logger_error("P2P TX: malloc(%lu) for compressed page failed", (unsigned long)dest_len);
-            free(orig_buf);
             nrf24_deinit(&radio);
             return 1;
         }
@@ -453,7 +584,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
         if (zret != Z_OK) {
             logger_error("P2P TX: compress2 failed for page %u (zret=%d)", page_id, zret);
             free(comp_page);
-            free(orig_buf);
             nrf24_deinit(&radio);
             return 1;
         }
@@ -513,7 +643,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
         stream_info[6] = last_burst_frames;
         stream_info[7] = last_frame_bytes;
 
-        logger_info("P2P TX: STREAM_INFO Page=%u/%u -> bursts=%u, last_frames=%u, last_frame_bytes=%u",
+                logger_info("P2P TX: STREAM_INFO Page=%u/%u -> bursts=%u, last_frames=%u, last_frame_bytes=%u",
              page_id, P2P_NUM_PAGES, (unsigned)bursts_in_page,
              (unsigned)last_burst_frames, (unsigned)last_frame_bytes);
 
@@ -608,7 +738,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                     logger_error("Failed to send BURST_INFO (page %u, burst %u), aborting",
                           page_id, burst_id);
                     free(comp_page);
-                    free(orig_buf);
                     nrf24_deinit(&radio);
                     return 1;
                 }
@@ -625,7 +754,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                         logger_error("Failed to send DATA frame (page %u, burst %u), aborting",
                               page_id, burst_id);
                         free(comp_page);
-                        free(orig_buf);
                         nrf24_deinit(&radio);
                         return 1;
                     }
@@ -635,7 +763,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                 if (nrf24_set_mode_rx(&radio) < 0) {
                     logger_error("nrf24_set_mode_rx failed");
                     free(comp_page);
-                    free(orig_buf);
                     nrf24_deinit(&radio);
                     return 1;
                 }
@@ -655,7 +782,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                         }
                         logger_error("nrf24_recv_blocking (checksum) failed: %s", strerror(errno));
                         free(comp_page);
-                        free(orig_buf);
                         nrf24_deinit(&radio);
                         return 1;
                     }
@@ -681,7 +807,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                     if (nrf24_set_mode_tx(&radio) < 0) {
                         logger_error("nrf24_set_mode_tx failed");
                         free(comp_page);
-                        free(orig_buf);
                         nrf24_deinit(&radio);
                         return 1;
                     }
@@ -693,7 +818,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                 if (nrf24_set_mode_tx(&radio) < 0) {
                     logger_error("nrf24_set_mode_tx failed");
                     free(comp_page);
-                    free(orig_buf);
                     nrf24_deinit(&radio);
                     return 1;
                 }
@@ -735,28 +859,36 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
          (unsigned long long)tx_rf_bytes_total, dt, rf_kibps,
          (unsigned long long)tx_rf_frames_total);
 
-    free(orig_buf);
     nrf24_deinit(&radio);
     return 0;
 }
 
 /* ---- RX: receive in pages, decompress each page independently ---- */
 
-static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
+static int run_rx(const char *spi_dev,
+                  const app_config_t *cfg,
+                  RxOutputBuffer *out_buf)
 {
+    if (!cfg || !out_buf) {
+        logger_error("run_rx: invalid arguments");
+        return 1;
+    }
+
+    rx_output_init(out_buf);
+
     nrf24_t radio;
-    nrf24_config_t cfg = {
+    nrf24_config_t hw_cfg = {
         .spi_device   = spi_dev,
         .spi_speed_hz = 8000000,
-        .ce_gpio      = (uint8_t)ce_bcm
+        .ce_gpio      = (uint8_t)cfg->ce_pin
     };
 
-    if (nrf24_init(&radio, &cfg) < 0) {
+    if (nrf24_init(&radio, &hw_cfg) < 0) {
         logger_error("nrf24_init failed: %s", strerror(errno));
         return 1;
     }
-    if (nrf24_configure_quick(&radio, P2P_CHANNEL) < 0) {
-        logger_error("nrf24_configure_quick failed");
+    if (configure_radio_runtime(&radio) < 0) {
+        logger_error("nrf24_configure_advanced failed: %s", strerror(errno));
         nrf24_deinit(&radio);
         return 1;
     }
@@ -766,17 +898,11 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
         return 1;
     }
 
-    FILE *fout = fopen(output_path, "wb");
-    if (!fout) {
-        logger_error("Cannot open output file '%s': %s", output_path, strerror(errno));
-        nrf24_deinit(&radio);
-        return 1;
-    }
-
     PageStream stream;
     page_stream_init(&stream);
 
-    logger_info("P2P RX: waiting for STREAM_INFO / BURST_INFO on channel %d...", P2P_CHANNEL);
+    logger_info("P2P RX: waiting for STREAM_INFO / BURST_INFO on channel %u...",
+         (unsigned)g_radio_runtime.channel);
 
     int transfer_finished = 0;
     int tx_started        = 0;
@@ -853,7 +979,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                      (unsigned)current_page_id);
 
                 if (current_page_id < MAX_PAGES && !page_finished[current_page_id]) {
-                    (void)decompress_page_to_file(&stream, fout,
+                    (void)decompress_page_to_buffer(&stream, out_buf,
                                                   &compressed_total, &uncompressed_total);
                     page_finished[current_page_id] = 1;
                 }
@@ -1003,7 +1129,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                                 sizes) < 0) {
                     logger_error("P2P RX: failed to store burst %u", cur_burst_id);
                     page_stream_free(&stream);
-                    fclose(fout);
+                    rx_output_free(out_buf);
                     nrf24_deinit(&radio);
                     return 1;
                 }
@@ -1024,7 +1150,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             if (nrf24_set_mode_tx(&radio) < 0) {
                 logger_error("nrf24_set_mode_tx failed");
                 page_stream_free(&stream);
-                fclose(fout);
+                rx_output_free(out_buf);
                 nrf24_deinit(&radio);
                 return 1;
             }
@@ -1054,7 +1180,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                     logger_error("P2P RX: nrf24_send_blocking(CHECKSUM) failed: %s",
                           strerror(errno));
                     page_stream_free(&stream);
-                    fclose(fout);
+                    rx_output_free(out_buf);
                     nrf24_deinit(&radio);
                     return 1;
                 }
@@ -1067,7 +1193,13 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
 
                 if (attempt % 200 == 0) {
                     logger_warn("P2P RX: %u checksum timeouts, reconfiguring radio", attempt);
-                    (void)nrf24_configure_quick(&radio, P2P_CHANNEL);
+                    if (configure_radio_runtime(&radio) < 0) {
+                        logger_error("P2P RX: radio reconfigure failed: %s", strerror(errno));
+                        page_stream_free(&stream);
+                        rx_output_free(out_buf);
+                        nrf24_deinit(&radio);
+                        return 1;
+                    }
                     (void)nrf24_set_mode_tx(&radio);
                 }
             }
@@ -1082,7 +1214,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 if (nrf24_set_mode_rx(&radio) < 0) {
                     logger_error("nrf24_set_mode_rx failed");
                     page_stream_free(&stream);
-                    fclose(fout);
+                    rx_output_free(out_buf);
                     nrf24_deinit(&radio);
                     return 1;
                 }
@@ -1097,7 +1229,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
             if (nrf24_set_mode_rx(&radio) < 0) {
                 logger_error("nrf24_set_mode_rx failed");
                 page_stream_free(&stream);
-                fclose(fout);
+                rx_output_free(out_buf);
                 nrf24_deinit(&radio);
                 return 1;
             }
@@ -1117,7 +1249,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
                 logger_succ("P2P RX: all %u bursts received for Page %u; decompressing page",
                      (unsigned)expected_bursts, (unsigned)current_page_id);
 
-                (void)decompress_page_to_file(&stream, fout,
+                (void)decompress_page_to_buffer(&stream, out_buf,
                                               &compressed_total, &uncompressed_total);
 
                 page_finished[current_page_id] = 1;
@@ -1143,7 +1275,7 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
         current_page_id < MAX_PAGES && !page_finished[current_page_id]) {
         logger_warn("P2P RX: transfer ended unexpectedly; decompressing partial Page %u",
              (unsigned)current_page_id);
-        (void)decompress_page_to_file(&stream, fout,
+        (void)decompress_page_to_buffer(&stream, out_buf,
                                       &compressed_total, &uncompressed_total);
     }
 
@@ -1166,51 +1298,31 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
          (unsigned long long)rf_frames_total);
 
     page_stream_free(&stream);
-    fclose(fout);
     nrf24_deinit(&radio);
     return 0;
 }
 
 /* ---- CLI ---- */
 
-static void usage(const char *prog)
-{
-    fprintf(stderr,
-            "Usage:\n"
-            "  %s tx <spi_device> <ce_gpio> <input_file>\n"
-            "  %s rx <spi_device> <ce_gpio> <output_file>\n"
-            "Example:\n"
-            "  %s tx /dev/spidev0.0 22 test_files/lorem.txt\n"
-            "  %s rx /dev/spidev0.0 22 received_file.txt\n",
-            prog, prog, prog, prog);
-}
-
 int main(int argc, char **argv)
 {
-    if (argc != 5) {
-        usage(argv[0]);
+    app_config_t cfg;
+    if (app_parse_arguments(argc, argv, &cfg) != 0) {
+        app_print_usage(argv[0]);
         return 1;
     }
 
-    const char *mode    = argv[1];
-    const char *spi_dev = argv[2];
-    int ce_bcm          = atoi(argv[3]);
-    const char *path    = argv[4];
-
-    if (ce_bcm < 0 || ce_bcm > 255) {
-        logger_error("Invalid CE GPIO: %d", ce_bcm);
-        return 1;
+    if (cfg.print_config) {
+        app_print_config(&cfg);
     }
 
-    /* Choose logfile name based on mode */
     char log_path[64];
-    if (strcmp(mode, "tx") == 0) {
+    if (cfg.mode == APP_MODE_TX) {
         snprintf(log_path, sizeof(log_path), "p3p_tx.log");
-    } else if (strcmp(mode, "rx") == 0) {
+    } else if (cfg.mode == APP_MODE_RX) {
         snprintf(log_path, sizeof(log_path), "p3p_rx.log");
     } else {
-        usage(argv[0]);
-        return 1;
+        snprintf(log_path, sizeof(log_path), "p3p.log");
     }
 
     if (logger_init(log_path) != 0) {
@@ -1219,15 +1331,57 @@ int main(int argc, char **argv)
         logger_info("Logging to file '%s'", log_path);
     }
 
-    int ret;
-    if (strcmp(mode, "tx") == 0) {
-        ret = run_tx(spi_dev, ce_bcm, path);
-    } else {
-        ret = run_rx(spi_dev, ce_bcm, path);
+    const char *spi_dev = get_spi_device_path();
+    update_radio_runtime_from_config(&cfg);
+
+    logger_info("Using SPI device: %s", spi_dev);
+
+    int exit_code = 0;
+
+    if (cfg.mode == APP_MODE_TX) {
+        uint8_t *data = NULL;
+        size_t   len  = 0;
+        if (app_load_file_bytes(cfg.file_path_tx, &data, &len) != 0) {
+            logger_error("Failed to load TX file bytes");
+            exit_code = 1;
+            goto cleanup;
+        }
+
+        exit_code = run_tx(spi_dev, &cfg, data, len);
+        free(data);
+        goto cleanup;
     }
 
+    if (cfg.mode == APP_MODE_RX) {
+        RxOutputBuffer output;
+        int ret = run_rx(spi_dev, &cfg, &output);
+        if (ret != 0) {
+            rx_output_free(&output);
+            exit_code = ret;
+            goto cleanup;
+        }
+
+        if (app_store_file_bytes(cfg.file_path_rx, output.data, output.len) != 0) {
+            logger_error("Failed to store RX bytes");
+            rx_output_free(&output);
+            exit_code = 1;
+            goto cleanup;
+        }
+
+        logger_succ("Stored RX payload (%zu bytes)", output.len);
+        rx_output_free(&output);
+        goto cleanup;
+    }
+
+    logger_error("Unsupported mode: %s", app_mode_str(cfg.mode));
+    exit_code = 1;
+
+cleanup:
     logger_close();
-    return ret;
+    return exit_code;
 }
+
+
+
 
 
