@@ -6,11 +6,11 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
-#include <zlib.h>
 
 #include "libs/nrf24.h"
 #include "libs/logger.h"
 #include "libs/app_layer.h"
+#include "libs/presentation_layer.h"
 
 /* ---- Protocol constants ---- */
 
@@ -38,7 +38,6 @@
 #define P2P_MSG_STREAM_INFO  0xE0  /* per-page layout info */
 
 /* Paging */
-#define P2P_NUM_PAGES        10
 #define MAX_BURSTS_PER_PAGE  255   /* burst_id is 8-bit on the air */
 #define MAX_PAGES            16    /* safety margin for page_finished array */
 
@@ -201,6 +200,55 @@ static int rx_output_append(RxOutputBuffer *buf, const uint8_t *chunk, size_t le
     return 0;
 }
 
+static int extract_page_compressed_data(PageStream *ps,
+                                        uint8_t **out_data,
+                                        size_t *out_len,
+                                        uint64_t *compressed_total)
+{
+    if (!out_data || !out_len) {
+        logger_error("extract_page_compressed_data: null output pointer");
+        return -1;
+    }
+
+    *out_data = NULL;
+    *out_len  = 0;
+
+    if (!ps->bursts || ps->count == 0) {
+        return 0;
+    }
+
+    RxOutputBuffer tmp;
+    rx_output_init(&tmp);
+
+    for (size_t bid = 0; bid < ps->count; ++bid) {
+        Burst *b = &ps->bursts[bid];
+        if (b->frames_in_burst == 0) continue;
+
+        for (unsigned i = 0; i < b->frames_in_burst; ++i) {
+            uint8_t *frame = b->frame_data[i];
+            uint8_t  flen  = b->frame_len[i];
+            if (!frame || flen <= 1) continue;
+
+            size_t payload_len = flen - 1;
+            if (rx_output_append(&tmp, frame + 1, payload_len) != 0) {
+                rx_output_free(&tmp);
+                return -1;
+            }
+            if (compressed_total) {
+                *compressed_total += payload_len;
+            }
+        }
+    }
+
+    *out_data = tmp.data;
+    *out_len  = tmp.len;
+    tmp.data  = NULL;
+    tmp.len   = 0;
+    tmp.cap   = 0;
+    rx_output_free(&tmp);
+    return 0;
+}
+
 static const char *get_spi_device_path(void)
 {
     const char *env = getenv("NRF24_SPI_DEVICE");
@@ -230,6 +278,22 @@ static void encode_u16_le(uint8_t *dst, uint16_t v)
 static uint16_t decode_u16_le(const uint8_t *src)
 {
     return (uint16_t)(src[0] | ((uint16_t)src[1] << 8));
+}
+
+static void encode_u32_le(uint8_t *dst, uint32_t v)
+{
+    dst[0] = (uint8_t)(v & 0xFFu);
+    dst[1] = (uint8_t)((v >> 8) & 0xFFu);
+    dst[2] = (uint8_t)((v >> 16) & 0xFFu);
+    dst[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
+static uint32_t decode_u32_le(const uint8_t *src)
+{
+    return (uint32_t)(src[0] |
+                      ((uint32_t)src[1] << 8) |
+                      ((uint32_t)src[2] << 16) |
+                      ((uint32_t)src[3] << 24));
 }
 
 static void encode_u64_le(uint8_t *dst, uint64_t v)
@@ -427,96 +491,73 @@ static int store_burst(PageStream *ps,
 /* ---- Decompress a single page (PageStream) and append to RX buffer ---- */
 
 static int decompress_page_to_buffer(PageStream *ps,
+                                     size_t expected_raw_len,
                                      RxOutputBuffer *out,
                                      uint64_t *compressed_total,
                                      uint64_t *uncompressed_total)
 {
-    if (!ps->bursts || ps->count == 0) {
-        return 0; /* nothing in this page */
+    uint8_t *compressed = NULL;
+    size_t   compressed_len = 0;
+
+    if (extract_page_compressed_data(ps,
+                                     &compressed,
+                                     &compressed_len,
+                                     compressed_total) != 0) {
+        return -1;
     }
 
-    z_stream zs;
-    memset(&zs, 0, sizeof(zs));
+    if (!compressed || compressed_len == 0) {
+        if (compressed) {
+            free(compressed);
+        }
+        if (expected_raw_len > 0) {
+            logger_warn("P2P RX: page expected %zu raw bytes but no compressed payload was collected",
+                        expected_raw_len);
+        }
+        return 0;
+    }
 
-    int zret = inflateInit(&zs);
-    if (zret != Z_OK) {
-        logger_error("P2P RX: inflateInit failed (zret=%d); writing compressed page as-is", zret);
+    pres_page_t in_page;
+    in_page.data = compressed;
+    in_page.size = compressed_len;
+    in_page.orig_size = expected_raw_len;
 
-        /* Fallback: write raw compressed bytes if we cannot inflate at all */
-        for (size_t bid = 0; bid < ps->count; ++bid) {
-            Burst *b = &ps->bursts[bid];
-            if (b->frames_in_burst == 0) continue;
-            for (unsigned i = 0; i < b->frames_in_burst; ++i) {
-                uint8_t *frame = b->frame_data[i];
-                uint8_t  flen  = b->frame_len[i];
-                if (!frame || flen <= 1) continue;
-                size_t data_len = flen - 1;
-                if (rx_output_append(out, frame + 1, data_len) != 0) {
-                    return -1;
-                }
-                *compressed_total += data_len;
-            }
+    pres_page_t *raw_pages = NULL;
+    size_t raw_count = 0;
+
+    int pret = pres_decompress_pages(&in_page, 1, &raw_pages, &raw_count);
+    free(compressed);
+
+    if (pret != 0) {
+        logger_error("P2P RX: presentation-layer decompression failed for page (ret=%d)", pret);
+        if (raw_pages) {
+            pres_free_pages(raw_pages, raw_count);
         }
         return -1;
     }
 
-    uint8_t outbuf[4096];
-    int end_reached = 0;
+    if (raw_count == 0) {
+        return 0;
+    }
 
-    for (size_t bid = 0; bid < ps->count && !end_reached; ++bid) {
-        Burst *b = &ps->bursts[bid];
-        if (b->frames_in_burst == 0) continue;
-
-        for (unsigned i = 0; i < b->frames_in_burst && !end_reached; ++i) {
-            uint8_t *frame = b->frame_data[i];
-            uint8_t  flen  = b->frame_len[i];
-            if (!frame || flen <= 1) continue;
-
-            const uint8_t *in     = frame + 1;   /* skip ChunkID */
-            size_t         in_len = flen - 1;
-
-            *compressed_total += in_len;
-
-            zs.next_in  = (Bytef *)in;
-            zs.avail_in = (uInt)in_len;
-
-            while (zs.avail_in > 0) {
-                zs.next_out  = outbuf;
-                zs.avail_out = sizeof(outbuf);
-
-                zret = inflate(&zs, Z_NO_FLUSH);
-
-                if (zret == Z_STREAM_END) {
-                    end_reached = 1;
-                } else if (zret != Z_OK) {
-                    logger_warn("P2P RX: decompression error (zret=%d) in page; partial page written", zret);
-                    end_reached = 1;
-                }
-
-                size_t have = sizeof(outbuf) - zs.avail_out;
-                if (have > 0) {
-                    if (rx_output_append(out, outbuf, have) != 0) {
-                        inflateEnd(&zs);
-                        return -1;
-                    }
-                    *uncompressed_total += have;
-                }
-
-                if (zret == Z_STREAM_END ||
-                    zret == Z_DATA_ERROR ||
-                    zret == Z_MEM_ERROR ||
-                    zret == Z_STREAM_ERROR) {
-                    break;
-                }
-            }
+    for (size_t i = 0; i < raw_count; ++i) {
+        if (!raw_pages[i].data || raw_pages[i].size == 0) {
+            continue;
+        }
+        if (rx_output_append(out, raw_pages[i].data, raw_pages[i].size) != 0) {
+            pres_free_pages(raw_pages, raw_count);
+            return -1;
+        }
+        if (uncompressed_total) {
+            *uncompressed_total += raw_pages[i].size;
         }
     }
 
-    inflateEnd(&zs);
+    pres_free_pages(raw_pages, raw_count);
     return 0;
 }
 
-/* ---- TX: send preloaded bytes and split into 10 compressed pages ---- */
+/* ---- TX: send preloaded bytes split/compressed by presentation layer ---- */
 
 static int run_tx(const char *spi_dev,
                   const app_config_t *cfg,
@@ -558,73 +599,62 @@ static int run_tx(const char *spi_dev,
         return 1;
     }
 
-    uint64_t orig_len = (uint64_t)input_len;
-    const uint8_t *orig_buf = input_data;
+    pres_page_t *raw_pages = NULL;
+    size_t raw_page_count = 0;
+    pres_page_t *compressed_pages = NULL;
+    size_t compressed_page_count = 0;
+    int exit_code = 1;
 
+    if (pres_split_into_pages_default(input_data,
+                                      input_len,
+                                      &raw_pages,
+                                      &raw_page_count) != 0) {
+        logger_error("P2P TX: failed to split input into pages");
+        goto cleanup;
+    }
+
+    if (pres_compress_pages(raw_pages,
+                            raw_page_count,
+                            &compressed_pages,
+                            &compressed_page_count) != 0) {
+        logger_error("P2P TX: failed to compress pages");
+        goto cleanup;
+    }
+
+    pres_free_pages(raw_pages, raw_page_count);
+    raw_pages = NULL;
+    raw_page_count = 0;
+
+    uint64_t orig_len = (uint64_t)input_len;
     const char *input_label = cfg->file_path_tx ? cfg->file_path_tx : "(auto-selected)";
-    logger_info("P2P TX: sending '%s' (%llu bytes, split into %d pages)",
-         input_label, (unsigned long long)orig_len, P2P_NUM_PAGES);
+
+    size_t total_pages = compressed_page_count;
+    if (total_pages > 0xFF) {
+        logger_warn("P2P TX: total_pages=%zu exceeds 255, truncating", total_pages);
+        total_pages = 0xFF;
+    }
+
+    logger_info("P2P TX: sending '%s' (%llu bytes, %zu presentation pages)",
+         input_label, (unsigned long long)orig_len, total_pages);
 
     double t_start = now_seconds();
 
-    uint64_t total_compressed   = 0;
     uint64_t tx_rf_bytes_total  = 0;  /* all on-air bytes (incl. retransmissions) */
     uint64_t tx_rf_frames_total = 0;  /* all frames actually sent */
 
-    /* Partition into pages */
-    for (unsigned page_id = 0; page_id < P2P_NUM_PAGES; ++page_id) {
-        /* Compute [start, end) for this page using proportional split */
-        uint64_t page_start = (orig_len * page_id)     / P2P_NUM_PAGES;
-        uint64_t page_end   = (orig_len * (page_id+1)) / P2P_NUM_PAGES;
-        if (page_start >= orig_len) {
-            break;  /* no data for further pages */
-        }
-        if (page_end > orig_len) page_end = orig_len;
-
-        uint64_t page_len = page_end - page_start;
-        if (page_len == 0) {
-            continue;
-        }
-
-        logger_info("P2P TX: Page %u -> %llu bytes", page_id, (unsigned long long)page_len);
-
-        /* Compress this page with zlib (level 6) */
-        const uint8_t *page_src = (orig_buf && page_len > 0)
-            ? (orig_buf + page_start)
-            : NULL;
-        if (page_len > 0 && !page_src) {
-            logger_error("P2P TX: invalid page source pointer");
-            nrf24_deinit(&radio);
-            return 1;
-        }
-        uLong src_len  = (uLong)page_len;
-        uLong dest_len = compressBound(src_len);
-        uint8_t *comp_page = (uint8_t *)malloc(dest_len);
-        if (!comp_page) {
-            logger_error("P2P TX: malloc(%lu) for compressed page failed", (unsigned long)dest_len);
-            nrf24_deinit(&radio);
-            return 1;
-        }
-
-        int zret = compress2(comp_page, &dest_len, page_src, src_len, 6);
-        if (zret != Z_OK) {
-            logger_error("P2P TX: compress2 failed for page %u (zret=%d)", page_id, zret);
-            free(comp_page);
-            nrf24_deinit(&radio);
-            return 1;
-        }
-
-        size_t comp_len = (size_t)dest_len;
-        total_compressed += comp_len;
+    for (size_t page_id = 0; page_id < total_pages; ++page_id) {
+        const pres_page_t *page = &compressed_pages[page_id];
+        const uint8_t *comp_page = page->data;
+        size_t comp_len = page->size;
+        size_t page_len = page->orig_size;
 
         double ratio = (page_len == 0)
                      ? 0.0
                      : (100.0 * (double)comp_len / (double)page_len);
 
-        logger_info("P2P TX: Page %u compressed %llu -> %zu bytes (~%.2f%%)",
-             page_id, (unsigned long long)page_len, comp_len, ratio);
+        logger_info("P2P TX: Page %zu compressed %zu -> %zu bytes (~%.2f%%)",
+             page_id, page_len, comp_len, ratio);
 
-        /* Layout of this page in bursts */
         uint16_t bursts_in_page     = 0;
         uint8_t  last_burst_frames  = 0;
         uint8_t  last_frame_bytes   = 0;
@@ -651,27 +681,19 @@ static int run_tx(const char *spi_dev,
             }
         }
 
-        /* STREAM_INFO for this page:
-         * [0] MSG_INFO
-         * [1] P2P_MSG_STREAM_INFO
-         * [2] PageID
-         * [3] Total pages
-         * [4..5] bursts_in_page (u16 LE)
-         * [6] last_burst_frames
-         * [7] last_frame_bytes
-         */
-        uint8_t stream_info[8];
+        uint8_t stream_info[12];
         stream_info[0] = MSG_INFO;
         stream_info[1] = P2P_MSG_STREAM_INFO;
         stream_info[2] = (uint8_t)page_id;
-        stream_info[3] = (uint8_t)P2P_NUM_PAGES;
+        stream_info[3] = (uint8_t)total_pages;
         encode_u16_le(&stream_info[4], bursts_in_page);
         stream_info[6] = last_burst_frames;
         stream_info[7] = last_frame_bytes;
+        encode_u32_le(&stream_info[8], (uint32_t)page_len);
 
-                logger_info("P2P TX: STREAM_INFO Page=%u/%u -> bursts=%u, last_frames=%u, last_frame_bytes=%u",
-             page_id, P2P_NUM_PAGES, (unsigned)bursts_in_page,
-             (unsigned)last_burst_frames, (unsigned)last_frame_bytes);
+        logger_info("P2P TX: STREAM_INFO Page=%zu/%zu -> bursts=%u, last_frames=%u, last_frame_bytes=%u, orig=%zu",
+             page_id, total_pages, (unsigned)bursts_in_page,
+             (unsigned)last_burst_frames, (unsigned)last_frame_bytes, page_len);
 
         (void)send_with_retries(&radio,
                                 stream_info,
@@ -681,7 +703,6 @@ static int run_tx(const char *spi_dev,
                                 &tx_rf_bytes_total,
                                 &tx_rf_frames_total);
 
-        /* Now send all bursts for this page */
         size_t comp_pos = 0;
         uint8_t burst_id = 0;
 
@@ -739,14 +760,12 @@ static int run_tx(const char *spi_dev,
             uint8_t checksum_bytes[CHECKSUM_SIZE];
             checksum_final(chk_state, checksum_bytes);
 
-            logger_info("P2P TX: Page %u, BURST %u -> %u compressed bytes in %u frames, checksum 0x%016llX",
+            logger_info("P2P TX: Page %zu, BURST %u -> %u compressed bytes in %u frames, checksum 0x%016llX",
                  page_id, burst_id, (unsigned)burst_data_bytes, num_chunks,
                  (unsigned long long)chk_state);
 
-            /* Outer loop: send this burst until RX confirms checksum */
             int burst_done = 0;
             while (!burst_done) {
-                /* 1) send BURST_INFO */
                 uint8_t burst_info[6];
                 burst_info[0] = MSG_INFO;
                 burst_info[1] = MSG_BURST_INFO;
@@ -761,14 +780,11 @@ static int run_tx(const char *spi_dev,
                                       "BURST_INFO",
                                       &tx_rf_bytes_total,
                                       &tx_rf_frames_total) < 0) {
-                    logger_error("Failed to send BURST_INFO (page %u, burst %u), aborting",
+                    logger_error("Failed to send BURST_INFO (page %zu, burst %u), aborting",
                           page_id, burst_id);
-                    free(comp_page);
-                    nrf24_deinit(&radio);
-                    return 1;
+                    goto cleanup;
                 }
 
-                /* 2) send all data frames for this burst */
                 for (unsigned i = 0; i < num_chunks; ++i) {
                     if (send_with_retries(&radio,
                                           burst_payloads[i],
@@ -777,20 +793,15 @@ static int run_tx(const char *spi_dev,
                                           "DATA",
                                           &tx_rf_bytes_total,
                                           &tx_rf_frames_total) < 0) {
-                        logger_error("Failed to send DATA frame (page %u, burst %u), aborting",
+                        logger_error("Failed to send DATA frame (page %zu, burst %u), aborting",
                               page_id, burst_id);
-                        free(comp_page);
-                        nrf24_deinit(&radio);
-                        return 1;
+                        goto cleanup;
                     }
                 }
 
-                /* 3) listen for checksum from RX */
                 if (nrf24_set_mode_rx(&radio) < 0) {
                     logger_error("nrf24_set_mode_rx failed");
-                    free(comp_page);
-                    nrf24_deinit(&radio);
-                    return 1;
+                    goto cleanup;
                 }
 
                 double wait_start         = now_seconds();
@@ -807,9 +818,7 @@ static int run_tx(const char *spi_dev,
                             continue;
                         }
                         logger_error("nrf24_recv_blocking (checksum) failed: %s", strerror(errno));
-                        free(comp_page);
-                        nrf24_deinit(&radio);
-                        return 1;
+                        goto cleanup;
                     }
 
                     if (len2 != CHECKSUM_SIZE) {
@@ -818,44 +827,37 @@ static int run_tx(const char *spi_dev,
                     }
 
                     if (memcmp(buf2, checksum_bytes, CHECKSUM_SIZE) == 0) {
-                        logger_succ("P2P TX: Page %u, BURST %u checksum confirmed by RX",
+                        logger_succ("P2P TX: Page %zu, BURST %u checksum confirmed by RX",
                              page_id, burst_id);
                         got_valid_checksum = 1;
                     } else {
-                        logger_warn("P2P TX: invalid checksum received for Page %u, BURST %u",
+                        logger_warn("P2P TX: invalid checksum received for Page %zu, BURST %u",
                              page_id, burst_id);
                     }
                 }
 
                 if (!got_valid_checksum) {
-                    logger_warn("P2P TX: checksum timeout for Page %u, BURST %u, resending burst",
+                    logger_warn("P2P TX: checksum timeout for Page %zu, BURST %u, resending burst",
                          page_id, burst_id);
                     if (nrf24_set_mode_tx(&radio) < 0) {
                         logger_error("nrf24_set_mode_tx failed");
-                        free(comp_page);
-                        nrf24_deinit(&radio);
-                        return 1;
+                        goto cleanup;
                     }
-                    continue;  /* resend same burst */
+                    continue;
                 }
 
                 burst_done = 1;
 
                 if (nrf24_set_mode_tx(&radio) < 0) {
                     logger_error("nrf24_set_mode_tx failed");
-                    free(comp_page);
-                    nrf24_deinit(&radio);
-                    return 1;
+                    goto cleanup;
                 }
             }
 
             burst_id++;
         }
-
-        free(comp_page);
     }
 
-    /* Send TRANSFER_FINISH control message */
     uint8_t fin_msg[2];
     fin_msg[0] = MSG_INFO;
     fin_msg[1] = MSG_TRANSFER_FINISH;
@@ -885,8 +887,13 @@ static int run_tx(const char *spi_dev,
          (unsigned long long)tx_rf_bytes_total, dt, rf_kibps,
          (unsigned long long)tx_rf_frames_total);
 
+    exit_code = 0;
+
+cleanup:
+    pres_free_pages(raw_pages, raw_page_count);
+    pres_free_pages(compressed_pages, compressed_page_count);
     nrf24_deinit(&radio);
-    return 0;
+    return exit_code;
 }
 
 /* ---- RX: receive in pages, decompress each page independently ---- */
@@ -942,6 +949,8 @@ static int run_rx(const char *spi_dev,
        but we will still answer duplicate bursts with checksums. */
     int page_finished[MAX_PAGES];
     memset(page_finished, 0, sizeof(page_finished));
+     size_t page_orig_sizes[MAX_PAGES];
+     memset(page_orig_sizes, 0, sizeof(page_orig_sizes));
 
     /* Per-page state (current page in progress) */
     int      have_page_info      = 0;
@@ -950,6 +959,7 @@ static int run_rx(const char *spi_dev,
     uint16_t expected_bursts     = 0;
     uint8_t  last_burst_frames   = 0;
     uint8_t  last_frame_bytes    = 0;
+     size_t   current_page_orig_size = 0;
     uint8_t  burst_received[MAX_BURSTS_PER_PAGE];
     unsigned bursts_completed    = 0;
     int      page_has_data       = 0;  /* any stored bursts? */
@@ -997,7 +1007,7 @@ static int run_rx(const char *spi_dev,
 
         /* STREAM_INFO: per-page layout */
         if (len >= 2 && buf[0] == MSG_INFO && buf[1] == P2P_MSG_STREAM_INFO) {
-            if (len < 8) {
+            if (len < 12) {
                 logger_warn("P2P RX: malformed STREAM_INFO frame (len=%u)", len);
                 continue;
             }
@@ -1009,8 +1019,12 @@ static int run_rx(const char *spi_dev,
                      (unsigned)current_page_id);
 
                 if (current_page_id < MAX_PAGES && !page_finished[current_page_id]) {
-                    (void)decompress_page_to_buffer(&stream, out_buf,
-                                                  &compressed_total, &uncompressed_total);
+                    size_t prev_orig = page_orig_sizes[current_page_id];
+                    (void)decompress_page_to_buffer(&stream,
+                                                    prev_orig,
+                                                    out_buf,
+                                                    &compressed_total,
+                                                    &uncompressed_total);
                     page_finished[current_page_id] = 1;
                 }
                 page_stream_free(&stream);
@@ -1025,6 +1039,11 @@ static int run_rx(const char *spi_dev,
             expected_bursts = decode_u16_le(&buf[4]);
             last_burst_frames = buf[6];
             last_frame_bytes  = buf[7];
+            current_page_orig_size = decode_u32_le(&buf[8]);
+
+            if (current_page_id < MAX_PAGES) {
+                page_orig_sizes[current_page_id] = current_page_orig_size;
+            }
 
             if (expected_bursts > MAX_BURSTS_PER_PAGE) {
                 logger_warn("P2P RX: expected_bursts=%u > MAX_BURSTS_PER_PAGE=%u, truncating",
@@ -1038,10 +1057,11 @@ static int run_rx(const char *spi_dev,
             in_burst         = 0;
             have_page_info   = 1;
 
-            logger_info("P2P RX: STREAM_INFO Page=%u/%u -> bursts=%u, last_frames=%u, last_frame_bytes=%u",
-                 (unsigned)current_page_id, (unsigned)total_pages,
-                 (unsigned)expected_bursts,
-                 (unsigned)last_burst_frames, (unsigned)last_frame_bytes);
+                logger_info("P2P RX: STREAM_INFO Page=%u/%u -> bursts=%u, last_frames=%u, last_frame_bytes=%u, orig=%zu",
+                                (unsigned)current_page_id, (unsigned)total_pages,
+                                (unsigned)expected_bursts,
+                                (unsigned)last_burst_frames, (unsigned)last_frame_bytes,
+                                current_page_orig_size);
             continue;
         }
 
@@ -1279,8 +1299,16 @@ static int run_rx(const char *spi_dev,
                 logger_succ("P2P RX: all %u bursts received for Page %u; decompressing page",
                      (unsigned)expected_bursts, (unsigned)current_page_id);
 
-                (void)decompress_page_to_buffer(&stream, out_buf,
-                                              &compressed_total, &uncompressed_total);
+                size_t finished_orig =
+                    (current_page_id < MAX_PAGES)
+                        ? page_orig_sizes[current_page_id]
+                        : current_page_orig_size;
+
+                (void)decompress_page_to_buffer(&stream,
+                                                finished_orig,
+                                                out_buf,
+                                                &compressed_total,
+                                                &uncompressed_total);
 
                 page_finished[current_page_id] = 1;
 
@@ -1305,8 +1333,12 @@ static int run_rx(const char *spi_dev,
         current_page_id < MAX_PAGES && !page_finished[current_page_id]) {
         logger_warn("P2P RX: transfer ended unexpectedly; decompressing partial Page %u",
              (unsigned)current_page_id);
-        (void)decompress_page_to_buffer(&stream, out_buf,
-                                      &compressed_total, &uncompressed_total);
+           size_t partial_orig = page_orig_sizes[current_page_id];
+           (void)decompress_page_to_buffer(&stream,
+                                    partial_orig,
+                                    out_buf,
+                                    &compressed_total,
+                                    &uncompressed_total);
     }
 
     double t_end = now_seconds();
@@ -1410,8 +1442,3 @@ cleanup:
     logger_close();
     return exit_code;
 }
-
-
-
-
-
