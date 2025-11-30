@@ -452,65 +452,145 @@ static int nrf24_enable_dynamic_payloads(nrf24_t *dev)
 
 int nrf24_configure_quick(nrf24_t *dev, uint8_t channel)
 {
-    /* 5-byte addresses */
-    if (nrf24_write_reg(dev, NRF24_REG_SETUP_AW, 0x03) < 0)
-        return -1;
-
-    /* auto-ack on pipe 0 */
-    if (nrf24_write_reg(dev, NRF24_REG_EN_AA, 0x01) < 0)
-        return -1;
-
-    /* enable data pipe 0 only */
-    if (nrf24_write_reg(dev, NRF24_REG_EN_RXADDR, 0x01) < 0)
-        return -1;
-
-    /* ARD=0 (250us), ARC=15 -> 0x0F.
-    * 250us is fine since we don't use ACK payloads.
-    */
-    if (nrf24_write_reg(dev, NRF24_REG_SETUP_RETR, 0x0F) < 0)
-        return -1;
-
-
-    /* RF channel */
-    if (nrf24_write_reg(dev, NRF24_REG_RF_CH, (uint8_t)(channel & 0x7F)) < 0)
-        return -1;
-
-    /* 2 Mbps, 0 dBm */
-    if (nrf24_write_reg(dev, NRF24_REG_RF_SETUP,
-                        NRF24_RF_SETUP_RF_DR_HIGH |
-                        NRF24_RF_SETUP_RF_PWR_0DBM) < 0)
-        return -1;
-
-    /* RX_PW_P0 is ignored in DPL mode, but set to max anyway */
-    if (nrf24_write_reg(dev, NRF24_REG_RX_PW_P0, NRF24_MAX_PAYLOAD_SIZE) < 0)
-        return -1;
-
-    /* Disable any old DPL/feature config first */
-    if (nrf24_write_reg(dev, NRF24_REG_DYNPD, 0x00) < 0)
-        return -1;
-    if (nrf24_write_reg(dev, NRF24_REG_FEATURE, 0x00) < 0)
-        return -1;
-
-    /* Same address for TX and RX pipe 0 */
-    if (nrf24_set_address(dev, NRF24_REG_RX_ADDR_P0, QUICK_ADDR) < 0)
-        return -1;
-    if (nrf24_set_address(dev, NRF24_REG_TX_ADDR, QUICK_ADDR) < 0)
-        return -1;
-
-    /* Clear interrupts and FIFOs */
-    if (nrf24_clear_interrupts(dev) < 0)
-        return -1;
-    if (nrf24_flush_rx(dev) < 0)
-        return -1;
-    if (nrf24_flush_tx(dev) < 0)
-        return -1;
-
-    /* *** KEY STEP: turn on dynamic payloads *** */
-    if (nrf24_enable_dynamic_payloads(dev) < 0)
-        return -1;
-
-    return 0;
+    /* Backwards-compatible: 2 Mbps, 0 dBm, 1-byte CRC,
+     * ARD = 0 (250 us), ARC = 15 (max).
+     */
+    return nrf24_configure_advanced(dev,
+                                    channel,
+                                    2000,  /* kbps */
+                                    0,     /* dBm */
+                                    1,     /* CRC bytes */
+                                    0,     /* ARD */
+                                    15);   /* ARC */
 }
+
+int nrf24_configure_advanced(nrf24_t *dev,
+                             uint8_t  channel,
+                             unsigned int data_rate_kbps,
+                             int      pa_level_dbm,
+                             unsigned int crc_bytes,
+                             unsigned int retr_delay,
+                             unsigned int retr_tries)
+{
+    if (!dev) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    /* ---- Encode data rate into RF_SETUP ---- */
+    uint8_t rf_setup = 0;
+
+    switch (data_rate_kbps) {
+    case 250:
+        /* 250 kbps: RF_DR_LOW=1, RF_DR_HIGH=0 */
+        rf_setup |= NRF24_RF_SETUP_RF_DR_LOW;
+        break;
+    case 1000:
+        /* 1 Mbps: RF_DR_LOW=0, RF_DR_HIGH=0 */
+        break;
+    case 2000:
+        /* 2 Mbps: RF_DR_LOW=0, RF_DR_HIGH=1 */
+        rf_setup |= NRF24_RF_SETUP_RF_DR_HIGH;
+        break;
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+
+    /* ---- Encode PA level into RF_SETUP ---- */
+    uint8_t pa_bits;
+
+    switch (pa_level_dbm) {
+    case 0:    /* 0 dBm  */
+        pa_bits = NRF24_RF_SETUP_RF_PWR_0DBM;        /* 3 << 1 */
+        break;
+    case -6:   /* -6 dBm */
+        pa_bits = (uint8_t)(2u << 1);
+        break;
+    case -12:  /* -12 dBm */
+        pa_bits = (uint8_t)(1u << 1);
+        break;
+    case -18:  /* -18 dBm */
+        pa_bits = (uint8_t)(0u << 1);
+        break;
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+
+    rf_setup |= pa_bits;
+
+    /* ---- Auto-ack, addresses and dynamic payloads (same as quick_mode) ---- */
+    const uint8_t en_aa     = 0x01;  /* auto-ack pipe0 */
+    const uint8_t en_rxaddr = 0x01;  /* enable pipe0 */
+    const uint8_t setup_aw  = 0x03;  /* 5-byte addresses */
+
+    if (retr_delay > 15u || retr_tries > 15u) {
+        errno = EINVAL;
+        return -1;
+    }
+    uint8_t setup_retr = (uint8_t)(((retr_delay & 0x0Fu) << 4) |
+                                   (retr_tries  & 0x0Fu));
+
+    const uint8_t dynpd   = NRF24_DYNPD_DPL_P0;
+    const uint8_t feature = NRF24_FEATURE_EN_DPL | NRF24_FEATURE_EN_ACK_PAY;
+
+    if (nrf24_write_reg(dev, NRF24_REG_EN_AA, en_aa) < 0)         return -1;
+    if (nrf24_write_reg(dev, NRF24_REG_EN_RXADDR, en_rxaddr) < 0) return -1;
+    if (nrf24_write_reg(dev, NRF24_REG_SETUP_AW, setup_aw) < 0)   return -1;
+    if (nrf24_write_reg(dev, NRF24_REG_SETUP_RETR, setup_retr) < 0) return -1;
+    if (nrf24_write_reg(dev, NRF24_REG_RF_CH, channel & 0x7Fu) < 0) return -1;
+    if (nrf24_write_reg(dev, NRF24_REG_RF_SETUP, rf_setup) < 0)     return -1;
+    if (nrf24_write_reg(dev, NRF24_REG_DYNPD, dynpd) < 0)           return -1;
+    if (nrf24_write_reg(dev, NRF24_REG_FEATURE, feature) < 0)       return -1;
+
+    /* Use same address for TX and RX pipe0 */
+    if (nrf24_write_buf(dev, NRF24_REG_RX_ADDR_P0,
+                        QUICK_ADDR, sizeof(QUICK_ADDR)) < 0)
+        return -1;
+    if (nrf24_write_buf(dev, NRF24_REG_TX_ADDR,
+                        QUICK_ADDR, sizeof(QUICK_ADDR)) < 0)
+        return -1;
+
+    /* ---- CRC configuration (CONFIG register) ---- */
+    uint8_t config;
+    if (nrf24_read_reg(dev, NRF24_REG_CONFIG, &config) < 0)
+        return -1;
+
+    /* Preserve MASK_* bits etc, but update EN_CRC/CRCO */
+    config &= (uint8_t)~(NRF24_CONFIG_EN_CRC | NRF24_CONFIG_CRCO);
+
+    switch (crc_bytes) {
+    case 0:
+        /* CRC disabled.
+         * NOTE: datasheet: EN_CRC is forced high if any EN_AA bit is set.
+         * So with auto-ack enabled, the chip will still use CRC internally.
+         */
+        break;
+    case 1:
+        config |= NRF24_CONFIG_EN_CRC;
+        break;
+    case 2:
+        config |= (NRF24_CONFIG_EN_CRC | NRF24_CONFIG_CRCO);
+        break;
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (nrf24_write_reg(dev, NRF24_REG_CONFIG, config) < 0)
+        return -1;
+
+    /* Clear pending IRQs and flush FIFOs */
+    const uint8_t status_clear = NRF24_STATUS_RX_DR |
+                                 NRF24_STATUS_TX_DS |
+                                 NRF24_STATUS_MAX_RT;
+    if (nrf24_write_reg(dev, NRF24_REG_STATUS, status_clear) < 0)
+        return -1;
+
+    return nrf24_flush_tx_rx(dev);
+}
+
 
 int nrf24_dump_config(nrf24_t *dev)
 {

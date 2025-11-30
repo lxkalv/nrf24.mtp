@@ -193,7 +193,77 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    nrf24_configure_quick(&rctx.dev, cfg.channel);
+        /* ---- Map app_config_t → nRF24 parameters ---- */
+
+    unsigned int data_rate_kbps;
+    switch (cfg.data_rate) {
+    case APP_DATA_RATE_250KBPS:
+        data_rate_kbps = 250;
+        break;
+    case APP_DATA_RATE_1MBPS:
+        data_rate_kbps = 1000;
+        break;
+    case APP_DATA_RATE_2MBPS:
+        data_rate_kbps = 2000;
+        break;
+    default:
+        ERROR("Invalid data rate in app config: %d", (int)cfg.data_rate);
+        goto out;
+    }
+
+    int pa_level_dbm;
+    switch (cfg.pa_level) {
+    case APP_PA_MIN:
+        pa_level_dbm = -18;
+        break;
+    case APP_PA_LOW:
+        pa_level_dbm = -12;
+        break;
+    case APP_PA_HIGH:
+        pa_level_dbm = -6;
+        break;
+    case APP_PA_MAX:
+        pa_level_dbm = 0;
+        break;
+    default:
+        ERROR("Invalid PA level in app config: %d", (int)cfg.pa_level);
+        goto out;
+    }
+
+    unsigned int crc_bytes;
+    switch (cfg.crc_bytes) {
+    case APP_CRC_OFF:
+        crc_bytes = 0;
+        break;
+    case APP_CRC_8:
+        crc_bytes = 1;
+        break;
+    case APP_CRC_16:
+        crc_bytes = 2;
+        break;
+    default:
+        ERROR("Invalid CRC bytes in app config: %d", (int)cfg.crc_bytes);
+        goto out;
+    }
+
+    /* retransmission_delay and retransmission_tries are already 0..15 */
+    if (nrf24_configure_advanced(&rctx.dev,
+                                 cfg.channel,
+                                 data_rate_kbps,
+                                 pa_level_dbm,
+                                 crc_bytes,
+                                 cfg.retransmission_delay,
+                                 cfg.retransmission_tries) < 0) {
+        ERROR("Failed to configure nRF24 radio: %s", strerror(errno));
+        goto out;
+    }
+
+    INFO("Radio configured on channel %u", cfg.channel);
+
+    if (cfg.print_config) {
+        (void)nrf24_dump_config(&rctx.dev);
+    }
+
     logger_info("Radio configured on channel %u", cfg.channel);
 
     if (cfg.print_config) {
