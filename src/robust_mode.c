@@ -919,56 +919,76 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                     continue;
                 }
 
-                id_bytes = buf[2];
-                compressed_len = decode_u32_le(&buf[4]);
-                expected_frames = decode_u32_le(&buf[8]);
-                original_len = decode_u32_le(&buf[12]);
+                uint8_t new_id_bytes        = buf[2];
+                uint32_t new_compressed_len = decode_u32_le(&buf[4]);
+                uint32_t new_expected_frames= decode_u32_le(&buf[8]);
+                uint32_t new_original_len   = decode_u32_le(&buf[12]);
 
-                if (id_bytes == 0 || id_bytes > 4) {
-                    logger_error("robust RX: invalid FrameID length %u", id_bytes);
+                if (new_id_bytes == 0 || new_id_bytes > 4) {
+                    logger_error("robust RX: invalid FrameID length %u", new_id_bytes);
                     goto cleanup;
                 }
 
-                payload_bytes = MAX_PAYLOAD - 1 - id_bytes;
-                if (payload_bytes == 0) {
+                size_t new_payload_bytes = MAX_PAYLOAD - 1 - new_id_bytes;
+                if (new_payload_bytes == 0) {
                     logger_error("robust RX: payload too small for FrameIDs");
                     goto cleanup;
                 }
 
-                if (compressed_len > UINT32_MAX) {
+                if (new_compressed_len > UINT32_MAX) {
                     logger_error("robust RX: compressed length too large");
                     goto cleanup;
                 }
 
-                if (expected_frames == 0 && compressed_len > 0) {
-                    expected_frames = (uint32_t)((compressed_len + payload_bytes - 1) / payload_bytes);
+                if (new_expected_frames == 0 && new_compressed_len > 0) {
+                    new_expected_frames = (uint32_t)((new_compressed_len + new_payload_bytes - 1) / new_payload_bytes);
                 }
 
-                if (compressed_len > compressed_cap) {
-                    uint8_t *tmp = (uint8_t *)realloc(compressed, compressed_len);
-                    if (!tmp && compressed_len > 0) {
-                        logger_error("robust RX: realloc(%zu) failed", compressed_len);
-                        goto cleanup;
+                int same_stream = have_info &&
+                                  new_id_bytes        == id_bytes &&
+                                  new_compressed_len  == compressed_len &&
+                                  new_expected_frames == expected_frames &&
+                                  new_original_len    == original_len;
+
+                if (!same_stream) {
+                    if (new_compressed_len > 0) {
+                        uint8_t *tmp = (uint8_t *)realloc(compressed, new_compressed_len);
+                        if (!tmp) {
+                            logger_error("robust RX: realloc(%u) failed", new_compressed_len);
+                            goto cleanup;
+                        }
+                        compressed = tmp;
+                    } else {
+                        free(compressed);
+                        compressed = NULL;
                     }
-                    compressed = tmp;
-                    compressed_cap = compressed_len;
-                }
+                    compressed_cap = new_compressed_len;
 
-                free(frame_received);
-                frame_received = NULL;
-                if (expected_frames > 0) {
-                    frame_received = (uint8_t *)calloc(expected_frames, 1);
-                    if (!frame_received) {
-                        logger_error("robust RX: calloc failed for frame tracking");
-                        goto cleanup;
+                    free(frame_received);
+                    frame_received = NULL;
+                    if (new_expected_frames > 0) {
+                        frame_received = (uint8_t *)calloc(new_expected_frames, 1);
+                        if (!frame_received) {
+                            logger_error("robust RX: calloc failed for frame tracking");
+                            goto cleanup;
+                        }
                     }
+
+                    if (compressed && new_compressed_len > 0) {
+                        memset(compressed, 0, new_compressed_len);
+                    }
+                    frames_received = 0;
+                    checksum_sent = 0;
+                    next_rx_progress_pct = 10;
+                } else {
+                    logger_info("robust RX: STREAM_INFO matches current transfer; keeping buffered frames");
                 }
 
-                if (compressed_len > 0 && compressed) {
-                    memset(compressed, 0, compressed_len);
-                }
-                frames_received = 0;
-                checksum_sent = 0;
+                id_bytes = new_id_bytes;
+                compressed_len = new_compressed_len;
+                expected_frames = new_expected_frames;
+                original_len = new_original_len;
+                payload_bytes = new_payload_bytes;
                 have_info = 1;
 
                 logger_info("robust RX: STREAM_INFO -> comp=%zu bytes, orig=%u bytes, frames=%u, id_bytes=%u",
@@ -1063,8 +1083,8 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             continue;
         }
 
-        if (frames_received >= expected_frames && !checksum_sent) {
-            logger_info("robust RX: all %u frames received, sending checksum", expected_frames);
+        if (!checksum_sent && frame_id == expected_frames - 1) {
+            logger_info("robust RX: last frame (ID=%u) received, sending checksum", frame_id);
 
             uint64_t checksum_state;
             checksum_init(&checksum_state);
