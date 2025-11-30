@@ -932,17 +932,45 @@ static int run_rx(const char *spi_dev,
                 }
 
                 stream_total_orig = tmp_total;
+                uint64_t total_comp_bytes = 0;
+                uint32_t total_expected_bursts = 0;
+                uint32_t total_expected_frames = 0;
+                size_t active_pages = 0;
+
                 for (size_t i = 0; i < TRANS_NUM_PAGES; ++i) {
+                    uint32_t comp_bytes = tmp_comp[i];
                     stream_page_orig_sizes[i] = compute_page_orig_len(stream_total_orig, i);
                     stream_page_expected_bursts[i] =
-                        (uint16_t)((tmp_comp[i] + TRANS_DATA_BYTES_PER_BURST - 1) /
+                        (uint16_t)((comp_bytes + TRANS_DATA_BYTES_PER_BURST - 1) /
                                    TRANS_DATA_BYTES_PER_BURST);
-                    if (tmp_comp[i] == 0) {
+                    if (comp_bytes == 0) {
                         page_finished[i] = 1;
+                    } else {
+                        active_pages++;
                     }
+
+                    uint32_t frames_for_page =
+                        (comp_bytes + TRANS_DATA_BYTES_PER_FRAME - 1) /
+                        TRANS_DATA_BYTES_PER_FRAME;
+
+                    total_comp_bytes     += comp_bytes;
+                    total_expected_bursts += stream_page_expected_bursts[i];
+                    total_expected_frames += frames_for_page;
+
+                    logger_info("P2P RX: STREAM_INFO page %zu -> raw=%zu B, comp=%u B, bursts=%u, frames=%u",
+                                i,
+                                stream_page_orig_sizes[i],
+                                comp_bytes,
+                                (unsigned)stream_page_expected_bursts[i],
+                                frames_for_page);
                 }
 
-                logger_info("P2P RX: STREAM_INFO parsed (total=%u bytes)", stream_total_orig);
+                logger_info("P2P RX: STREAM_INFO parsed -> total_raw=%u B, total_comp=%llu B, active_pages=%zu, expected_bursts=%u, expected_frames=%u",
+                            stream_total_orig,
+                            (unsigned long long)total_comp_bytes,
+                            active_pages,
+                            total_expected_bursts,
+                            total_expected_frames);
                 have_stream_info = 1;
                 continue;
             } else {
