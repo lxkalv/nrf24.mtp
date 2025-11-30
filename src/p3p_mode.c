@@ -259,18 +259,6 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    logger_info("Radio configured on channel %u", cfg.channel);
-
-    if (cfg.print_config) {
-        (void)nrf24_dump_config(&rctx.dev);
-    }
-
-    logger_info("Radio configured on channel %u", cfg.channel);
-
-    if (cfg.print_config) {
-        nrf24_dump_config(&rctx.dev);
-    }
-
     // 4. Build link interface
     link_radio_iface_t iface = {
         .send               = radio_send,
