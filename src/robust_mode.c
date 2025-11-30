@@ -459,8 +459,11 @@ static int wait_for_stream_ready(nrf24_t *radio,
         logger_warn("robust TX: control 0x%02X while waiting for READY", buf[1]);
     }
 
-    logger_error("robust TX: timeout waiting for STREAM_READY");
-    return -1;
+    if (ensure_mode_tx(radio) != 0) {
+        return -1;
+    }
+
+    return 1; /* timeout, caller may retry */
 }
 
 static int send_stream_ready(nrf24_t *radio,
@@ -574,13 +577,32 @@ static int run_tx(const char *spi_dev, int ce_gpio, const char *input_path)
         goto cleanup;
     }
 
-    if (wait_for_stream_ready(&radio,
-                              (uint8_t)id_bytes,
-                              total_frames,
-                              (uint32_t)compressed_len) != 0) {
-        logger_error("robust TX: RX failed to signal readiness");
-        nrf24_deinit(&radio);
-        goto cleanup;
+    while (1) {
+        int ready_ret = wait_for_stream_ready(&radio,
+                                              (uint8_t)id_bytes,
+                                              total_frames,
+                                              (uint32_t)compressed_len);
+        if (ready_ret == 0) {
+            break;
+        }
+        if (ready_ret < 0) {
+            logger_error("robust TX: failed while waiting for STREAM_READY");
+            nrf24_deinit(&radio);
+            goto cleanup;
+        }
+
+        logger_warn("robust TX: RX not ready yet, resending STREAM_INFO");
+        if (send_stream_info(&radio,
+                             (uint8_t)id_bytes,
+                             (uint32_t)compressed_len,
+                             total_frames,
+                             (uint32_t)file_len,
+                             &tx_rf_bytes,
+                             &tx_rf_frames) != 0) {
+            logger_error("Failed to resend STREAM_INFO");
+            nrf24_deinit(&radio);
+            goto cleanup;
+        }
     }
 
     uint64_t checksum_state;
