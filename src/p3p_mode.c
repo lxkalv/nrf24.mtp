@@ -1458,3 +1458,5 @@ cleanup:
     logger_close();
     return exit_code;
 }
+
+// OK
