@@ -558,11 +558,15 @@ int nrf24_configure_advanced(nrf24_t *dev,
     if (nrf24_write_reg(dev, NRF24_REG_FEATURE, feature) < 0)       return -1;
 
     /* Use same address for TX and RX pipe0 */
-    if (nrf24_write_buf(dev, NRF24_REG_RX_ADDR_P0,
-                        QUICK_ADDR, sizeof(QUICK_ADDR)) < 0)
+    if (nrf24_write_buf(dev,
+                        NRF24_CMD_W_REGISTER | (NRF24_REG_RX_ADDR_P0 & NRF24_CMD_REGISTER_MASK),
+                        QUICK_ADDR,
+                        sizeof(QUICK_ADDR)) < 0)
         return -1;
-    if (nrf24_write_buf(dev, NRF24_REG_TX_ADDR,
-                        QUICK_ADDR, sizeof(QUICK_ADDR)) < 0)
+    if (nrf24_write_buf(dev,
+                        NRF24_CMD_W_REGISTER | (NRF24_REG_TX_ADDR & NRF24_CMD_REGISTER_MASK),
+                        QUICK_ADDR,
+                        sizeof(QUICK_ADDR)) < 0)
         return -1;
 
     /* ---- CRC configuration (CONFIG register) ---- */
