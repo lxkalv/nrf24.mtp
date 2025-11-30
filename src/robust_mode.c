@@ -376,8 +376,20 @@ static int send_stream_info(nrf24_t *radio,
     encode_u32_le(&msg[4], comp_len);
     encode_u32_le(&msg[8], total_frames);
     encode_u32_le(&msg[12], orig_len);
-    return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_INFO",
-                             rf_bytes_total, rf_frames_total);
+    int ret = send_with_retries(radio,
+                                msg,
+                                sizeof(msg),
+                                CONTROL_TIMEOUT_MS,
+                                "STREAM_INFO",
+                                rf_bytes_total,
+                                rf_frames_total);
+    if (ret == 0) {
+        logger_succ("robust TX: STREAM_INFO acknowledged (frames=%u, comp=%u, orig=%u)",
+                    total_frames,
+                    comp_len,
+                    orig_len);
+    }
+    return ret;
 }
 
 static int send_stream_finish(nrf24_t *radio,
@@ -385,8 +397,17 @@ static int send_stream_finish(nrf24_t *radio,
                               uint64_t *rf_frames_total)
 {
     uint8_t msg[2] = { CONTROL_PREFIX, MSG_STREAM_FINISH };
-    return send_with_retries(radio, msg, sizeof(msg), CONTROL_TIMEOUT_MS, "STREAM_FINISH",
-                             rf_bytes_total, rf_frames_total);
+    int ret = send_with_retries(radio,
+                                msg,
+                                sizeof(msg),
+                                CONTROL_TIMEOUT_MS,
+                                "STREAM_FINISH",
+                                rf_bytes_total,
+                                rf_frames_total);
+    if (ret == 0) {
+        logger_succ("robust TX: STREAM_FINISH acknowledged by RX");
+    }
+    return ret;
 }
 
 static int send_checksum_with_timeout(nrf24_t *radio,
@@ -415,6 +436,7 @@ static int send_checksum_with_timeout(nrf24_t *radio,
                                       sizeof(msg),
                                       CONTROL_TIMEOUT_MS);
         if (ret == 0) {
+            logger_succ("robust RX: CHECKSUM acknowledged by TX");
             return 0;
         }
 
@@ -587,7 +609,7 @@ static int send_stream_ready(nrf24_t *radio,
         return 1; /* indicate timeout */
     }
 
-    logger_info("robust RX: sent STREAM_READY (frames=%u, comp=%u)",
+    logger_succ("robust RX: STREAM_READY acknowledged (frames=%u, comp=%u)",
                 expected_frames,
                 compressed_len);
 
@@ -930,6 +952,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     uint64_t rf_tx_bytes = 0;
     uint64_t rf_tx_frames = 0;
     unsigned next_rx_progress_pct = 10;
+    int32_t highest_frame_seen = -1;
     double rx_start = now_seconds();
 
     logger_info("robust RX: waiting for STREAM_INFO");
@@ -1029,6 +1052,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                     frames_received = 0;
                     checksum_sent = 0;
                     next_rx_progress_pct = 10;
+                    highest_frame_seen = -1;
                 } else {
                     logger_info("robust RX: STREAM_INFO matches current transfer; keeping buffered frames");
                 }
@@ -1116,15 +1140,16 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             frame_received[frame_id] = 1;
             ++frames_received;
 
-            if (expected_frames > 0) {
-                uint32_t pct = (uint32_t)(((uint64_t)frames_received * 100u) / expected_frames);
-                if (frames_received == expected_frames) {
+            if (expected_frames > 0 && (int32_t)frame_id > highest_frame_seen) {
+                highest_frame_seen = (int32_t)frame_id;
+                uint32_t pct = (uint32_t)(((uint64_t)(frame_id + 1) * 100u) / expected_frames);
+                if (frame_id + 1 >= expected_frames) {
                     pct = 100;
                 }
                 if (pct >= next_rx_progress_pct) {
-                    logger_info("robust RX: progress %u%% (%u/%u frames)",
+                    logger_info("robust RX: progress %u%% (frame_id=%u/%u)",
                                 pct,
-                                frames_received,
+                                frame_id + 1,
                                 expected_frames);
                     while (next_rx_progress_pct <= pct && next_rx_progress_pct < 100) {
                         next_rx_progress_pct += 10;
