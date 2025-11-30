@@ -11,7 +11,6 @@
 #include <linux/spi/spidev.h>
 #include <dirent.h>
 #include <stdlib.h>
-#include <errno.h>
 
 #include "logger.h"
 
@@ -284,7 +283,7 @@ static int nrf24_clear_interrupts(nrf24_t *dev)
                            NRF24_STATUS_MAX_RT);
 }
 
-static int nrf24_set_address(nrf24_t *dev, uint8_t reg, const uint8_t addr[5])
+int nrf24_set_address(nrf24_t *dev, uint8_t reg, const uint8_t addr[5])
 {
     return nrf24_write_buf(dev,
                            NRF24_CMD_W_REGISTER | (NRF24_CMD_REGISTER_MASK & reg),
@@ -421,7 +420,7 @@ static int nrf24_toggle_features(nrf24_t *dev)
 }
 
 /* Turn on Dynamic Payload Length on pipe 0. */
-static int nrf24_enable_dynamic_payloads(nrf24_t *dev)
+int nrf24_enable_dynamic_payloads(nrf24_t *dev)
 {
     uint8_t feature;
 
