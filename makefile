@@ -11,7 +11,7 @@ CFLAGS  = -Wall -Wextra -O2 -I. -I$(LIBDIR)
 LDFLAGS = -lz
 
 # Programs (names only)
-PROGS     = quick_mode fast_mode p2p_mode p3p_mode
+PROGS     = quick_mode fast_mode p2p_mode p3p_mode robust_mode
 BIN_PROGS = $(addprefix $(BINDIR)/,$(PROGS))
 
 # Library objects
@@ -27,7 +27,7 @@ LIB_OBJS = \
 
 # ---------- Default / convenience targets ----------
 
-.PHONY: help all quick fast p2p p3p clean
+.PHONY: help all quick fast p2p p3p robust clean
 
 help:
 	@echo "Available targets:"
@@ -35,6 +35,7 @@ help:
 	@echo "  make fast    -> build bin/fast_mode"
 	@echo "  make p2p     -> build bin/p2p_mode"
 	@echo "  make p3p     -> build bin/p3p_mode"
+	@echo "  make robust  -> build bin/robust_mode"
 	@echo "  make all     -> build every mode"
 	@echo "  make clean   -> remove binaries and objects"
 
@@ -47,6 +48,8 @@ fast: $(BINDIR)/fast_mode
 p2p: $(BINDIR)/p2p_mode
 
 p3p: $(BINDIR)/p3p_mode
+
+robust: $(BINDIR)/robust_mode
 
 # ---------- Generic compilation rules ----------
 
@@ -75,6 +78,10 @@ $(BINDIR)/p3p_mode: $(SRCDIR)/p3p_mode.o $(LIB_OBJS)
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
+$(BINDIR)/robust_mode: $(SRCDIR)/robust_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/logger.o
+	mkdir -p $(BINDIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
 # ---------- Explicit dependencies (nice to have) ----------
 
 $(SRCDIR)/quick_mode.o: $(SRCDIR)/quick_mode.c $(LIBDIR)/nrf24.h
@@ -87,6 +94,7 @@ $(SRCDIR)/p3p_mode.o:   $(SRCDIR)/p3p_mode.c   \
                         $(LIBDIR)/transport_layer.h \
                         $(LIBDIR)/link_layer.h \
                         $(LIBDIR)/nrf24.h
+$(SRCDIR)/robust_mode.o: $(SRCDIR)/robust_mode.c $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h
 
 $(LIBDIR)/nrf24.o:            $(LIBDIR)/nrf24.c            $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h
 $(LIBDIR)/utils.o:            $(LIBDIR)/utils.c            $(LIBDIR)/utils.h
