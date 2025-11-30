@@ -1213,7 +1213,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (log_init(log_path) != 0) {
+    if (logger_init(log_path) != 0) {
         logger_warn("Could not open log file '%s' (continuing without file log)", log_path);
     } else {
         logger_info("Logging to file '%s'", log_path);
@@ -1226,6 +1226,6 @@ int main(int argc, char **argv)
         ret = run_rx(spi_dev, ce_bcm, path);
     }
 
-    log_close();
+    logger_close();
     return ret;
 }
