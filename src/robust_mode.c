@@ -801,7 +801,7 @@ static int run_tx(const char *spi_dev,
         logger_info("robust TX: waiting for checksum reply");
         int checksum_ok = 0;
         double wait_start = now_seconds();
-        while (!checksum_ok && (now_seconds() - wait_start) * 1000.0 < CHECKSUM_TIMEOUT_MS * 10) {
+        while (!checksum_ok && (now_seconds() - wait_start) * 1000.0 < CHECKSUM_TIMEOUT_MS) {
             uint8_t buf[MAX_PAYLOAD];
             uint8_t len = sizeof(buf);
             int ret = nrf24_recv_blocking(&radio, buf, &len, CHECKSUM_TIMEOUT_MS);
