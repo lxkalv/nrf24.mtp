@@ -1170,15 +1170,20 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         }
 
         if (!checksum_sent && frame_id == expected_frames - 1) {
+            int missing_total = 0;
             if (frame_received) {
                 for (uint32_t missing = 0; missing < expected_frames; ++missing) {
                     if (!frame_received[missing]) {
                         logger_warn("robust RX: frame %u missing before checksum send", missing);
+                        ++missing_total;
                     }
                 }
             }
-
-            logger_info("robust RX: last frame (ID=%u) received, sending checksum", frame_id);
+            if (missing_total == 0) {
+                logger_info("robust RX: last frame (ID=%u) received, checksum covers all frames", frame_id);
+            } else {
+                logger_warn("robust RX: checksum computed with %d missing frame(s)", missing_total);
+            }
 
             uint64_t checksum_state;
             checksum_init(&checksum_state);
