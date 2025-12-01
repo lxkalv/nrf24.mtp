@@ -1118,6 +1118,13 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             continue;
         }
 
+        if (checksum_sent) {
+            logger_warn("robust RX: data received after checksum sent; assuming TX resend");
+            checksum_sent = 0;
+            highest_frame_seen = -1;
+            next_rx_progress_pct = 10;
+        }
+
         uint32_t frame_id = 0;
         for (unsigned b = 0; b < id_bytes; ++b) {
             frame_id |= ((uint32_t)buf[1 + b]) << (8 * b);
