@@ -1163,6 +1163,14 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         }
 
         if (!checksum_sent && frame_id == expected_frames - 1) {
+            if (frame_received) {
+                for (uint32_t missing = 0; missing < expected_frames; ++missing) {
+                    if (!frame_received[missing]) {
+                        logger_warn("robust RX: frame %u missing before checksum send", missing);
+                    }
+                }
+            }
+
             logger_info("robust RX: last frame (ID=%u) received, sending checksum", frame_id);
 
             uint64_t checksum_state;
