@@ -249,7 +249,7 @@ static int decompress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf
     int zret = uncompress(buf, &dest_len, in ? in : (const Bytef *)"", (uLong)in_len);
     if (zret != Z_OK || dest_len != out_len) {
         logger_error("uncompress failed (zret=%d, dest=%lu expected=%zu)",
-                     zret, (unsigned long)dest_len, out_len);
+                    zret, (unsigned long)dest_len, out_len);
         free(buf);
         return -1;
     }
@@ -275,8 +275,8 @@ static int derive_frame_layout(size_t data_len,
         }
 
         size_t frames = (data_len == 0)
-                      ? 0
-                      : (data_len + payload - 1) / payload;
+                    ? 0
+                    : (data_len + payload - 1) / payload;
 
         uint64_t max_frames = ((uint64_t)1 << (id_bytes * 8)) - 1;
         if (frames <= max_frames) {
