@@ -743,7 +743,7 @@ static int run_tx(const char *spi_dev,
         }
     }
 
-    sleep_ms_posix(200);
+    sleep_ms_posix(20);
     uint64_t checksum_state;
     checksum_init(&checksum_state);
     checksum_update(&checksum_state, compressed, compressed_len);
@@ -757,6 +757,32 @@ static int run_tx(const char *spi_dev,
         unsigned next_tx_progress_pct = 10;
 
         logger_info("robust TX: sending data (round %u)", resend_round + 1);
+        if (payload_bytes > 0) {
+            for (unsigned warm = 0; warm < 3; ++warm) {
+                uint8_t warm_payload[MAX_PAYLOAD];
+                warm_payload[0] = DATA_PREFIX;
+
+                /* Usamos un FrameID fuera de rango para que RX lo ignore */
+                uint32_t warm_id = total_frames + 100 + warm;
+                uint32_t tmp_id = warm_id;
+                for (unsigned b = 0; b < id_bytes; ++b) {
+                    warm_payload[1 + b] = (uint8_t)(tmp_id & 0xFFu);
+                    tmp_id >>= 8;
+                }
+
+                /* Datos dummy (no importan) */
+                memset(&warm_payload[1 + id_bytes], 0xAA, payload_bytes);
+
+                /* No pasa nada si esto falla: es solo calentamiento */
+                (void)send_with_retries(&radio,
+                                        warm_payload,
+                                        (uint8_t)(1 + id_bytes + payload_bytes),
+                                        DATA_TIMEOUT_MS,
+                                        "DATA-WARMUP",
+                                        &tx_rf_bytes,
+                                        &tx_rf_frames);
+            }
+        }
         size_t offset = 0;
         for (uint32_t frame = 0; frame < total_frames; ++frame) {
             size_t chunk = payload_bytes;
@@ -773,6 +799,8 @@ static int run_tx(const char *spi_dev,
             }
             memcpy(&payload[1 + id_bytes], compressed + offset, chunk);
 
+            char label[32];
+            snprintf(label, sizeof(label), "DATA[%u]", frame);
             if (send_with_retries(&radio,
                                   payload,
                                   (uint8_t)(1 + id_bytes + chunk),
