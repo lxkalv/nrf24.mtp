@@ -695,7 +695,7 @@ static int run_tx(const char *spi_dev,
     /* FIX 2: Espera crítica para sincronización RX.
        RX acaba de enviar ACK a STREAM_READY, necesita tiempo para volver a modo RX.
        Sin esto, el frame 0 se pierde casi siempre. */
-    usleep(20000); // 20ms
+    sleep(20000); // 20ms
 
     uint64_t checksum_state;
     checksum_init(&checksum_state);
@@ -809,7 +809,7 @@ static int run_tx(const char *spi_dev,
                 goto cleanup;
             }
             /* Esperar un momento antes de empezar a reenviar para dejar al RX acomodarse */
-            usleep(100000); 
+            sleep(100000); 
             ++resend_round;
             continue;
         }
@@ -885,6 +885,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     uint32_t expected_frames = 0;
     uint32_t original_len = 0;
     int checksum_sent = 0;
+    int frames_received=0;
     int have_info = 0;
     uint64_t rf_rx_bytes = 0;
     uint64_t rf_rx_frames = 0;
