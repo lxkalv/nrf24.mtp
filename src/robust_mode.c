@@ -743,7 +743,7 @@ static int run_tx(const char *spi_dev,
         }
     }
 
-    sleep_ms_posix(20);
+    sleep_ms_posix(200);
     uint64_t checksum_state;
     checksum_init(&checksum_state);
     checksum_update(&checksum_state, compressed, compressed_len);
