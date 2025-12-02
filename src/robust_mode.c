@@ -1174,41 +1174,40 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             continue;
         }
 
-        // *** CAMBIO MÍNIMO IMPORTANTE ***
-        // Antes: se disparaba sólo con "frame_id == expected_frames - 1".
-        // Eso permitía enviar checksum aunque faltaran frames.
+        // NUEVA LÓGICA:
+        // Disparamos la fase de checksum SIEMPRE que:
+        //   - No hemos enviado checksum aún en esta ronda (checksum_sent == 0)
+        //   - Esta DATA es la última por ID (frame_id == expected_frames - 1)
         //
-        // Ahora: además exigimos "frames_received == expected_frames",
-        // es decir, que TODAS las tramas se hayan recibido al menos una vez.
+        // No exigimos frames_received == expected_frames.
+        // En su lugar, contamos cuántos frames faltan y lo logueamos.
+        // TX utilizará el checksum para decidir si reenvía otra ronda completa.
         if (!checksum_sent &&
             expected_frames > 0 &&
-            frame_id == expected_frames - 1 &&
-            frames_received == expected_frames) {
+            frame_id == expected_frames - 1) {
 
             int missing_total = 0;
             if (frame_received) {
-                for (uint32_t missing = 0; missing < expected_frames; ++missing) {
-                    if (!frame_received[missing]) {
+                for (uint32_t i = 0; i < expected_frames; ++i) {
+                    if (!frame_received[i]) {
                         ++missing_total;
                     }
                 }
             }
 
             if (missing_total > 0) {
-                logger_warn("robust RX: %d frame(s) missing before checksum; delaying checksum",
+                logger_warn("robust RX: %d frame(s) missing before checksum send",
                             missing_total);
-                continue;
+            } else {
+                logger_info("robust RX: last frame (ID=%u) received, checksum covers all %u frames",
+                            frame_id, expected_frames);
             }
-
-            logger_info("robust RX: last frame (ID=%u) received, checksum covers all %u frames",
-                        frame_id, expected_frames);
 
             uint64_t checksum_state;
             checksum_init(&checksum_state);
             checksum_update(&checksum_state, compressed, compressed_len);
             uint64_t rx_checksum = checksum_final(checksum_state);
 
-            // Log extra de diagnóstico
             logger_info("robust RX: sending CHECKSUM=0x%016llX",
                         (unsigned long long)rx_checksum);
 
@@ -1223,8 +1222,10 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 if (ensure_mode_rx(&radio) != 0) {
                     goto cleanup;
                 }
+                // No marcamos checksum_sent: TX no ha visto el checksum.
                 continue;
             }
+
             checksum_sent = 1;
             if (ensure_mode_rx(&radio) != 0) {
                 goto cleanup;
