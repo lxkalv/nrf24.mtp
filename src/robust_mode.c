@@ -198,6 +198,7 @@ static uint64_t decode_u64_le(const uint8_t *src)
     return v;
 }
 
+
 static int compress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf, size_t *out_len)
 {
     if (!out_buf || !out_len) {
@@ -248,7 +249,7 @@ static int decompress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf
     int zret = uncompress(buf, &dest_len, in ? in : (const Bytef *)"", (uLong)in_len);
     if (zret != Z_OK || dest_len != out_len) {
         logger_error("uncompress failed (zret=%d, dest=%lu expected=%zu)",
-                    zret, (unsigned long)dest_len, out_len);
+                     zret, (unsigned long)dest_len, out_len);
         free(buf);
         return -1;
     }
@@ -274,8 +275,8 @@ static int derive_frame_layout(size_t data_len,
         }
 
         size_t frames = (data_len == 0)
-                    ? 0
-                    : (data_len + payload - 1) / payload;
+                      ? 0
+                      : (data_len + payload - 1) / payload;
 
         uint64_t max_frames = ((uint64_t)1 << (id_bytes * 8)) - 1;
         if (frames <= max_frames) {
@@ -829,12 +830,6 @@ static int run_tx(const char *spi_dev,
                     continue;
                 }
                 uint64_t rx_checksum = decode_u64_le(&buf[2]);
-
-                // Log extra de diagnóstico
-                logger_info("robust TX: got CHECKSUM=0x%016llX, local=0x%016llX",
-                            (unsigned long long)rx_checksum,
-                            (unsigned long long)tx_checksum);
-
                 if (rx_checksum == tx_checksum) {
                     checksum_ok = 1;
                     break;
@@ -1174,42 +1169,26 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             continue;
         }
 
-        // NUEVA LÓGICA:
-        // Disparamos la fase de checksum SIEMPRE que:
-        //   - No hemos enviado checksum aún en esta ronda (checksum_sent == 0)
-        //   - Esta DATA es la última por ID (frame_id == expected_frames - 1)
-        //
-        // No exigimos frames_received == expected_frames.
-        // En su lugar, contamos cuántos frames faltan y lo logueamos.
-        // TX utilizará el checksum para decidir si reenvía otra ronda completa.
-        if (!checksum_sent &&
-            expected_frames > 0 &&
-            frame_id == expected_frames - 1) {
-
+        if (!checksum_sent && frame_id == expected_frames - 1) {
             int missing_total = 0;
             if (frame_received) {
-                for (uint32_t i = 0; i < expected_frames; ++i) {
-                    if (!frame_received[i]) {
+                for (uint32_t missing = 0; missing < expected_frames; ++missing) {
+                    if (!frame_received[missing]) {
+                        logger_warn("robust RX: frame %u missing before checksum send", missing);
                         ++missing_total;
                     }
                 }
             }
-
-            if (missing_total > 0) {
-                logger_warn("robust RX: %d frame(s) missing before checksum send",
-                            missing_total);
+            if (missing_total == 0) {
+                logger_info("robust RX: last frame (ID=%u) received, checksum covers all frames", frame_id);
             } else {
-                logger_info("robust RX: last frame (ID=%u) received, checksum covers all %u frames",
-                            frame_id, expected_frames);
+                logger_warn("robust RX: checksum computed with %d missing frame(s)", missing_total);
             }
 
             uint64_t checksum_state;
             checksum_init(&checksum_state);
             checksum_update(&checksum_state, compressed, compressed_len);
             uint64_t rx_checksum = checksum_final(checksum_state);
-
-            logger_info("robust RX: sending CHECKSUM=0x%016llX",
-                        (unsigned long long)rx_checksum);
 
             if (ensure_mode_tx(&radio) != 0) {
                 goto cleanup;
@@ -1222,10 +1201,8 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 if (ensure_mode_rx(&radio) != 0) {
                     goto cleanup;
                 }
-                // No marcamos checksum_sent: TX no ha visto el checksum.
                 continue;
             }
-
             checksum_sent = 1;
             if (ensure_mode_rx(&radio) != 0) {
                 goto cleanup;
