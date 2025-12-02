@@ -24,7 +24,7 @@
 #define MSG_STREAM_READY    0x04
 
 #define CHECKSUM_SIZE       8
-#define CHECKSUM_SEND_WINDOW_MS 500
+#define CHECKSUM_SEND_WINDOW_MS 2000
 #define READY_TIMEOUT_MS    2000
 #define CONTROL_TIMEOUT_MS  100
 #define DATA_TIMEOUT_MS     20
@@ -469,6 +469,7 @@ static int send_checksum_with_timeout(nrf24_t *radio,
                 return -1;
             }
         }
+        sleep_ms_posix(50);
     }
 
     errno = ETIMEDOUT;
@@ -802,16 +803,17 @@ static int run_tx(const char *spi_dev,
             char label[32];
             snprintf(label, sizeof(label), "DATA[%u]", frame);
             if (send_with_retries(&radio,
-                                  payload,
-                                  (uint8_t)(1 + id_bytes + chunk),
-                                  DATA_TIMEOUT_MS,
-                                  "DATA",
-                                  &tx_rf_bytes,
-                                  &tx_rf_frames) != 0) {
+                                payload,
+                                (uint8_t)(1 + id_bytes + chunk),
+                                DATA_TIMEOUT_MS,
+                                label,          // <-- usar label aquí
+                                &tx_rf_bytes,
+                                &tx_rf_frames) != 0) {
                 logger_error("Failed to send DATA frame %u", frame);
                 nrf24_deinit(&radio);
                 goto cleanup;
             }
+
 
             offset += chunk;
 
