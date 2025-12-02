@@ -13,7 +13,7 @@
 #include <sys/types.h>
 #include <limits.h>
 
-#include "nrf24_driver.h"
+#include "nrf24.h"
 #include "logger.h"
 #include "lz4hc.h"
 
