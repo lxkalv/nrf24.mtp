@@ -66,6 +66,13 @@ static unsigned map_data_rate_kbps(app_data_rate_t rate)
     }
 }
 
+static void sleep_ms_posix(unsigned int ms) {
+    struct timespec req;
+    req.tv_sec = ms / 1000;
+    req.tv_nsec = (ms % 1000) * 1000000L;
+    nanosleep(&req, NULL);
+}
+
 static int map_pa_level_dbm(app_pa_level_t level)
 {
     switch (level) {
@@ -735,8 +742,8 @@ static int run_tx(const char *spi_dev,
             goto cleanup;
         }
     }
-    
-    usleep(20000);
+
+    sleep_ms_posix(20);
     uint64_t checksum_state;
     checksum_init(&checksum_state);
     checksum_update(&checksum_state, compressed, compressed_len);
