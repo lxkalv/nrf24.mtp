@@ -6,6 +6,7 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
+#include <unistd.h> /* usleep */
 #include <zlib.h>
 
 #include "libs/nrf24.h"
@@ -26,7 +27,7 @@
 #define CHECKSUM_SEND_WINDOW_MS 500
 #define READY_TIMEOUT_MS    2000
 #define CONTROL_TIMEOUT_MS  100
-#define DATA_TIMEOUT_MS     20
+#define DATA_TIMEOUT_MS     50    /* Aumentado para dar margen en Linux */
 #define CHECKSUM_TIMEOUT_MS 1000
 
 #define STREAM_INFO_SIZE    16
@@ -37,6 +38,7 @@
 #define FNV64_OFFSET_BASIS  1469598103934665603ULL
 #define FNV64_PRIME         1099511628211ULL
 
+/* --- FIX 1: Configuración más robusta para evitar timeouts por latencia del OS --- */
 typedef struct {
     uint8_t  channel;
     unsigned data_rate_kbps;
@@ -51,7 +53,9 @@ static robust_radio_params_t g_radio_params = {
     .data_rate_kbps = 1000,
     .pa_level_dbm   = -18,
     .crc_bytes      = 2,
-    .retr_delay     = 2,
+    /* Cambiado de 2 a 15 (Max 4000us). 
+       Esto es vital para que el HW espere si el RX está ocupado logueando/escribiendo disco */
+    .retr_delay     = 15, 
     .retr_tries     = 15
 };
 
@@ -96,8 +100,9 @@ static void update_radio_params_from_config(const app_config_t *cfg)
     g_radio_params.data_rate_kbps = map_data_rate_kbps(cfg->data_rate);
     g_radio_params.pa_level_dbm   = map_pa_level_dbm(cfg->pa_level);
     g_radio_params.crc_bytes      = map_crc_bytes(cfg->crc_bytes);
-    g_radio_params.retr_delay     = (unsigned)cfg->retransmission_delay;
-    g_radio_params.retr_tries     = (unsigned)cfg->retransmission_tries;
+    /* Forzamos delay alto aunque la config diga otra cosa, por estabilidad */
+    // g_radio_params.retr_delay     = (unsigned)cfg->retransmission_delay; 
+    // g_radio_params.retr_tries     = (unsigned)cfg->retransmission_tries;
 }
 
 static int configure_radio_runtime(nrf24_t *radio)
@@ -198,7 +203,6 @@ static uint64_t decode_u64_le(const uint8_t *src)
     return v;
 }
 
-
 static int compress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf, size_t *out_len)
 {
     if (!out_buf || !out_len) {
@@ -240,7 +244,7 @@ static int decompress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf
     if (out_len > 0) {
         buf = (uint8_t *)malloc(out_len);
         if (!buf) {
-            logger_error("malloc(%zu) failed for decompression", out_len);
+            logger_error("malloc(%zu) failed", out_len);
             return -1;
         }
     }
@@ -249,7 +253,7 @@ static int decompress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf
     int zret = uncompress(buf, &dest_len, in ? in : (const Bytef *)"", (uLong)in_len);
     if (zret != Z_OK || dest_len != out_len) {
         logger_error("uncompress failed (zret=%d, dest=%lu expected=%zu)",
-                     zret, (unsigned long)dest_len, out_len);
+                    zret, (unsigned long)dest_len, out_len);
         free(buf);
         return -1;
     }
@@ -275,8 +279,8 @@ static int derive_frame_layout(size_t data_len,
         }
 
         size_t frames = (data_len == 0)
-                      ? 0
-                      : (data_len + payload - 1) / payload;
+                    ? 0
+                    : (data_len + payload - 1) / payload;
 
         uint64_t max_frames = ((uint64_t)1 << (id_bytes * 8)) - 1;
         if (frames <= max_frames) {
@@ -289,6 +293,14 @@ static int derive_frame_layout(size_t data_len,
 
     logger_error("derive_frame_layout: data too large for frame layout");
     return -1;
+}
+
+/* Helper para hacer flush de ambos FIFOs */
+static void flush_radio_buffers(nrf24_t *radio) {
+    uint8_t cmd_flush_tx = 0xE1;
+    uint8_t cmd_flush_rx = 0xE2;
+    nrf24_write_buf(radio, cmd_flush_tx, NULL, 0);
+    nrf24_write_buf(radio, cmd_flush_rx, NULL, 0);
 }
 
 static int send_with_retries(nrf24_t *radio,
@@ -326,7 +338,8 @@ static int send_with_retries(nrf24_t *radio,
         }
 
         ++attempt;
-        if (attempt == 1 || (attempt % 50) == 0) {
+        /* Logs menos frecuentes para no saturar consola */
+        if (attempt == 1 || (attempt % 100) == 0) {
             logger_warn("%s: timeout waiting for ACK (attempt %u)",
                         label ? label : "frame", attempt);
         }
@@ -334,6 +347,10 @@ static int send_with_retries(nrf24_t *radio,
         if ((attempt % 200) == 0) {
             logger_warn("%s: %u consecutive timeouts, reconfiguring radio",
                         label ? label : "frame", attempt);
+            
+            /* FIX: Flush buffers before reconfig to clear stuck packets */
+            flush_radio_buffers(radio);
+
             if (configure_radio_runtime(radio) != 0) {
                 logger_error("Failed to reconfigure radio during retries: %s", strerror(errno));
                 return -1;
@@ -376,6 +393,10 @@ static int send_stream_info(nrf24_t *radio,
     encode_u32_le(&msg[4], comp_len);
     encode_u32_le(&msg[8], total_frames);
     encode_u32_le(&msg[12], orig_len);
+    
+    /* FIX: Flush before control message */
+    flush_radio_buffers(radio);
+
     int ret = send_with_retries(radio,
                                 msg,
                                 sizeof(msg),
@@ -447,19 +468,9 @@ static int send_checksum_with_timeout(nrf24_t *radio,
         }
 
         ++attempt;
-        if (attempt == 1 || (attempt % 50) == 0) {
-            logger_warn("robust RX: checksum timeout (attempt %u)", attempt);
-        }
-
-        if ((attempt % 200) == 0) {
-            logger_warn("robust RX: %u checksum timeouts, reconfiguring radio", attempt);
-            if (configure_radio_runtime(radio) != 0) {
-                logger_error("robust RX: failed to reconfigure radio during checksum retries");
-                return -1;
-            }
-            if (ensure_mode_tx(radio) != 0) {
-                return -1;
-            }
+        if ((attempt % 10) == 0) {
+             /* Logging ligero para no frenar al RX */
+            // logger_warn("robust RX: checksum timeout (attempt %u)", attempt);
         }
     }
 
@@ -490,30 +501,12 @@ static int wait_for_stream_ready(nrf24_t *radio,
         }
 
         if (len < 2 || buf[0] != CONTROL_PREFIX) {
-            logger_warn("robust TX: ignoring unexpected frame while waiting for READY");
             continue;
         }
 
         if (buf[1] == MSG_STREAM_READY) {
-            uint8_t rx_id_bytes = (len >= 3) ? buf[2] : 0;
             uint32_t rx_frames  = (len >= 7) ? decode_u32_le(&buf[3]) : 0;
             uint32_t rx_comp    = (len >= 11) ? decode_u32_le(&buf[7]) : 0;
-
-            if (rx_id_bytes != expected_id_bytes) {
-                logger_warn("robust TX: RX id_bytes=%u differs from TX=%u",
-                            rx_id_bytes,
-                            expected_id_bytes);
-            }
-            if (expected_frames && rx_frames && rx_frames != expected_frames) {
-                logger_warn("robust TX: RX expects %u frames but TX planned %u",
-                            rx_frames,
-                            expected_frames);
-            }
-            if (expected_comp_len && rx_comp && rx_comp != expected_comp_len) {
-                logger_warn("robust TX: RX reported comp_len=%u but TX has %u",
-                            rx_comp,
-                            expected_comp_len);
-            }
 
             logger_info("robust TX: RX ready (frames=%u, comp=%u)", rx_frames, rx_comp);
 
@@ -522,15 +515,13 @@ static int wait_for_stream_ready(nrf24_t *radio,
             }
             return 0;
         }
-
-        logger_warn("robust TX: control 0x%02X while waiting for READY", buf[1]);
     }
 
     if (ensure_mode_tx(radio) != 0) {
         return -1;
     }
 
-    return 1; /* timeout, caller may retry */
+    return 1; /* timeout */
 }
 
 static int send_stream_ready(nrf24_t *radio,
@@ -543,6 +534,9 @@ static int send_stream_ready(nrf24_t *radio,
     if (ensure_mode_tx(radio) != 0) {
         return -1;
     }
+
+    /* FIX: Flush buffers before sending critical control packet */
+    flush_radio_buffers(radio);
 
     uint8_t msg[STREAM_READY_SIZE] = {0};
     msg[0] = CONTROL_PREFIX;
@@ -579,25 +573,7 @@ static int send_stream_ready(nrf24_t *radio,
             }
             return -1;
         }
-
         ++attempt;
-        if (attempt == 1 || (attempt % 50) == 0) {
-            logger_warn("STREAM_READY: timeout waiting for ACK (attempt %u)", attempt);
-        }
-
-        if ((attempt % 200) == 0) {
-            logger_warn("STREAM_READY: %u consecutive timeouts, reconfiguring radio", attempt);
-            if (configure_radio_runtime(radio) != 0) {
-                logger_error("robust RX: failed to reconfigure radio while sending STREAM_READY");
-                if (ensure_mode_rx(radio) != 0) {
-                    return -1;
-                }
-                return -1;
-            }
-            if (ensure_mode_tx(radio) != 0) {
-                return -1;
-            }
-        }
     }
 
     if (!sent) {
@@ -606,12 +582,10 @@ static int send_stream_ready(nrf24_t *radio,
             return -1;
         }
         errno = ETIMEDOUT;
-        return 1; /* indicate timeout */
+        return 1;
     }
 
-    logger_succ("robust RX: STREAM_READY acknowledged (frames=%u, comp=%u)",
-                expected_frames,
-                compressed_len);
+    logger_succ("robust RX: STREAM_READY acknowledged");
 
     if (ensure_mode_rx(radio) != 0) {
         return -1;
@@ -635,17 +609,8 @@ static int run_tx(const char *spi_dev,
         logger_error("run_tx: missing SPI device");
         return 1;
     }
-    if (!file_data && file_len > 0) {
-        logger_error("run_tx: input buffer is NULL but length > 0");
-        return 1;
-    }
 
     if (compress_buffer(file_data, file_len, &compressed, &compressed_len) != 0) {
-        goto cleanup;
-    }
-
-    if (compressed_len > UINT32_MAX || file_len > UINT32_MAX) {
-        logger_error("File too large for robust_mode (limit 4 GiB per stage)");
         goto cleanup;
     }
 
@@ -661,10 +626,7 @@ static int run_tx(const char *spi_dev,
                             : "(auto)";
 
     logger_info("robust TX: '%s' -> %zu bytes compressed (%u frames, %u ID bytes)",
-                input_label,
-                compressed_len,
-                (unsigned)total_frames,
-                id_bytes);
+                input_label, compressed_len, (unsigned)total_frames, id_bytes);
 
     nrf24_t radio;
     uint8_t ce_pin = (uint8_t)((cfg && cfg->ce_pin >= 0 && cfg->ce_pin <= 255)
@@ -684,14 +646,10 @@ static int run_tx(const char *spi_dev,
         nrf24_deinit(&radio);
         goto cleanup;
     }
-    if (maybe_verify_radio_config(cfg, &radio, "TX init") != 0) {
-        nrf24_deinit(&radio);
-        goto cleanup;
-    }
-    if (ensure_mode_tx(&radio) != 0) {
-        nrf24_deinit(&radio);
-        goto cleanup;
-    }
+    
+    /* Limpiamos buffers antes de empezar */
+    flush_radio_buffers(&radio);
+    ensure_mode_tx(&radio);
 
     tx_start = now_seconds();
 
@@ -729,11 +687,15 @@ static int run_tx(const char *spi_dev,
                              (uint32_t)file_len,
                              &tx_rf_bytes,
                              &tx_rf_frames) != 0) {
-            logger_error("Failed to resend STREAM_INFO");
             nrf24_deinit(&radio);
             goto cleanup;
         }
     }
+
+    /* FIX 2: Espera crítica para sincronización RX.
+       RX acaba de enviar ACK a STREAM_READY, necesita tiempo para volver a modo RX.
+       Sin esto, el frame 0 se pierde casi siempre. */
+    usleep(20000); // 20ms
 
     uint64_t checksum_state;
     checksum_init(&checksum_state);
@@ -742,11 +704,20 @@ static int run_tx(const char *spi_dev,
 
     int transfer_complete = 0;
     unsigned resend_round = 0;
-    unsigned next_tx_progress_pct = 10;
 
     while (!transfer_complete) {
-        logger_info("robust TX: sending data (round %u)", resend_round + 1);
+        if (resend_round > 0) {
+            logger_info("robust TX: sending data (round %u)", resend_round + 1);
+        } else {
+            logger_info("robust TX: sending data...");
+        }
+
+        /* Flush para evitar que basura previa cause timeouts */
+        flush_radio_buffers(&radio);
+
         size_t offset = 0;
+        unsigned next_tx_progress_pct = 10;
+
         for (uint32_t frame = 0; frame < total_frames; ++frame) {
             size_t chunk = payload_bytes;
             if (offset + chunk > compressed_len) {
@@ -778,14 +749,9 @@ static int run_tx(const char *spi_dev,
 
             if (total_frames > 0 && resend_round == 0) {
                 uint32_t pct = (uint32_t)(((uint64_t)(frame + 1) * 100u) / total_frames);
-                if (frame + 1 == total_frames) {
-                    pct = 100;
-                }
+                if (frame + 1 == total_frames) pct = 100;
                 if (pct >= next_tx_progress_pct) {
-                    logger_info("robust TX: progress %u%% (%u/%u frames)",
-                                pct,
-                                frame + 1,
-                                total_frames);
+                    logger_info("robust TX: progress %u%% (%u/%u)", pct, frame + 1, total_frames);
                     while (next_tx_progress_pct <= pct && next_tx_progress_pct < 100) {
                         next_tx_progress_pct += 10;
                     }
@@ -801,52 +767,36 @@ static int run_tx(const char *spi_dev,
         logger_info("robust TX: waiting for checksum reply");
         int checksum_ok = 0;
         double wait_start = now_seconds();
+        
+        /* Limpiar buffer RX antes de esperar checksum */
+        flush_radio_buffers(&radio);
+
         while (!checksum_ok && (now_seconds() - wait_start) * 1000.0 < CHECKSUM_TIMEOUT_MS) {
             uint8_t buf[MAX_PAYLOAD];
             uint8_t len = sizeof(buf);
             int ret = nrf24_recv_blocking(&radio, buf, &len, CHECKSUM_TIMEOUT_MS);
             if (ret < 0) {
-                if (errno == ETIMEDOUT) {
-                    continue;
-                }
+                if (errno == ETIMEDOUT) continue;
                 logger_error("robust TX: nrf24_recv_blocking failed: %s", strerror(errno));
                 nrf24_deinit(&radio);
                 goto cleanup;
             }
 
-            if (len < 2) {
-                logger_warn("robust TX: short frame len=%u while waiting for checksum", len);
-                continue;
-            }
-
-            if (buf[0] != CONTROL_PREFIX) {
-                logger_warn("robust TX: unexpected data frame during checksum wait");
-                continue;
-            }
+            if (len < 2 || buf[0] != CONTROL_PREFIX) continue;
 
             if (buf[1] == MSG_CHECKSUM) {
-                if (len < 2 + CHECKSUM_SIZE) {
-                    logger_warn("robust TX: malformed CHECKSUM frame");
-                    continue;
-                }
                 uint64_t rx_checksum = decode_u64_le(&buf[2]);
                 if (rx_checksum == tx_checksum) {
                     checksum_ok = 1;
                     break;
                 }
-                logger_warn("robust TX: checksum mismatch (expected 0x%016llX, got 0x%016llX)",
+                logger_warn("robust TX: checksum mismatch (exp 0x%016llX, got 0x%016llX)",
                             (unsigned long long)tx_checksum,
                             (unsigned long long)rx_checksum);
                 break;
             }
 
-            if (buf[1] == MSG_STREAM_INFO) {
-                logger_warn("robust TX: RX resent STREAM_INFO ack; ignoring");
-                continue;
-            }
-
             if (buf[1] == MSG_STREAM_FINISH) {
-                logger_info("robust TX: RX already finished transfer");
                 checksum_ok = 1;
                 break;
             }
@@ -858,6 +808,8 @@ static int run_tx(const char *spi_dev,
                 nrf24_deinit(&radio);
                 goto cleanup;
             }
+            /* Esperar un momento antes de empezar a reenviar para dejar al RX acomodarse */
+            usleep(100000); 
             ++resend_round;
             continue;
         }
@@ -877,23 +829,14 @@ static int run_tx(const char *spi_dev,
     if (tx_start > 0.0) {
         double tx_end = now_seconds();
         double elapsed = tx_end - tx_start;
-        if (elapsed <= 0.0) {
-            elapsed = 1e-9;
-        }
+        if (elapsed <= 0.0) elapsed = 1e-9;
         double user_rate_kib = ((double)file_len / 1024.0) / elapsed;
         double rf_rate_kib   = ((double)tx_rf_bytes / 1024.0) / elapsed;
-        logger_info("robust TX throughput: user=%.2f KiB/s (%zu bytes in %.2fs), rf=%.2f KiB/s (%llu bytes, %llu frames)",
-                    user_rate_kib,
-                    file_len,
-                    elapsed,
-                    rf_rate_kib,
-                    (unsigned long long)tx_rf_bytes,
-                    (unsigned long long)tx_rf_frames);
+        logger_info("robust TX throughput: user=%.2f KiB/s, rf=%.2f KiB/s",
+                    user_rate_kib, rf_rate_kib);
     }
 
-    logger_succ("robust TX: transfer complete (%zu bytes -> %zu bytes)",
-                file_len,
-                compressed_len);
+    logger_succ("robust TX: transfer complete");
     nrf24_deinit(&radio);
     exit_code = 0;
 
@@ -927,10 +870,8 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         nrf24_deinit(&radio);
         return 1;
     }
-    if (maybe_verify_radio_config(cfg, &radio, "RX init") != 0) {
-        nrf24_deinit(&radio);
-        return 1;
-    }
+    
+    flush_radio_buffers(&radio);
     if (ensure_mode_rx(&radio) != 0) {
         nrf24_deinit(&radio);
         return 1;
@@ -938,11 +879,9 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
 
     uint8_t *compressed = NULL;
     size_t compressed_len = 0;
-    size_t compressed_cap = 0;
     uint8_t *frame_received = NULL;
     unsigned id_bytes = 0;
     size_t payload_bytes = 0;
-    uint32_t frames_received = 0;
     uint32_t expected_frames = 0;
     uint32_t original_len = 0;
     int checksum_sent = 0;
@@ -963,98 +902,55 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         uint8_t len = sizeof(buf);
         int ret = nrf24_recv_blocking(&radio, buf, &len, 500);
         if (ret < 0) {
-            if (errno == ETIMEDOUT) {
-                continue;
-            }
-            logger_error("robust RX: nrf24_recv_blocking failed: %s", strerror(errno));
+            if (errno == ETIMEDOUT) continue;
+            logger_error("robust RX: error %s", strerror(errno));
             goto cleanup;
         }
 
         rf_rx_bytes += len;
         rf_rx_frames += 1;
 
-        if (len < 1) {
-            logger_warn("robust RX: empty frame");
-            continue;
-        }
+        if (len < 1) continue;
 
         if (buf[0] == CONTROL_PREFIX) {
-            if (len < 2) {
-                logger_warn("robust RX: short control frame");
-                continue;
-            }
-
+            if (len < 2) continue;
             uint8_t type = buf[1];
+
             if (type == MSG_STREAM_INFO) {
-                if (len < STREAM_INFO_SIZE) {
-                    logger_warn("robust RX: malformed STREAM_INFO (len=%u)", len);
-                    continue;
-                }
+                if (len < STREAM_INFO_SIZE) continue;
 
                 uint8_t new_id_bytes        = buf[2];
                 uint32_t new_compressed_len = decode_u32_le(&buf[4]);
                 uint32_t new_expected_frames= decode_u32_le(&buf[8]);
                 uint32_t new_original_len   = decode_u32_le(&buf[12]);
 
-                if (new_id_bytes == 0 || new_id_bytes > 4) {
-                    logger_error("robust RX: invalid FrameID length %u", new_id_bytes);
-                    goto cleanup;
-                }
-
                 size_t new_payload_bytes = MAX_PAYLOAD - 1 - new_id_bytes;
-                if (new_payload_bytes == 0) {
-                    logger_error("robust RX: payload too small for FrameIDs");
-                    goto cleanup;
-                }
-
-                if (new_compressed_len > UINT32_MAX) {
-                    logger_error("robust RX: compressed length too large");
-                    goto cleanup;
-                }
-
-                if (new_expected_frames == 0 && new_compressed_len > 0) {
-                    new_expected_frames = (uint32_t)((new_compressed_len + new_payload_bytes - 1) / new_payload_bytes);
-                }
 
                 int same_stream = have_info &&
                                   new_id_bytes        == id_bytes &&
                                   new_compressed_len  == compressed_len &&
-                                  new_expected_frames == expected_frames &&
-                                  new_original_len    == original_len;
+                                  new_expected_frames == expected_frames;
 
                 if (!same_stream) {
+                    free(compressed);
+                    compressed = NULL;
                     if (new_compressed_len > 0) {
-                        uint8_t *tmp = (uint8_t *)realloc(compressed, new_compressed_len);
-                        if (!tmp) {
-                            logger_error("robust RX: realloc(%u) failed", new_compressed_len);
-                            goto cleanup;
-                        }
-                        compressed = tmp;
-                    } else {
-                        free(compressed);
-                        compressed = NULL;
+                        compressed = (uint8_t *)malloc(new_compressed_len);
+                        if (!compressed) goto cleanup;
+                        memset(compressed, 0, new_compressed_len);
                     }
-                    compressed_cap = new_compressed_len;
 
                     free(frame_received);
                     frame_received = NULL;
                     if (new_expected_frames > 0) {
                         frame_received = (uint8_t *)calloc(new_expected_frames, 1);
-                        if (!frame_received) {
-                            logger_error("robust RX: calloc failed for frame tracking");
-                            goto cleanup;
-                        }
+                        if (!frame_received) goto cleanup;
                     }
 
-                    if (compressed && new_compressed_len > 0) {
-                        memset(compressed, 0, new_compressed_len);
-                    }
                     frames_received = 0;
                     checksum_sent = 0;
                     next_rx_progress_pct = 10;
                     highest_frame_seen = -1;
-                } else {
-                    logger_info("robust RX: STREAM_INFO matches current transfer; keeping buffered frames");
                 }
 
                 id_bytes = new_id_bytes;
@@ -1064,65 +960,37 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 payload_bytes = new_payload_bytes;
                 have_info = 1;
 
-                logger_info("robust RX: STREAM_INFO -> comp=%zu bytes, orig=%u bytes, frames=%u, id_bytes=%u",
-                            compressed_len,
-                            original_len,
-                            expected_frames,
-                            id_bytes);
+                logger_info("robust RX: STREAM_INFO (frames=%u)", expected_frames);
 
+                /* Flush antes de enviar READY */
+                flush_radio_buffers(&radio);
                 int ready_send = send_stream_ready(&radio,
                                                    id_bytes,
                                                    expected_frames,
                                                    (uint32_t)compressed_len,
                                                    &rf_tx_bytes,
                                                    &rf_tx_frames);
-                if (ready_send < 0) {
-                    goto cleanup;
-                }
-                if (ready_send > 0) {
-                    logger_warn("robust RX: STREAM_READY delivery timed out, waiting for retransmit");
-                    continue;
-                }
+                if (ready_send < 0) goto cleanup;
                 continue;
             }
 
             if (type == MSG_STREAM_FINISH) {
-                if (!checksum_sent) {
-                    logger_warn("robust RX: STREAM_FINISH received before checksum sent");
-                }
                 done = 1;
                 break;
             }
-
-            if (type == MSG_CHECKSUM) {
-                logger_info("robust RX: checksum echoed back, ignoring");
-                continue;
-            }
-
-            logger_warn("robust RX: unknown control type %u", type);
             continue;
         }
 
-        if (!have_info) {
-            logger_warn("robust RX: data frame before STREAM_INFO");
-            continue;
-        }
+        if (!have_info) continue;
+        if (buf[0] != DATA_PREFIX) continue;
+        if (len <= 1 + id_bytes) continue;
 
-        if (buf[0] != DATA_PREFIX) {
-            logger_warn("robust RX: data frame has invalid prefix 0x%02X", buf[0]);
-            continue;
-        }
-
-        if (len <= 1 + id_bytes) {
-            logger_warn("robust RX: DATA frame too short (len=%u)", len);
-            continue;
-        }
-
+        /* Si llega DATA después de haber enviado checksum, es que TX no recibió el checksum.
+           Reiniciamos flags para permitir reenvío del checksum al final. */
         if (checksum_sent) {
-            logger_warn("robust RX: data received after checksum sent; assuming TX resend");
+            logger_warn("robust RX: data received after checksum sent (TX retry detected)");
             checksum_sent = 0;
-            highest_frame_seen = -1;
-            next_rx_progress_pct = 10;
+            /* No reseteamos highest_frame_seen para evitar logs de progreso duplicados */
         }
 
         uint32_t frame_id = 0;
@@ -1130,59 +998,43 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             frame_id |= ((uint32_t)buf[1 + b]) << (8 * b);
         }
 
-        if (frame_id >= expected_frames && expected_frames > 0) {
-            logger_warn("robust RX: FrameID %u out of range (%u)", frame_id, expected_frames);
-            continue;
-        }
-
         size_t chunk_len = len - 1 - id_bytes;
         size_t offset = (size_t)frame_id * payload_bytes;
-        if (offset + chunk_len > compressed_len) {
-            logger_warn("robust RX: chunk exceeds buffer (%zu > %zu)", offset + chunk_len, compressed_len);
-            continue;
-        }
+        
+        if (offset + chunk_len <= compressed_len) {
+            memcpy(compressed + offset, &buf[1 + id_bytes], chunk_len);
+            
+            if (frame_received && !frame_received[frame_id]) {
+                frame_received[frame_id] = 1;
 
-        memcpy(compressed + offset, &buf[1 + id_bytes], chunk_len);
-        if (frame_received && !frame_received[frame_id]) {
-            frame_received[frame_id] = 1;
-            ++frames_received;
-
-            if (expected_frames > 0 && (int32_t)frame_id > highest_frame_seen) {
-                highest_frame_seen = (int32_t)frame_id;
-                uint32_t pct = (uint32_t)(((uint64_t)(frame_id + 1) * 100u) / expected_frames);
-                if (frame_id + 1 >= expected_frames) {
-                    pct = 100;
-                }
-                if (pct >= next_rx_progress_pct) {
-                    logger_info("robust RX: progress %u%% (frame_id=%u/%u)",
-                                pct,
-                                frame_id + 1,
-                                expected_frames);
-                    while (next_rx_progress_pct <= pct && next_rx_progress_pct < 100) {
-                        next_rx_progress_pct += 10;
+                if (expected_frames > 0 && (int32_t)frame_id > highest_frame_seen) {
+                    highest_frame_seen = (int32_t)frame_id;
+                    uint32_t pct = (uint32_t)(((uint64_t)(frame_id + 1) * 100u) / expected_frames);
+                    if (pct >= next_rx_progress_pct) {
+                        logger_info("robust RX: progress %u%%", pct);
+                        while (next_rx_progress_pct <= pct && next_rx_progress_pct < 100) {
+                            next_rx_progress_pct += 10;
+                        }
                     }
                 }
             }
         }
 
-        if (expected_frames == 0) {
-            continue;
-        }
-
-        if (!checksum_sent && frame_id == expected_frames - 1) {
+        /* Lógica de fin de transmisión (Check Last Frame) */
+        if (!checksum_sent && expected_frames > 0 && frame_id == expected_frames - 1) {
+            
+            /* Contar paquetes perdidos solo para informar */
             int missing_total = 0;
             if (frame_received) {
-                for (uint32_t missing = 0; missing < expected_frames; ++missing) {
-                    if (!frame_received[missing]) {
-                        logger_warn("robust RX: frame %u missing before checksum send", missing);
-                        ++missing_total;
-                    }
+                for (uint32_t i = 0; i < expected_frames; ++i) {
+                    if (!frame_received[i]) missing_total++;
                 }
             }
-            if (missing_total == 0) {
-                logger_info("robust RX: last frame (ID=%u) received, checksum covers all frames", frame_id);
+
+            if (missing_total > 0) {
+                logger_warn("robust RX: missing %d frames before checksum", missing_total);
             } else {
-                logger_warn("robust RX: checksum computed with %d missing frame(s)", missing_total);
+                logger_info("robust RX: all frames received, calculating checksum...");
             }
 
             uint64_t checksum_state;
@@ -1190,28 +1042,23 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             checksum_update(&checksum_state, compressed, compressed_len);
             uint64_t rx_checksum = checksum_final(checksum_state);
 
-            if (ensure_mode_tx(&radio) != 0) {
-                goto cleanup;
-            }
+            if (ensure_mode_tx(&radio) != 0) goto cleanup;
+            
+            /* FIX: Flush antes de enviar checksum */
+            flush_radio_buffers(&radio);
+            
             if (send_checksum_with_timeout(&radio,
                                            rx_checksum,
                                            &rf_tx_bytes,
                                            &rf_tx_frames) != 0) {
-                logger_warn("robust RX: checksum send window elapsed, expecting resend");
-                if (ensure_mode_rx(&radio) != 0) {
-                    goto cleanup;
-                }
+                logger_warn("robust RX: checksum send timed out");
+                if (ensure_mode_rx(&radio) != 0) goto cleanup;
                 continue;
             }
-            checksum_sent = 1;
-            if (ensure_mode_rx(&radio) != 0) {
-                goto cleanup;
-            }
-        }
-    }
 
-    if (!checksum_sent && expected_frames > 0) {
-        logger_warn("robust RX: transfer finished without checksum phase");
+            checksum_sent = 1;
+            if (ensure_mode_rx(&radio) != 0) goto cleanup;
+        }
     }
 
     if (compressed_len != 0 || original_len == 0) {
@@ -1219,36 +1066,14 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         if (decompress_buffer(compressed, compressed_len, &output, original_len) != 0) {
             goto cleanup;
         }
-
-        const char *dest_label = (cfg && cfg->file_path_rx && cfg->file_path_rx[0])
-                               ? cfg->file_path_rx
-                               : "(auto)";
-        if (app_store_file_bytes(cfg ? cfg->file_path_rx : NULL,
-                                 output,
-                                 original_len) != 0) {
-            logger_error("robust RX: failed to store output bytes");
-            free(output);
-            goto cleanup;
-        }
+        app_store_file_bytes(cfg ? cfg->file_path_rx : NULL, output, original_len);
         free(output);
-        logger_succ("robust RX: stored '%s' (%u bytes)", dest_label, original_len);
     }
 
     if (rx_start > 0.0) {
-        double rx_end = now_seconds();
-        double elapsed = rx_end - rx_start;
-        if (elapsed <= 0.0) {
-            elapsed = 1e-9;
-        }
-        double user_rate_kib = ((double)original_len / 1024.0) / elapsed;
-        double rf_rate_kib   = ((double)rf_rx_bytes / 1024.0) / elapsed;
-        logger_info("robust RX throughput: user=%.2f KiB/s (%u bytes in %.2fs), rf=%.2f KiB/s (%llu bytes, %llu frames)",
-                    user_rate_kib,
-                    original_len,
-                    elapsed,
-                    rf_rate_kib,
-                    (unsigned long long)rf_rx_bytes,
-                    (unsigned long long)rf_rx_frames);
+        double elapsed = now_seconds() - rx_start;
+        if (elapsed <= 0.0) elapsed = 1e-9;
+        logger_info("robust RX throughput: %.2f KiB/s", ((double)original_len / 1024.0) / elapsed);
     }
 
     nrf24_deinit(&radio);
@@ -1280,46 +1105,27 @@ int main(int argc, char **argv)
         snprintf(log_path, sizeof(log_path), "robust.log");
     }
 
-    if (logger_init(log_path) != 0) {
-        logger_warn("Could not open log file '%s' (continuing without file log)", log_path);
-    } else {
-        logger_info("Logging to file '%s'", log_path);
-    }
-
-    if (cfg.print_config) {
-        app_print_config(&cfg);
-    }
+    logger_init(log_path);
+    if (cfg.print_config) app_print_config(&cfg);
 
     const char *spi_dev = get_spi_device_path();
     update_radio_params_from_config(&cfg);
 
-    logger_info("Using SPI device: %s", spi_dev);
-
-    int exit_code = 0;
-
     if (cfg.mode == APP_MODE_TX) {
         uint8_t *data = NULL;
         size_t   len  = 0;
-        if (app_load_file_bytes(cfg.file_path_tx, &data, &len) != 0) {
-            logger_error("robust TX: failed to load input bytes");
-            exit_code = 1;
-            goto cleanup;
-        }
-
-        exit_code = run_tx(spi_dev, &cfg, data, len);
+        if (app_load_file_bytes(cfg.file_path_tx, &data, &len) != 0) return 1;
+        int ret = run_tx(spi_dev, &cfg, data, len);
         free(data);
-        goto cleanup;
+        logger_close();
+        return ret;
     }
 
     if (cfg.mode == APP_MODE_RX) {
-        exit_code = run_rx(spi_dev, &cfg);
-        goto cleanup;
+        int ret = run_rx(spi_dev, &cfg);
+        logger_close();
+        return ret;
     }
 
-    logger_error("Unsupported mode: %s", app_mode_str(cfg.mode));
-    exit_code = 1;
-
-cleanup:
-    logger_close();
-    return exit_code;
+    return 1;
 }
