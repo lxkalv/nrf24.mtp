@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <time.h>
 #include <zlib.h>
+#include <unistd.h>
 
 #include "libs/nrf24.h"
 #include "libs/logger.h"
@@ -734,7 +735,8 @@ static int run_tx(const char *spi_dev,
             goto cleanup;
         }
     }
-
+    
+    usleep(20000);
     uint64_t checksum_state;
     checksum_init(&checksum_state);
     checksum_update(&checksum_state, compressed, compressed_len);
