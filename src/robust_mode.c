@@ -23,11 +23,11 @@
 #define MSG_STREAM_READY    0x04
 
 #define CHECKSUM_SIZE       8
-#define CHECKSUM_SEND_WINDOW_MS 500
-#define READY_TIMEOUT_MS    2000
-#define CONTROL_TIMEOUT_MS  100
-#define DATA_TIMEOUT_MS     20
-#define CHECKSUM_TIMEOUT_MS 1000
+#define CHECKSUM_SEND_WINDOW_MS 5000   // antes 500
+#define READY_TIMEOUT_MS        2000
+#define CONTROL_TIMEOUT_MS      100
+#define DATA_TIMEOUT_MS         20
+#define CHECKSUM_TIMEOUT_MS     7000   // antes 1000
 
 #define STREAM_INFO_SIZE    16
 #define STREAM_READY_SIZE   11
@@ -197,7 +197,6 @@ static uint64_t decode_u64_le(const uint8_t *src)
     }
     return v;
 }
-
 
 static int compress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf, size_t *out_len)
 {
@@ -447,11 +446,11 @@ static int send_checksum_with_timeout(nrf24_t *radio,
         }
 
         ++attempt;
-        if (attempt == 1 || (attempt % 50) == 0) {
+        if (attempt == 1 || (attempt % 10) == 0) {
             logger_warn("robust RX: checksum timeout (attempt %u)", attempt);
         }
 
-        if ((attempt % 200) == 0) {
+        if ((attempt % 50) == 0) {
             logger_warn("robust RX: %u checksum timeouts, reconfiguring radio", attempt);
             if (configure_radio_runtime(radio) != 0) {
                 logger_error("robust RX: failed to reconfigure radio during checksum retries");
@@ -801,10 +800,19 @@ static int run_tx(const char *spi_dev,
         logger_info("robust TX: waiting for checksum reply");
         int checksum_ok = 0;
         double wait_start = now_seconds();
+
         while (!checksum_ok && (now_seconds() - wait_start) * 1000.0 < CHECKSUM_TIMEOUT_MS) {
             uint8_t buf[MAX_PAYLOAD];
             uint8_t len = sizeof(buf);
-            int ret = nrf24_recv_blocking(&radio, buf, &len, CHECKSUM_TIMEOUT_MS);
+
+            double elapsed_ms = (now_seconds() - wait_start) * 1000.0;
+            int remaining_ms = (int)(CHECKSUM_TIMEOUT_MS - elapsed_ms);
+            if (remaining_ms <= 0) {
+                break;
+            }
+            unsigned per_call_timeout = (remaining_ms > 500) ? 500 : (unsigned)remaining_ms;
+
+            int ret = nrf24_recv_blocking(&radio, buf, &len, per_call_timeout);
             if (ret < 0) {
                 if (errno == ETIMEDOUT) {
                     continue;
@@ -1102,6 +1110,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             logger_warn("robust RX: unknown control type %u", type);
             continue;
         }
+
         if (!have_info) {
             logger_warn("robust RX: data frame before STREAM_INFO");
             continue;
@@ -1168,16 +1177,15 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             continue;
         }
 
-        // *** CHANGED ***
-        // Antes: se disparaba el checksum cuando llegaba la última trama por ID:
-        //   if (!checksum_sent && frame_id == expected_frames - 1) { ... }
-        // Eso permitía calcular y enviar un checksum aun sabiendo que faltaban frames.
-        //
-        // Ahora: solo iniciamos la fase de checksum cuando hemos recibido TODAS las tramas
-        // (frames_received == expected_frames). De esta forma, si faltan tramas, NO se envía
-        // ningún checksum y el TX simplemente hace timeout y reenvía los datos, rellenando
-        // los huecos en el buffer RX.
-        if (!checksum_sent && frames_received == expected_frames) {
+        // Disparamos la fase de checksum SOLO cuando:
+        //   - No hemos enviado checksum aún en esta ronda (checksum_sent == 0)
+        //   - Esta DATA es la última por ID (frame_id == expected_frames - 1)
+        //   - Hemos recibido todas las tramas (frames_received == expected_frames)
+        if (!checksum_sent &&
+            expected_frames > 0 &&
+            frame_id == expected_frames - 1 &&
+            frames_received == expected_frames) {
+
             int missing_total = 0;
             if (frame_received) {
                 for (uint32_t missing = 0; missing < expected_frames; ++missing) {
@@ -1187,15 +1195,14 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 }
             }
 
-            if (missing_total != 0) {
-                // En condiciones normales esto no debería ocurrir, porque
-                // frames_received == expected_frames implica que no hay huecos.
-                logger_warn("robust RX: %d frame(s) still missing, delaying checksum", missing_total);
+            if (missing_total > 0) {
+                logger_warn("robust RX: %d frame(s) missing before checksum; delaying checksum",
+                            missing_total);
                 continue;
             }
 
-            logger_info("robust RX: all %u frames received, starting checksum phase",
-                        expected_frames);
+            logger_info("robust RX: last frame (ID=%u) received, checksum covers all %u frames",
+                        frame_id, expected_frames);
 
             uint64_t checksum_state;
             checksum_init(&checksum_state);
@@ -1213,6 +1220,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 if (ensure_mode_rx(&radio) != 0) {
                     goto cleanup;
                 }
+                // No marcamos checksum_sent: TX no ha visto el checksum.
                 continue;
             }
             checksum_sent = 1;
@@ -1220,7 +1228,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 goto cleanup;
             }
         }
-
     }
 
     if (!checksum_sent && expected_frames > 0) {

@@ -895,22 +895,10 @@ int nrf24_recv_blocking(nrf24_t *dev,
 
     while (1) {
         uint8_t status;
-        uint8_t fifo_status;
-
-        /* Leemos STATUS para limpiar flags si es necesario */
         if (nrf24_read_reg(dev, NRF24_REG_STATUS, &status) < 0)
             return -1;
-            
-        /* CORRECCIÓN: Leemos FIFO_STATUS (0x17) para ver si REALMENTE hay datos.
-           Bit 0 = RX_EMPTY. Si es 0, hay datos. */
-        if (nrf24_read_reg(dev, NRF24_REG_FIFO_STATUS, &fifo_status) < 0)
-            return -1;
 
-        /* Condición de éxito: El flag RX_DR está activo O el FIFO no está vacío */
-        int data_available = (status & NRF24_STATUS_RX_DR) || 
-                             !(fifo_status & 1); /* Bit 0 es RX_EMPTY */
-
-        if (data_available) {
+        if (status & NRF24_STATUS_RX_DR) {
             uint8_t width = 0;
 
             /* DPL: read payload width first */
@@ -921,7 +909,6 @@ int nrf24_recv_blocking(nrf24_t *dev,
                 return -1;
 
             if (width == 0 || width > NRF24_MAX_PAYLOAD_SIZE) {
-                /* Dato corrupto o error de DPL -> Limpiamos */
                 (void)nrf24_flush_rx(dev);
                 (void)nrf24_write_reg(dev, NRF24_REG_STATUS,
                                       NRF24_STATUS_RX_DR);
@@ -940,7 +927,6 @@ int nrf24_recv_blocking(nrf24_t *dev,
 
             *length_inout = width;
 
-            /* Importante: Limpiamos RX_DR para la próxima vez */
             if (nrf24_write_reg(dev, NRF24_REG_STATUS,
                                 NRF24_STATUS_RX_DR) < 0)
                 return -1;
