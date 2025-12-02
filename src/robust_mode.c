@@ -1102,7 +1102,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             logger_warn("robust RX: unknown control type %u", type);
             continue;
         }
-
         if (!have_info) {
             logger_warn("robust RX: data frame before STREAM_INFO");
             continue;
@@ -1169,21 +1168,34 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             continue;
         }
 
-        if (!checksum_sent && frame_id == expected_frames - 1) {
+        // *** CHANGED ***
+        // Antes: se disparaba el checksum cuando llegaba la última trama por ID:
+        //   if (!checksum_sent && frame_id == expected_frames - 1) { ... }
+        // Eso permitía calcular y enviar un checksum aun sabiendo que faltaban frames.
+        //
+        // Ahora: solo iniciamos la fase de checksum cuando hemos recibido TODAS las tramas
+        // (frames_received == expected_frames). De esta forma, si faltan tramas, NO se envía
+        // ningún checksum y el TX simplemente hace timeout y reenvía los datos, rellenando
+        // los huecos en el buffer RX.
+        if (!checksum_sent && frames_received == expected_frames) {
             int missing_total = 0;
             if (frame_received) {
                 for (uint32_t missing = 0; missing < expected_frames; ++missing) {
                     if (!frame_received[missing]) {
-                        logger_warn("robust RX: frame %u missing before checksum send", missing);
                         ++missing_total;
                     }
                 }
             }
-            if (missing_total == 0) {
-                logger_info("robust RX: last frame (ID=%u) received, checksum covers all frames", frame_id);
-            } else {
-                logger_warn("robust RX: checksum computed with %d missing frame(s)", missing_total);
+
+            if (missing_total != 0) {
+                // En condiciones normales esto no debería ocurrir, porque
+                // frames_received == expected_frames implica que no hay huecos.
+                logger_warn("robust RX: %d frame(s) still missing, delaying checksum", missing_total);
+                continue;
             }
+
+            logger_info("robust RX: all %u frames received, starting checksum phase",
+                        expected_frames);
 
             uint64_t checksum_state;
             checksum_init(&checksum_state);
@@ -1208,6 +1220,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 goto cleanup;
             }
         }
+
     }
 
     if (!checksum_sent && expected_frames > 0) {
