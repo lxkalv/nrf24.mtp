@@ -1130,6 +1130,8 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             if (type == MSG_STREAM_FINISH) {
                 if (!checksum_sent) {
                     logger_warn("robust RX: STREAM_FINISH received before checksum sent");
+                } else {
+                    logger_info("robust RX: STREAM_FINISH received, finishing transfer");
                 }
                 done = 1;
                 break;
