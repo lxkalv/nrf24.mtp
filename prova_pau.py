@@ -96,9 +96,10 @@ def main():
             # Device Config is SOLID here. Insert USB starts BLINKING here.
             led_insert_usb.blink(on_time=0.5, off_time=0.5)
                 
-            while not check_usb_connected():
+            while not btn_interact.is_pressed:
                 check_stop()
-                time.sleep(0.1)
+                time.sleep(0.05)
+            
 
             print("USB connected")
             time.sleep(1)
