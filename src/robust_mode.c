@@ -50,7 +50,7 @@ typedef struct {
 static robust_radio_params_t g_radio_params = {
     .channel        = 76,
     .data_rate_kbps = 2000,
-    .pa_level_dbm   = -18,
+    .pa_level_dbm   = 0,
     .crc_bytes      = 2,
     .retr_delay     = 2,
     .retr_tries     = 15
