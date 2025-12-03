@@ -1,0 +1,194 @@
+from gpiozero import LED, Button, DigitalInputDevice
+import time
+import sys
+import threading
+import os
+from pathlib import Path
+import p2p_integrated as p2p  # <-- usa el nombre real del fichero (sin .py)
+
+from utils import (
+    YELLOW,
+    ERROR,
+    INFO,
+)
+
+# --- CUSTOM EXCEPTION ---
+class SoftReset(Exception):
+    """
+    A custom error we raise intentionally when STOP is pressed.
+    """
+    pass
+
+# --- PIN CONFIGURATION ---
+# LEDs
+led_insert_usb = LED(25) #este esta mal
+led_extract_usb = LED(26)
+led_device_config = LED(23) #este bien 
+led_rxtx_status = LED(16)
+
+# Inputs
+btn_interact = Button(19)
+btn_stop = Button(6)
+switch_mode = DigitalInputDevice(27, pull_up=True)     
+switch_scenario = DigitalInputDevice(17, pull_up=True) 
+
+# --- CONSTANTS ---
+USB_MOUNT_PATH = Path("/media")
+global_stop_flag = threading.Event()
+
+def check_usb_connected() -> bool:
+    """
+    Try to find a valid USB device connected to the USB mount path
+    """
+    
+    for path, _, _ in USB_MOUNT_PATH.walk():
+        if path.is_mount():
+            return True
+
+    return False  
+
+def trigger_reset():
+    """Runs in background when STOP is pressed."""
+    if not global_stop_flag.is_set():
+        INFO("\n[Interrupt] STOP Pressed! Resetting to Start...")
+        global_stop_flag.set()
+
+def check_stop():
+    """Checks flag and raises exception to restart loop."""
+    if global_stop_flag.is_set():
+        raise SoftReset
+
+def main():
+    btn_stop.when_pressed = trigger_reset
+
+    INFO("--- SYSTEM ONLINE ---")
+
+    while True:
+        try:
+            # 0. RESET STATE
+            global_stop_flag.clear()
+            led_insert_usb.off()
+            led_extract_usb.off()
+            led_rxtx_status.off()
+            led_device_config.off()
+            
+            # --- 1. INITIALIZATION & CONFIG ---
+            INFO("\n[State] Device Configuration")
+            
+            # Start Blinking 
+            # This indicates "Waiting for Configuration Confirmation"
+            led_device_config.blink(on_time=0.5, off_time=0.5)
+            
+            INFO("[User] Introduce the configuration and press INTERACT to confirm. Press STOP to reset.")
+            # Wait for button press
+            while not btn_interact.is_pressed:
+                check_stop()
+                time.sleep(0.05)
+
+            # Read Hardware Switches
+            mode = "TX" if switch_mode.is_active else "RX"
+            scenario = "Network" if switch_scenario.is_active else "P2P"
+            INFO(f"[Info] Current Settings: Mode={mode}, Scenario={scenario}")
+            
+            # Button Pressed -> LED turns Solid ON
+            # Calling .on() automatically stops the background blinking thread
+            INFO("[Config] Configuration Accepted.")
+            led_device_config.on()
+            
+            # --- 2. USB INSERTION PHASE ---
+            check_stop()
+            
+            INFO("[State] Waiting for USB or chenking USB...")
+                
+            # Device Config is SOLID here. Insert USB starts BLINKING here.
+            led_insert_usb.blink(on_time=0.5, off_time=0.5)
+                
+            while not check_usb_connected():
+                check_stop()
+                time.sleep(0.1)
+
+            INFO("USB connected")
+            time.sleep(1)
+            # USB Detected: LED goes Solid
+            led_insert_usb.on()
+
+            # Ensure Device Config is still ON (Redundant but safe)
+            led_device_config.on() 
+
+            # --- 3. INTERACT PHASE ---
+            check_stop()
+            INFO("[State] Ready. Press INTERACT to Execute Task.")
+            
+            while not btn_interact.is_pressed:
+                check_stop()
+                time.sleep(0.05)
+            
+            # --- 4. TX/RX PROCESS PHASE ---
+            check_stop()
+            INFO(f"[State] Performing {mode} Task...")
+            led_rxtx_status.on()
+
+            if scenario == "P2P":
+
+                INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
+
+                try:
+                    if mode == "TX":
+                        INFO("[P2P] BEGIN_TRANSMITTER_MODE()")
+                        p2p.BEGIN_TRANSMITTER_MODE()
+                    else:
+                        INFO("[P2P] BEGIN_RECEIVER_MODE()")
+                        p2p.BEGIN_RECEIVER_MODE()
+
+                except KeyboardInterrupt:
+                    ERROR("Transmission interrupted from flow2")
+
+            elif scenario == "Network":
+                # NETWORK MODE 
+                INFO("[State] Network mode selected.")
+                pass
+
+            
+            led_rxtx_status.off()
+
+            INFO("[State] Task Finished. Press interact please")
+            time.sleep(1)
+
+            while not btn_interact.is_pressed:
+                check_stop()
+                time.sleep(0.05)
+
+            # --- 5. COMPLETION & EXTRACTION ---
+            check_stop()
+            INFO("[State] Please Remove USB.")
+            
+            led_extract_usb.blink(on_time=0.5, off_time=0.5)
+            
+            while check_usb_connected():
+                check_stop()
+                time.sleep(0.1)
+            
+            # Cleanup
+            led_insert_usb.off() 
+            led_extract_usb.off()
+            led_device_config.off()
+            led_rxtx_status.off()
+            
+            INFO("[Success] Cycle Complete. Restarting in 3 seconds...")
+            
+            start_wait = time.time()
+            while time.time() - start_wait < 3:
+                check_stop()
+                time.sleep(0.1)
+
+        except SoftReset:
+            # Loop restarts immediately
+            INFO("!!! IMMEDIATE RESET TRIGGERED !!!")
+            continue
+
+        except KeyboardInterrupt:
+            INFO("\nProgram Terminated by Keyboard.")
+            sys.exit(0)
+
+if __name__ == "__main__":
+    main()
