@@ -140,10 +140,10 @@ def Tx_flow(scenario):
     while path is None:
         check_stop()
         path = check_usb_connected()
-        time.sleep(0.1)
+      
 
     INFO("USB connected")
-    time.sleep(1)
+
     # USB Detected: LED goes Solid
     led_insert_usb.on()
 
@@ -160,7 +160,7 @@ def Tx_flow(scenario):
             
     while check_usb_connected() is not None:
         check_stop()
-        time.sleep(0.1)
+
     
     led_extract_usb.off()
 
@@ -179,7 +179,7 @@ def Tx_flow(scenario):
     if scenario == "P2P":
 
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
-        ok = os.system("./bin/robust --help")
+        ok = os.system("./bin/robust_mode --help")
         INFO(f"Finished process with exit code {ok}")
         
 
