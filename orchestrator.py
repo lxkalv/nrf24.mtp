@@ -4,7 +4,6 @@ import sys
 import threading
 import os
 from pathlib import Path
-import p2p_integrated as p2p  # <-- usa el nombre real del fichero (sin .py)
 
 from utils import (
     YELLOW,
@@ -186,6 +185,7 @@ def main():
             
             if mode=="TX":
                 Tx_flow()
+            return
                 
             # Ensure Device Config is still ON (Redundant but safe)
             
