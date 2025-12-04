@@ -1,12 +1,17 @@
-from gpiozero import Device
-from gpiozero.pins.rpigpio import RPiGPIOFactory
-Device.pin_factory = RPiGPIOFactory()   # 👈 usar RPi.GPIO dentro del venv
+import os
 
-from gpiozero import LED, Button, DigitalInputDevice
-import time
+os.environ['GPIOZERO_PIN_FACTORY'] = 'lgpio'
+try:
+    from gpiozero import LED, Button, DigitalInputDevice
+except ImportError:
+    # Fallback if lgpio isn't installed, tries to force a basic Native factory
+    print("[WARN] lgpio not found. Falling back to NativeFactory.")
+    os.environ['GPIOZERO_PIN_FACTORY'] = 'native'
+    from gpiozero import LED, Button, DigitalInputDevice
+
+
 import sys
 import threading
-import os
 from pathlib import Path
 import subprocess
 
