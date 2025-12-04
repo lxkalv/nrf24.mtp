@@ -142,7 +142,7 @@ def Tx_flow():
         path = check_usb_connected()
         time.sleep(0.1)
 
-    IFO("USB connected")
+    INFO("USB connected")
     time.sleep(1)
     # USB Detected: LED goes Solid
     led_insert_usb.on()
