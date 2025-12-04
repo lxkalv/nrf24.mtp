@@ -179,14 +179,52 @@ def Tx_flow(scenario):
     if scenario == "P2P":
 
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
-        ok = os.system("./bin/robust_mode --help")
+        ok = os.system("./bin/robust_mode --mode TX --file-path-tx file_to_transmit.txt --pa-level HIGH --channel 75")
         INFO(f"Finished process with exit code {ok}")
+
+        led_rxtx_status.off() 
+
+
+
+def RX_flow(scenario) :
+    INFO("we are in RX mode")
+    led_rxtx_status.blink()
+
+    if scenario == "P2P":
+        INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
+        ok = os.system("./bin/robust_mode --mode RX --file-path-rx recieved_file.txt --pa-level HIGH --channel 75")
+        INFO(f"Finished process with exit code {ok}")
+
+        led_rxtx_status.off() 
+
+        # Device Config is SOLID here. Insert USB starts BLINKING here.
+        led_insert_usb.blink(on_time=0.5, off_time=0.5)
+                    
+        path = None
+        while path is None:
+            check_stop()
+            path = check_usb_connected()
         
 
+        INFO("USB connected")
+        # USB Detected: LED goes Solid
+        led_insert_usb.on()
 
+        file_path = Path("received_file.txt")
+        content = file_path.read_bytes()
 
+        (path / "received_file.txt").write_bytes(content)
+
+        
+        check_stop()
+        INFO("[State] Please Remove USB.")
+        led_extract_usb.blink(on_time=0.5, off_time=0.5)        
+        while check_usb_connected() is not None:
+            check_stop()
 
     
+        INFO("[State] USB Removed.")
+
 
 
 
@@ -235,33 +273,19 @@ def main():
             
             if mode=="TX":
                 Tx_flow(scenario)
-            return
+                led_rxtx_status.off()
+                INFO("[State] Task Finished. Press interact please")
+                time.sleep(1)
+            elif mode=="RX":
+                RX_flow(scenario)
+                time.sleep(1)
                 
-            # Ensure Device Config is still ON (Redundant but safe)
-            
-
-           
-            
             # --- 4. TX/RX PROCESS PHASE ---
-           
             if scenario == "Network":
                 # NETWORK MODE 
                 INFO("[State] Network mode selected.")
                 pass
 
-            
-            led_rxtx_status.off()
-
-            INFO("[State] Task Finished. Press interact please")
-            time.sleep(1)
-
-            while not btn_interact.is_pressed:
-                check_stop()
-                time.sleep(0.05)
-
-            # --- 5. COMPLETION & EXTRACTION ---
-
-            
             # Cleanup
             led_insert_usb.off() 
             led_extract_usb.off()
@@ -270,10 +294,6 @@ def main():
             
             INFO("[Success] Cycle Complete. Restarting in 3 seconds...")
             
-            start_wait = time.time()
-            while time.time() - start_wait < 3:
-                check_stop()
-                time.sleep(0.1)
 
         except SoftReset:
             # Loop restarts immediately
