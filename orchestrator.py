@@ -173,7 +173,7 @@ def Tx_flow():
         time.sleep(0.05)
     check_stop()
 
-    INFO(f"[State] Performing {mode} Task...")
+    INFO(f"[State] Performing TX Task...")
     led_rxtx_status.blink()
 
     if scenario == "P2P":
