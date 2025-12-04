@@ -192,7 +192,7 @@ def RX_flow(scenario) :
 
     if scenario == "P2P":
         INFO("[State] Simple mode (P2P). Recieving P2P...")
-        ok = os.system("./bin/robust_mode --verify-config --mode RX --file-path-rx recieved_file.txt --pa-level HIGH --channel 75")
+        ok = os.system("./bin/robust_mode --verify-config --mode RX --file-path-rx received_file.txt --pa-level HIGH --channel 75")
         INFO(f"Finished process with exit code {ok}")
 
         led_rxtx_status.off() 
