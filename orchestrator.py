@@ -1,3 +1,7 @@
+from gpiozero import Device
+from gpiozero.pins.rpigpio import RPiGPIOFactory
+Device.pin_factory = RPiGPIOFactory()   # 👈 usar RPi.GPIO dentro del venv
+
 from gpiozero import LED, Button, DigitalInputDevice
 import time
 import sys
@@ -176,7 +180,7 @@ def Tx_flow(scenario):
     check_stop()
 
     INFO(f"[State] Performing TX Task...")
-    #led_rxtx_status.blink()
+    led_rxtx_status.blink()
 
     if scenario == "P2P":
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
@@ -193,8 +197,23 @@ def Tx_flow(scenario):
             led_rxtx_status.off()
 
 
-    
+def Rx_flow(scenario):    
+    INFO("we are in RX mode")
+    INFO("[State] Waiting for USB or checking USB...")
+                    
+    # Device Config is SOLID here. Insert USB starts BLINKING here.
+    led_insert_usb.blink(on_time=0.5, off_time=0.5)
+                    
+    path = None
+    while path is None:
+        check_stop()
+        path = check_usb_connected()
+        time.sleep(0.1)
 
+    INFO("USB connected")
+    time.sleep(1)
+    # USB Detected: LED goes Solid
+    led_insert_usb.on()
 
 
 
