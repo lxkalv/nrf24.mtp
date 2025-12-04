@@ -1,8 +1,6 @@
-# --- pin factory primero ---
 from gpiozero import Device
-from gpiozero.pins.rpigpio import RPiGPIOFactory
-Device.pin_factory = RPiGPIOFactory()   # 👈 usar RPi.GPIO, no pigpio
-
+from gpiozero.pins.native import NativeFactory
+Device.pin_factory = NativeFactory()    # 👈 nativa, sin RPi ni pigpio
 
 from gpiozero import LED, Button, DigitalInputDevice
 import time
