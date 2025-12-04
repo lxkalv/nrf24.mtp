@@ -194,7 +194,7 @@ def main():
             
             # --- 4. TX/RX PROCESS PHASE ---
            
-            elif scenario == "Network":
+            if scenario == "Network":
                 # NETWORK MODE 
                 INFO("[State] Network mode selected.")
                 pass
