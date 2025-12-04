@@ -148,6 +148,7 @@ def Tx_flow(scenario):
     led_insert_usb.on()
 
     path_archivo_usb=find_valid_txt_file_in_usb(path)
+    INFO(f"Grabbing {path_archivo_usb.resolve()}")
     content = path_archivo_usb.read_bytes()
     path_file_to_transmit = Path("file_to_transmit.txt").resolve()
     path_file_to_transmit.write_bytes(content)
@@ -204,16 +205,19 @@ def RX_flow(scenario) :
         while path is None:
             check_stop()
             path = check_usb_connected()
+
+        path.resolve()
         
 
         INFO("USB connected")
         # USB Detected: LED goes Solid
         led_insert_usb.on()
 
-        file_path = Path("received_file.txt")
+        file_path = Path("received_file.txt").resolve()
         content = file_path.read_bytes()
 
         (path / "received_file.txt").write_bytes(content)
+        INFO(f"Wrinting to {(path / 'received_file.txt').resolve()}")
 
         
         check_stop()
