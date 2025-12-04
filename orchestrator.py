@@ -94,8 +94,8 @@ def check_usb_connected() -> bool:
         if path.is_mount():
             return path
 
+    return None
 
-    return False  
 
 def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
     """
