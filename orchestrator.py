@@ -129,7 +129,7 @@ def check_stop():
     if global_stop_flag.is_set():
         raise SoftReset
 
-def Tx_flow():
+def Tx_flow(scenario):
     INFO("we are in TX mode")
     INFO("[State] Waiting for USB or checking USB...")
                 
@@ -234,7 +234,7 @@ def main():
             check_stop()
             
             if mode=="TX":
-                Tx_flow()
+                Tx_flow(scenario)
             return
                 
             # Ensure Device Config is still ON (Redundant but safe)
