@@ -1,11 +1,9 @@
-
 from gpiozero import LED, Button, DigitalInputDevice
 import time
 import sys
 import threading
+import os
 from pathlib import Path
-import subprocess
-
 
 # :::: COLORING FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def RED(message: str) -> str:
@@ -179,37 +177,17 @@ def Tx_flow(scenario):
     led_rxtx_status.blink()
 
     if scenario == "P2P":
+
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
-
-        try:
-            # Ejemplo llamando a tu binario real
-            result = subprocess.run(
-                ["./bin/robust", "--help", "--mode", "TX", "--file-path-tx", str(path_file_to_transmit)],
-                check=False   # si quieres que lance excepción en error, pon True
-            )
-            INFO(f"Finished process with exit code {result.returncode}")
-        finally:
-            # Sea cual sea el resultado, apagamos el LED de TX/RX
-            led_rxtx_status.off()
+        ok = os.system("./bin/robust --help")
+        INFO(f"Finished process with exit code {ok}")
+        
 
 
-def Rx_flow(scenario):    
-    INFO("we are in RX mode")
-    INFO("[State] Waiting for USB or checking USB...")
-                    
-    # Device Config is SOLID here. Insert USB starts BLINKING here.
-    led_insert_usb.blink(on_time=0.5, off_time=0.5)
-                    
-    path = None
-    while path is None:
-        check_stop()
-        path = check_usb_connected()
-        time.sleep(0.1)
 
-    INFO("USB connected")
-    time.sleep(1)
-    # USB Detected: LED goes Solid
-    led_insert_usb.on()
+
+    
+
 
 
 
