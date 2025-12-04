@@ -1,7 +1,3 @@
-from gpiozero import Device
-from gpiozero.pins.native import NativeFactory
-Device.pin_factory = NativeFactory()    # 👈 nativa, sin RPi ni pigpio
-
 from gpiozero import LED, Button, DigitalInputDevice
 import time
 import sys
@@ -180,7 +176,7 @@ def Tx_flow(scenario):
     check_stop()
 
     INFO(f"[State] Performing TX Task...")
-    led_rxtx_status.blink()
+    #led_rxtx_status.blink()
 
     if scenario == "P2P":
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
