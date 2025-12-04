@@ -1,15 +1,6 @@
-import os
 
-os.environ['GPIOZERO_PIN_FACTORY'] = 'lgpio'
-try:
-    from gpiozero import LED, Button, DigitalInputDevice
-except ImportError:
-    # Fallback if lgpio isn't installed, tries to force a basic Native factory
-    print("[WARN] lgpio not found. Falling back to NativeFactory.")
-    os.environ['GPIOZERO_PIN_FACTORY'] = 'native'
-    from gpiozero import LED, Button, DigitalInputDevice
-
-
+from gpiozero import LED, Button, DigitalInputDevice
+import time
 import sys
 import threading
 from pathlib import Path
