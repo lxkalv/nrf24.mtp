@@ -241,7 +241,7 @@ def choose_occupied_channel(nrf: NRF24, other_channels: list[int]) -> int:
 
 # :::: FLOW FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def ACT_AS_TX(nrf: NRF24, content: bytes, own_channels: list[int]) -> None:
-    INFO("SOY UN TRANSMISOR PUTA")
+    INFO("SOY UN TRANSMISOR aaa")
     channel = choose_free_channel(nrf, own_channels)
     nrf.set_channel(channel)
     
