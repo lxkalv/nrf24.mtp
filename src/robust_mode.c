@@ -29,6 +29,7 @@
 #define CONTROL_TIMEOUT_MS  200
 #define DATA_TIMEOUT_MS     60
 #define CHECKSUM_TIMEOUT_MS 1000
+#define FINISH_ACK_TIMEOUT_MS 2000
 
 #define STREAM_INFO_SIZE    16
 #define STREAM_READY_SIZE   11
@@ -266,6 +267,44 @@ static int decompress_buffer(const uint8_t *in, size_t in_len, uint8_t **out_buf
     return 0;
 }
 
+static int store_decompressed_output(const app_config_t *cfg,
+                                     const uint8_t *compressed,
+                                     size_t compressed_len,
+                                     uint32_t original_len)
+{
+    uint8_t *output = NULL;
+
+    if (compressed_len != 0 || original_len == 0) {
+        if (decompress_buffer(compressed,
+                              compressed_len,
+                              &output,
+                              (size_t)original_len) != 0) {
+            logger_error("robust RX: failed to decompress payload (%zu bytes)",
+                         compressed_len);
+            return -1;
+        }
+    } else {
+        logger_error("robust RX: non-empty output requested but compressed buffer is empty");
+        return -1;
+    }
+
+    const char *dest_label = (cfg && cfg->file_path_rx && cfg->file_path_rx[0])
+                           ? cfg->file_path_rx
+                           : "(auto)";
+
+    if (app_store_file_bytes(cfg ? cfg->file_path_rx : NULL,
+                             output,
+                             (size_t)original_len) != 0) {
+        logger_error("robust RX: failed to store output bytes");
+        free(output);
+        return -1;
+    }
+
+    free(output);
+    logger_succ("robust RX: stored '%s' (%u bytes)", dest_label, original_len);
+    return 0;
+}
+
 static int derive_frame_layout(size_t data_len,
                                unsigned *out_id_bytes,
                                size_t *out_payload_bytes,
@@ -416,6 +455,51 @@ static int send_stream_finish(nrf24_t *radio,
         logger_succ("robust TX: STREAM_FINISH acknowledged by RX");
     }
     return ret;
+}
+
+static int wait_for_stream_finish_ack(nrf24_t *radio)
+{
+    if (ensure_mode_rx(radio) != 0) {
+        return -1;
+    }
+
+    double wait_start = now_seconds();
+    while ((now_seconds() - wait_start) * 1000.0 < FINISH_ACK_TIMEOUT_MS) {
+        uint8_t buf[MAX_PAYLOAD];
+        uint8_t len = sizeof(buf);
+        int ret = nrf24_recv_blocking(radio, buf, &len, CONTROL_TIMEOUT_MS);
+        if (ret < 0) {
+            if (errno == ETIMEDOUT) {
+                continue;
+            }
+            logger_error("robust TX: waiting for STREAM_FINISH ack failed: %s",
+                         strerror(errno));
+            (void)ensure_mode_tx(radio);
+            return -1;
+        }
+
+        if (len >= 2 && buf[0] == CONTROL_PREFIX) {
+            if (buf[1] == MSG_STREAM_FINISH) {
+                logger_succ("robust TX: STREAM_FINISH acknowledged by RX");
+                if (ensure_mode_tx(radio) != 0) {
+                    return -1;
+                }
+                return 0;
+            }
+
+            logger_warn("robust TX: control 0x%02X while waiting for STREAM_FINISH ack",
+                        buf[1]);
+            continue;
+        }
+
+        logger_warn("robust TX: ignoring non-control frame while waiting for STREAM_FINISH ack");
+    }
+
+    logger_warn("robust TX: timeout waiting for STREAM_FINISH ack");
+    if (ensure_mode_tx(radio) != 0) {
+        return -1;
+    }
+    return 1;
 }
 
 static int send_checksum_with_timeout(nrf24_t *radio,
@@ -639,6 +723,7 @@ static int run_tx(const char *spi_dev,
     uint64_t tx_rf_bytes = 0;
     uint64_t tx_rf_frames = 0;
     double tx_start = 0.0;
+    unsigned finish_ack_attempts = 0;
 
     if (!spi_dev) {
         logger_error("run_tx: missing SPI device");
@@ -908,11 +993,30 @@ static int run_tx(const char *spi_dev,
             goto cleanup;
         }
 
-        if (send_stream_finish(&radio, &tx_rf_bytes, &tx_rf_frames) != 0) {
-            logger_warn("robust TX: failed to send STREAM_FINISH");
-        }
+        while (!transfer_complete) {
+            if (send_stream_finish(&radio, &tx_rf_bytes, &tx_rf_frames) != 0) {
+                logger_error("robust TX: failed to send STREAM_FINISH");
+                nrf24_deinit(&radio);
+                goto cleanup;
+            }
 
-        transfer_complete = 1;
+            int finish_ack = wait_for_stream_finish_ack(&radio);
+            if (finish_ack == 0) {
+                transfer_complete = 1;
+                break;
+            }
+
+            if (finish_ack > 0) {
+                ++finish_ack_attempts;
+                logger_warn("robust TX: STREAM_FINISH ack timeout, retrying (attempt %u)",
+                            finish_ack_attempts);
+                continue;
+            }
+
+            logger_error("robust TX: failed while waiting for STREAM_FINISH ack");
+            nrf24_deinit(&radio);
+            goto cleanup;
+        }
     }
 
     if (tx_start > 0.0) {
@@ -988,6 +1092,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     uint32_t original_len = 0;
     int checksum_sent = 0;
     int have_info = 0;
+    int output_stored = 0;
     uint64_t rf_rx_bytes = 0;
     uint64_t rf_rx_frames = 0;
     uint64_t rf_tx_bytes = 0;
@@ -1131,6 +1236,30 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 if (!checksum_sent) {
                     logger_warn("robust RX: STREAM_FINISH received before checksum sent");
                 }
+                if (!output_stored) {
+                    if (store_decompressed_output(cfg,
+                                                  compressed,
+                                                  compressed_len,
+                                                  original_len) != 0) {
+                        logger_error("robust RX: failed to finalize output; aborting");
+                        goto cleanup;
+                    }
+                    output_stored = 1;
+                } else {
+                    logger_info("robust RX: STREAM_FINISH already processed; resending ack");
+                }
+
+                if (ensure_mode_tx(&radio) != 0) {
+                    goto cleanup;
+                }
+                if (send_stream_finish(&radio, &rf_tx_bytes, &rf_tx_frames) != 0) {
+                    logger_error("robust RX: failed to acknowledge STREAM_FINISH");
+                    goto cleanup;
+                }
+                if (ensure_mode_rx(&radio) != 0) {
+                    goto cleanup;
+                }
+
                 done = 1;
                 break;
             }
@@ -1255,24 +1384,14 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         logger_warn("robust RX: transfer finished without checksum phase");
     }
 
-    if (compressed_len != 0 || original_len == 0) {
-        uint8_t *output = NULL;
-        if (decompress_buffer(compressed, compressed_len, &output, original_len) != 0) {
+    if (!output_stored) {
+        if (store_decompressed_output(cfg,
+                                      compressed,
+                                      compressed_len,
+                                      original_len) != 0) {
             goto cleanup;
         }
-
-        const char *dest_label = (cfg && cfg->file_path_rx && cfg->file_path_rx[0])
-                               ? cfg->file_path_rx
-                               : "(auto)";
-        if (app_store_file_bytes(cfg ? cfg->file_path_rx : NULL,
-                                 output,
-                                 original_len) != 0) {
-            logger_error("robust RX: failed to store output bytes");
-            free(output);
-            goto cleanup;
-        }
-        free(output);
-        logger_succ("robust RX: stored '%s' (%u bytes)", dest_label, original_len);
+        output_stored = 1;
     }
 
     if (rx_start > 0.0) {

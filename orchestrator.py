@@ -206,7 +206,7 @@ def RX_flow(scenario) :
             check_stop()
             path = check_usb_connected()
 
-        path.resolve()
+        path = path.resolve()
         
 
         INFO("USB connected")
