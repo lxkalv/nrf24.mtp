@@ -1327,8 +1327,10 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             }
 
             if (abort_requested) {
-                save_partial_file();
-                return ABORT_EXIT_CODE;
+                if (save_partial_file(cfg, compressed, compressed_len) != 0) {
+                    logger_warn("robust RX: failed to save partial file");
+                }
+                abort();
             }
 
             logger_warn("robust RX: unknown control type %u", type);
