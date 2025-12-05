@@ -194,7 +194,7 @@ def Tx_flow(scenario):
                 if btn_stop.is_pressed:
                     reset = True
                     break
-                time.sleep(0.1)
+                time.sleep(5)
             if reset:
                 process.terminate()
                 led_rxtx_status.off() 
