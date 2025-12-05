@@ -180,7 +180,7 @@ def Tx_flow(scenario):
 
     if scenario == "P2P":
         c_execution = [
-            "./bin/robust_mode",
+            "./bin/robust_mode_reset",
             "--verify-config", 
             "--mode", "TX", 
             "--file-path-tx", "file_to_transmit.txt", 
@@ -210,7 +210,7 @@ def RX_flow(scenario) :
     if scenario == "P2P":
 
         c_execution = [
-            "./bin/robust_mode",
+            "./bin/robust_mode_reset",
             "--verify-config", 
             "--mode", "RX", 
             "--file-path-rx", "received_file.txt", 
@@ -234,12 +234,6 @@ def RX_flow(scenario) :
             else:
                 led_rxtx_status.off() 
                 break
-
-
-
-        INFO("[State] Simple mode (P2P). Recieving P2P...")
-        ok = os.system("./bin/robust_mode --verify-config --mode RX --file-path-rx received_file.txt --pa-level HIGH --channel 75")
-        INFO(f"Finished process with exit code {ok}")
 
         led_rxtx_status.off() 
 
