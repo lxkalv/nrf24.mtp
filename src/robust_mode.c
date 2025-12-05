@@ -457,6 +457,59 @@ static int send_stream_finish(nrf24_t *radio,
     return ret;
 }
 
+static int send_stream_finish_with_timeout_rx(nrf24_t *radio,
+                                              uint64_t *rf_bytes_total,
+                                              uint64_t *rf_frames_total)
+{
+    uint8_t msg[2] = { CONTROL_PREFIX, MSG_STREAM_FINISH };
+    double start = now_seconds();
+    unsigned attempt = 0;
+
+    while ((now_seconds() - start) * 1000.0 < FINISH_ACK_TIMEOUT_MS) {
+        if (rf_bytes_total) {
+            *rf_bytes_total += sizeof(msg);
+        }
+        if (rf_frames_total) {
+            *rf_frames_total += 1;
+        }
+
+        if (nrf24_send_blocking(radio,
+                                 msg,
+                                 sizeof(msg),
+                                 CONTROL_TIMEOUT_MS) == 0) {
+            logger_succ("robust RX: STREAM_FINISH confirmation delivered to TX");
+            return 0;
+        }
+
+        if (errno != ETIMEDOUT) {
+            logger_error("robust RX: failed to send STREAM_FINISH confirmation: %s",
+                         strerror(errno));
+            return -1;
+        }
+
+        ++attempt;
+        if (attempt == 1 || (attempt % 50) == 0) {
+            logger_warn("robust RX: STREAM_FINISH confirmation timeout (attempt %u)", attempt);
+        }
+
+        if ((attempt % 200) == 0) {
+            logger_warn("robust RX: %u STREAM_FINISH confirmation timeouts, reconfiguring radio",
+                        attempt);
+            if (configure_radio_runtime(radio) != 0) {
+                logger_error("robust RX: radio reconfigure failed while acknowledging STREAM_FINISH");
+                return -1;
+            }
+            if (ensure_mode_tx(radio) != 0) {
+                return -1;
+            }
+        }
+    }
+
+    logger_warn("robust RX: STREAM_FINISH confirmation window elapsed; finishing without TX ack");
+    errno = ETIMEDOUT;
+    return 1;
+}
+
 static int wait_for_stream_finish_ack(nrf24_t *radio)
 {
     if (ensure_mode_rx(radio) != 0) {
@@ -1252,9 +1305,14 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 if (ensure_mode_tx(&radio) != 0) {
                     goto cleanup;
                 }
-                if (send_stream_finish(&radio, &rf_tx_bytes, &rf_tx_frames) != 0) {
-                    logger_error("robust RX: failed to acknowledge STREAM_FINISH");
+                int finish_send = send_stream_finish_with_timeout_rx(&radio,
+                                                                      &rf_tx_bytes,
+                                                                      &rf_tx_frames);
+                if (finish_send < 0) {
                     goto cleanup;
+                }
+                if (finish_send > 0) {
+                    logger_warn("robust RX: proceeding without STREAM_FINISH acknowledgment from TX");
                 }
                 if (ensure_mode_rx(&radio) != 0) {
                     goto cleanup;
