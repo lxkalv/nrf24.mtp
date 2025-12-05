@@ -155,13 +155,22 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
     location and returns the path to first one ordered alphabetically
     """
 
-    candidates = [
-        file
-        for file in usb_mount_path.iterdir()
-        if file.is_file()
-        and file.suffix == ".txt"
-        and not str(file).startswith(".")
-    ]
+    candidates = []
+    for file in usb_mount_path.iterdir():
+        if not file.is_file():
+            continue
+
+        name = file.name
+        if name.startswith('.'):
+            INFO(f"Skipping hidden file '{name}' on USB")
+            continue
+        if name.startswith('._'):
+            INFO(f"Skipping Apple resource file '{name}' on USB")
+            continue
+        if file.suffix.lower() != ".txt":
+            continue
+
+        candidates.append(file)
 
     if not candidates:
         WARN(f"No .txt files found on USB mount '{usb_mount_path}'")
