@@ -208,6 +208,35 @@ def RX_flow(scenario) :
     led_rxtx_status.blink()
 
     if scenario == "P2P":
+
+        c_execution = [
+            "./bin/robust_mode",
+            "--verify-config", 
+            "--mode", "RX", 
+            "--file-path-rx", "received_file.txt", 
+            "--pa-level", "MAX", 
+            "--channel", "75"
+        ]
+        reset = False
+        while True:
+            process = subprocess.Popen(c_execution,stdin=subprocess.PIPE,text=True)
+
+            while process.poll() is None:
+                if btn_stop.is_pressed:
+                    process.stdin.write("STOP\n")
+                    process.stdin.flush()
+                    break
+                time.sleep(3)
+            if reset:
+                process.terminate()
+                led_rxtx_status.off() 
+                os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                led_rxtx_status.off() 
+                break
+
+
+
         INFO("[State] Simple mode (P2P). Recieving P2P...")
         ok = os.system("./bin/robust_mode --verify-config --mode RX --file-path-rx received_file.txt --pa-level HIGH --channel 75")
         INFO(f"Finished process with exit code {ok}")
