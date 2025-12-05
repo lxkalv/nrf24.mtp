@@ -1275,6 +1275,21 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 continue;
             }
 
+            char cmd[16];
+            ssize_t n = read(STDIN_FILENO, cmd, sizeof(cmd) - 1);
+            if (n > 0) {
+                cmd[n] = '\0';
+                if (strstr(cmd, "STOP") != NULL) {
+                    logger_warn("RX: STOP command received from Python! Aborting...");
+                    abort_requested = 1;
+                }
+            }
+
+            if (abort_requested) {
+                save_partial_file();
+                return ABORT_EXIT_CODE;
+            }
+
             logger_warn("robust RX: unknown control type %u", type);
             continue;
         }
