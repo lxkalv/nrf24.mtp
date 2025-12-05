@@ -41,6 +41,7 @@ class OrchestratorLogger:
         self.log_path: Path | None = None
         self._file_handle = None
         self._lock = threading.Lock()
+        self._domain_prefix = f"[{self._base_name.lower()}]"
         self._open_log_file()
 
     def _open_log_file(self) -> None:
@@ -60,7 +61,7 @@ class OrchestratorLogger:
             print(f"{YELLOW('[WARN]:')} {warning}")
 
     def log(self, level: str, message: str, colorizer, end: str = "\n") -> None:
-        prefix = f"[{level}]"
+        prefix = f"{self._domain_prefix}[{level}]"
         console_line = f"{colorizer(prefix + ':')} {message}"
         print(console_line, end=end, flush=True)
 
