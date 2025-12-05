@@ -4,6 +4,7 @@ import sys
 import threading
 import os
 from pathlib import Path
+import subprocess
 
 # :::: COLORING FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def RED(message: str) -> str:
@@ -178,14 +179,29 @@ def Tx_flow(scenario):
     led_rxtx_status.blink()
 
     if scenario == "P2P":
-
-        INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
-        ok = os.system("./bin/robust_mode --verify-config --mode TX --file-path-tx file_to_transmit.txt --pa-level HIGH --channel 75")
-        INFO(f"Finished process with exit code {ok}")
-
-        led_rxtx_status.off() 
-
-
+        c_execution = [
+            "./bin/robust_mode",
+            "--verify-config", 
+            "--mode", "TX", 
+            "--file-path-tx", "file_to_transmit.txt", 
+            "--pa-level", "MAX", 
+            "--channel", "75"
+        ]
+        reset = False
+        while True:
+            process = subprocess.Popen(c_execution)
+            while process.poll() is None:
+                if btn_stop.is_pressed:
+                    reset = True
+                    break
+                time.sleep(0.1)
+            if reset:
+                process.terminate()
+                led_rxtx_status.off() 
+                os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                led_rxtx_status.off() 
+                break
 
 def RX_flow(scenario) :
     INFO("We are in RX mode")
