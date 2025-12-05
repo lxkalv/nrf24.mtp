@@ -630,6 +630,47 @@ static int wait_for_stream_ready(nrf24_t *radio,
     return 1; /* timeout, caller may retry */
 }
 
+/**
+ * Save the partially received compressed data to disk.
+ *
+ * Writes out the current contents of compressed up to compressed_len.
+ *
+ * Returns 0 on success, -1 on error.
+ */
+static int save_partial_file(const app_config_t *cfg,
+                             const uint8_t *compressed,
+                             size_t compressed_len)
+{
+    if (!cfg || !cfg->file_path_rx || !cfg->file_path_rx[0]) {
+        logger_error("save_partial_file: destination path not set");
+        return -1;
+    }
+    if (!compressed) {
+        logger_error("save_partial_file: compressed buffer is NULL");
+        return -1;
+    }
+
+    const char *path = cfg->file_path_rx;
+    FILE *fp = fopen(path, "wb");  // overwrite each time we save a snapshot
+    if (!fp) {
+        logger_error("save_partial_file: fopen('%s') failed: %s",
+                     path, strerror(errno));
+        return -1;
+    }
+
+    size_t written = fwrite(compressed, 1, compressed_len, fp);
+    if (written != compressed_len) {
+        logger_error("save_partial_file: fwrite failed (written=%zu expected=%zu)",
+                     written, compressed_len);
+        fclose(fp);
+        return -1;
+    }
+
+    fclose(fp);
+    logger_info("save_partial_file: wrote %zu bytes to '%s'", compressed_len, path);
+    return 0;
+}
+
 static int send_stream_ready(nrf24_t *radio,
                              uint8_t id_bytes,
                              uint32_t expected_frames,
