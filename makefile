@@ -73,7 +73,7 @@ $(BINDIR)/fast_mode: $(SRCDIR)/fast_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o $
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(BINDIR)/p2p_mode: $(SRCDIR)/p2p_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o $(LIBDIR)/logger.o
+$(BINDIR)/p2p_mode: $(SRCDIR)/p2p_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/logger.o $(LIBDIR)/app_layer.o
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
@@ -96,7 +96,7 @@ $(BINDIR)/robust_mode_reset: $(SRCDIR)/robust_mode_reset.o $(LIBDIR)/nrf24.o $(L
 
 $(SRCDIR)/quick_mode.o: $(SRCDIR)/quick_mode.c $(LIBDIR)/nrf24.h
 $(SRCDIR)/fast_mode.o:  $(SRCDIR)/fast_mode.c  $(LIBDIR)/nrf24.h
-$(SRCDIR)/p2p_mode.o:   $(SRCDIR)/p2p_mode.c   $(LIBDIR)/nrf24.h
+$(SRCDIR)/p2p_mode.o:   $(SRCDIR)/p2p_mode.c   $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h $(LIBDIR)/app_layer.h
 $(SRCDIR)/p3p_mode.o:   $(SRCDIR)/p3p_mode.c   \
                         $(LIBDIR)/logger.h \
                         $(LIBDIR)/app_layer.h \

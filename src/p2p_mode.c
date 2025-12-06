@@ -26,6 +26,66 @@ static const char *get_spi_device_path(void)
     return DEFAULT_SPI_DEVICE;
 }
 
+static unsigned data_rate_to_kbps(app_data_rate_t rate)
+{
+    switch (rate) {
+    case APP_DATA_RATE_250KBPS: return 250;
+    case APP_DATA_RATE_2MBPS:   return 2000;
+    case APP_DATA_RATE_1MBPS:
+    default:                    return 1000;
+    }
+}
+
+static int pa_level_to_dbm(app_pa_level_t level)
+{
+    switch (level) {
+    case APP_PA_LOW:  return -12;
+    case APP_PA_HIGH: return -6;
+    case APP_PA_MAX:  return 0;
+    case APP_PA_MIN:
+    default:          return -18;
+    }
+}
+
+static unsigned crc_bytes_from_cfg(app_crc_bytes_t crc_opt)
+{
+    switch (crc_opt) {
+    case APP_CRC_OFF: return 0;
+    case APP_CRC_8:   return 1;
+    case APP_CRC_16:
+    default:          return 2;
+    }
+}
+
+static int configure_radio_from_app(nrf24_t *radio, const app_config_t *cfg)
+{
+    if (!radio) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    const unsigned data_rate_kbps = data_rate_to_kbps(cfg ? cfg->data_rate : APP_DATA_RATE_1MBPS);
+    const int       pa_dbm        = pa_level_to_dbm(cfg ? cfg->pa_level : APP_PA_MIN);
+    const unsigned  crc_bytes     = crc_bytes_from_cfg(cfg ? cfg->crc_bytes : APP_CRC_16);
+    const unsigned  retr_delay    = cfg ? (unsigned)cfg->retransmission_delay : 0u;
+    const unsigned  retr_tries    = cfg ? (unsigned)cfg->retransmission_tries : 15u;
+    const uint8_t   channel       = cfg ? (uint8_t)(cfg->channel & 0x7Fu) : (uint8_t)P2P_CHANNEL;
+
+    if (nrf24_configure_advanced(radio,
+                                 channel,
+                                 data_rate_kbps,
+                                 pa_dbm,
+                                 crc_bytes,
+                                 retr_delay,
+                                 retr_tries) < 0) {
+        logger_error("Failed to configure nRF24 (channel=%u, rate=%u kbps, PA=%d dBm)",
+                     (unsigned)channel, data_rate_kbps, pa_dbm);
+        return -1;
+    }
+
+    return 0;
+}
+
 /* ---- Protocol constants ---- */
 
 #define P2P_CHANNEL          90
@@ -120,7 +180,8 @@ static int send_with_retries(nrf24_t *radio,
                              unsigned int timeout_ms,
                              const char *what,
                              uint64_t *rf_bytes_total,
-                             uint64_t *rf_frames_total)
+                             uint64_t *rf_frames_total,
+                             const app_config_t *cfg)
 {
     unsigned int attempt = 0;
 
@@ -148,8 +209,11 @@ static int send_with_retries(nrf24_t *radio,
         /* Keep retrying forever, but every so often we reconfigure the radio */
         if (attempt % 500 == 0) {
             logger_warn("%s: %u consecutive timeouts, reconfiguring radio",
-                 what, attempt);
-            (void)nrf24_configure_quick(radio, P2P_CHANNEL);
+                        what, attempt);
+            if (configure_radio_from_app(radio, cfg) < 0) {
+                logger_error("%s: failed to reconfigure radio during retries", what);
+                return -1;
+            }
         }
     }
 }
@@ -363,7 +427,10 @@ static int decompress_page_to_file(PageStream *ps,
 
 /* ---- TX: read whole file and send in 10 compressed pages ---- */
 
-static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
+static int run_tx(const char *spi_dev,
+                  int ce_bcm,
+                  const char *input_path,
+                  const app_config_t *cfg)
 {
     nrf24_t radio;
     nrf24_config_t cfg = {
@@ -376,8 +443,8 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
         logger_error("nrf24_init failed: %s", strerror(errno));
         return 1;
     }
-    if (nrf24_configure_quick(&radio, P2P_CHANNEL) < 0) {
-        logger_error("nrf24_configure_quick failed");
+    if (configure_radio_from_app(&radio, cfg) < 0) {
+        logger_error("Failed to configure radio for TX");
         nrf24_deinit(&radio);
         return 1;
     }
@@ -534,12 +601,13 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
              (unsigned)last_burst_frames, (unsigned)last_frame_bytes);
 
         (void)send_with_retries(&radio,
-                                stream_info,
-                                sizeof(stream_info),
-                                CONTROL_TIMEOUT_MS,
-                                "STREAM_INFO",
-                                &tx_rf_bytes_total,
-                                &tx_rf_frames_total);
+                    stream_info,
+                    sizeof(stream_info),
+                    CONTROL_TIMEOUT_MS,
+                    "STREAM_INFO",
+                    &tx_rf_bytes_total,
+                    &tx_rf_frames_total,
+                    cfg);
 
         /* Now send all bursts for this page */
         size_t comp_pos = 0;
@@ -620,7 +688,8 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                                       CONTROL_TIMEOUT_MS,
                                       "BURST_INFO",
                                       &tx_rf_bytes_total,
-                                      &tx_rf_frames_total) < 0) {
+                                      &tx_rf_frames_total,
+                                      cfg) < 0) {
                     logger_error("Failed to send BURST_INFO (page %u, burst %u), aborting",
                           page_id, burst_id);
                     free(comp_page);
@@ -637,7 +706,8 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                                           DATA_TIMEOUT_MS,
                                           "DATA",
                                           &tx_rf_bytes_total,
-                                          &tx_rf_frames_total) < 0) {
+                                          &tx_rf_frames_total,
+                                          cfg) < 0) {
                         logger_error("Failed to send DATA frame (page %u, burst %u), aborting",
                               page_id, burst_id);
                         free(comp_page);
@@ -732,7 +802,8 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
                             CONTROL_TIMEOUT_MS,
                             "TRANSFER_FINISH",
                             &tx_rf_bytes_total,
-                            &tx_rf_frames_total);
+                            &tx_rf_frames_total,
+                            cfg);
 
     double t_end = now_seconds();
     double dt    = t_end - t_start;
@@ -758,7 +829,10 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path)
 
 /* ---- RX: receive in pages, decompress each page independently ---- */
 
-static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
+static int run_rx(const char *spi_dev,
+                  int ce_bcm,
+                  const char *output_path,
+                  const app_config_t *cfg)
 {
     nrf24_t radio;
     nrf24_config_t cfg = {
@@ -771,8 +845,8 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
         logger_error("nrf24_init failed: %s", strerror(errno));
         return 1;
     }
-    if (nrf24_configure_quick(&radio, P2P_CHANNEL) < 0) {
-        logger_error("nrf24_configure_quick failed");
+    if (configure_radio_from_app(&radio, cfg) < 0) {
+        logger_error("Failed to configure radio for RX");
         nrf24_deinit(&radio);
         return 1;
     }
@@ -792,7 +866,9 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
     PageStream stream;
     page_stream_init(&stream);
 
-    logger_info("P2P RX: waiting for STREAM_INFO / BURST_INFO on channel %d...", P2P_CHANNEL);
+    const int listen_channel = cfg ? cfg->channel : P2P_CHANNEL;
+    logger_info("P2P RX: waiting for STREAM_INFO / BURST_INFO on channel %d...",
+                listen_channel);
 
     int transfer_finished = 0;
     int tx_started        = 0;
@@ -1083,8 +1159,9 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
 
                 if (attempt % 200 == 0) {
                     logger_warn("P2P RX: %u checksum timeouts, reconfiguring radio", attempt);
-                    (void)nrf24_configure_quick(&radio, P2P_CHANNEL);
-                    (void)nrf24_set_mode_tx(&radio);
+                    if (configure_radio_from_app(&radio, cfg) == 0) {
+                        (void)nrf24_set_mode_tx(&radio);
+                    }
                 }
             }
 
@@ -1236,9 +1313,9 @@ int main(int argc, char **argv)
 
     int ret = 1;
     if (cfg.mode == APP_MODE_TX) {
-        ret = run_tx(spi_dev, ce_bcm, tx_path);
+        ret = run_tx(spi_dev, ce_bcm, tx_path, &cfg);
     } else if (cfg.mode == APP_MODE_RX) {
-        ret = run_rx(spi_dev, ce_bcm, rx_path);
+        ret = run_rx(spi_dev, ce_bcm, rx_path, &cfg);
     } else {
         logger_error("Unsupported mode: %s", app_mode_str(cfg.mode));
     }
