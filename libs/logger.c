@@ -7,6 +7,8 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/time.h>  /* gettimeofday for milliseconds */
+#include <sys/stat.h>   /* mkdir */
+#include <sys/types.h>
 
 /* ANSI color codes for console output */
 #define LOGGER_COLOR_RED    "\x1b[31m"
@@ -18,6 +20,21 @@
 /* Internal state */
 static FILE *logger_fp = NULL;
 static logger_level_t logger_min_level = LOGGER_LEVEL_DEBUG;
+
+static int ensure_dir(const char *path)
+{
+    if (!path || !*path) {
+        return -1;
+    }
+
+    int rc = mkdir(path, 0755);
+    if (rc == 0 || errno == EEXIST) {
+        return 0;
+    }
+    fprintf(stderr, "[LOGGER WARN]: Could not create directory '%s': %s\n",
+            path, strerror(errno));
+    return -1;
+}
 
 /* Forward declaration of internal helper */
 static void logger_vlog(logger_level_t level,
@@ -90,11 +107,11 @@ int logger_init(const char *file_path)
         return 0;
     }
 
-    /* Build timestamped path inside "logs" directory.
+    /* Build timestamped path inside "logs/<basename>" directory.
      *
      * Example:
      *   file_path = "p2p_tx.log"
-     *   -> logs/p2p_tx_YYYY-MM-DD_HH-MM-SS.log
+     *   -> logs/p2p_tx/p2p_tx-YYYY-MM-DD_HH-MM-SS.log
      */
 
     char ts[32];
@@ -117,16 +134,24 @@ int logger_init(const char *file_path)
     const char *dot = strrchr(base, '.');
     size_t base_len = dot ? (size_t)(dot - base) : strlen(base);
 
-    char final_path[512];
-    if (base_len > 0) {
-        (void)snprintf(final_path, sizeof(final_path),
-                       "logs/%.*s_%s.log",
-                       (int)base_len, base, ts);
-    } else {
-        /* Fallback: just use the original name under logs/ */
-        (void)snprintf(final_path, sizeof(final_path),
-                       "logs/%s.log", ts);
+    const char *base_fallback = "general";
+    if (base_len == 0) {
+        base      = base_fallback;
+        base_len  = strlen(base_fallback);
     }
+
+    (void)ensure_dir("logs");
+
+    char subdir[512];
+    (void)snprintf(subdir, sizeof(subdir),
+                   "logs/%.*s",
+                   (int)base_len, base);
+    (void)ensure_dir(subdir);
+
+    char final_path[512];
+    (void)snprintf(final_path, sizeof(final_path),
+                   "%s/%.*s-%s.log",
+                   subdir, (int)base_len, base, ts);
 
     logger_fp = fopen(final_path, "w");
     if (!logger_fp) {
