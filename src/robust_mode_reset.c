@@ -1177,6 +1177,13 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             }
         }
 
+        if (abort_requested) {
+            if (save_partial_file(cfg, compressed, compressed_len) != 0) {
+                logger_warn("robust RX: failed to save partial file");
+            }
+            abort();
+        }
+
         if (len < 1) {
             logger_warn("robust RX: empty frame");
             continue;
@@ -1325,13 +1332,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             if (type == MSG_CHECKSUM) {
                 logger_info("robust RX: checksum echoed back, ignoring");
                 continue;
-            }
-
-            if (abort_requested) {
-                if (save_partial_file(cfg, compressed, compressed_len) != 0) {
-                    logger_warn("robust RX: failed to save partial file");
-                }
-                abort();
             }
 
             logger_warn("robust RX: unknown control type %u", type);
