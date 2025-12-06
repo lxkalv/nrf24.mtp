@@ -224,6 +224,7 @@ def RX_flow(scenario) :
             while process.poll() is None:
                 if btn_stop.is_pressed:
                     process.stdin.write("STOP\n")
+                    time.sleep(3)
                     process.stdin.flush()
                     break
                 time.sleep(3)
