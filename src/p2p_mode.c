@@ -9,10 +9,22 @@
 
 #include "libs/nrf24.h"
 #include "libs/logger.h"
+#include "libs/app_layer.h"
 
 #ifdef _WIN32
 #error "p2p_mode is Linux-only; build on Raspberry Pi / POSIX targets"
 #endif
+
+#define DEFAULT_SPI_DEVICE "/dev/spidev0.0"
+
+static const char *get_spi_device_path(void)
+{
+    const char *env = getenv("NRF24_SPI_DEVICE");
+    if (env && *env) {
+        return env;
+    }
+    return DEFAULT_SPI_DEVICE;
+}
 
 /* ---- Protocol constants ---- */
 
@@ -1177,44 +1189,39 @@ static int run_rx(const char *spi_dev, int ce_bcm, const char *output_path)
 
 /* ---- CLI ---- */
 
-static void usage(const char *prog)
-{
-    fprintf(stderr,
-            "Usage:\n"
-            "  %s tx <spi_device> <ce_gpio> <input_file>\n"
-            "  %s rx <spi_device> <ce_gpio> <output_file>\n"
-            "Example:\n"
-            "  %s tx /dev/spidev0.0 22 test_files/lorem.txt\n"
-            "  %s rx /dev/spidev0.0 22 received_file.txt\n",
-            prog, prog, prog, prog);
-}
-
 int main(int argc, char **argv)
 {
-    if (argc != 5) {
-        usage(argv[0]);
+    // Parse argumets from the user
+    app_config_t cfg;
+    if (app_parse_arguments(argc, argv, &cfg) != 0) {
+        app_print_usage(argv[0]);
         return 1;
     }
 
-    const char *mode    = argv[1];
-    const char *spi_dev = argv[2];
-    int ce_bcm          = atoi(argv[3]);
-    const char *path    = argv[4];
+    // Determine TX file path
+    // NOTE: If no TX path is provided then "~/nrf24.mtp/file_to_transmit.txt" will be used
+    const char *tx_path = (cfg.file_path_tx && cfg.file_path_tx[0])
+                        ? cfg.file_path_tx
+                        : "file_to_transmit.txt";
 
-    if (ce_bcm < 0 || ce_bcm > 255) {
-        logger_error("Invalid CE GPIO: %d", ce_bcm);
-        return 1;
+    // Determine RX file path
+    // NOTE: If no RX path is provided then "~/nrf24.mtp/file_to_store.txt" will be used
+    const char *rx_path = (cfg.file_path_rx && cfg.file_path_rx[0])
+                        ? cfg.file_path_rx
+                        : "file_to_store.txt";
+
+    if (cfg.print_config) {
+        app_print_config(&cfg);
     }
 
     /* Choose logfile name based on mode */
     char log_path[64];
-    if (strcmp(mode, "tx") == 0) {
+    if (cfg.mode == APP_MODE_TX) {
         snprintf(log_path, sizeof(log_path), "p2p_tx.log");
-    } else if (strcmp(mode, "rx") == 0) {
+    } else if (cfg.mode == APP_MODE_RX) {
         snprintf(log_path, sizeof(log_path), "p2p_rx.log");
     } else {
-        usage(argv[0]);
-        return 1;
+        snprintf(log_path, sizeof(log_path), "p2p.log");
     }
 
     if (logger_init(log_path) != 0) {
@@ -1223,11 +1230,17 @@ int main(int argc, char **argv)
         logger_info("Logging to file '%s'", log_path);
     }
 
-    int ret;
-    if (strcmp(mode, "tx") == 0) {
-        ret = run_tx(spi_dev, ce_bcm, path);
+    const char *spi_dev = get_spi_device_path();
+    int ce_bcm = cfg.ce_pin;
+    logger_info("Using SPI device: %s (CE pin %d)", spi_dev, ce_bcm);
+
+    int ret = 1;
+    if (cfg.mode == APP_MODE_TX) {
+        ret = run_tx(spi_dev, ce_bcm, tx_path);
+    } else if (cfg.mode == APP_MODE_RX) {
+        ret = run_rx(spi_dev, ce_bcm, rx_path);
     } else {
-        ret = run_rx(spi_dev, ce_bcm, path);
+        logger_error("Unsupported mode: %s", app_mode_str(cfg.mode));
     }
 
     logger_close();
