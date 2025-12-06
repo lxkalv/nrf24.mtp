@@ -87,8 +87,8 @@ $(BINDIR)/robust_mode: $(SRCDIR)/robust_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/logge
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 # Added robust_mode_reset linkage
-# Assumed dependencies: nrf24, utils, and logger. Add app_layer.o here if needed.
-$(BINDIR)/robust_mode_reset: $(SRCDIR)/robust_mode_reset.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o $(LIBDIR)/logger.o
+# CORRECCIÓN AQUÍ: Se ha añadido $(LIBDIR)/app_layer.o a la lista de dependencias
+$(BINDIR)/robust_mode_reset: $(SRCDIR)/robust_mode_reset.o $(LIBDIR)/nrf24.o $(LIBDIR)/utils.o $(LIBDIR)/logger.o $(LIBDIR)/app_layer.o
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
@@ -107,7 +107,8 @@ $(SRCDIR)/p3p_mode.o:   $(SRCDIR)/p3p_mode.c   \
 $(SRCDIR)/robust_mode.o: $(SRCDIR)/robust_mode.c $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h $(LIBDIR)/app_layer.h
 
 # Added robust_mode_reset dependencies
-$(SRCDIR)/robust_mode_reset.o: $(SRCDIR)/robust_mode_reset.c $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h
+# CORRECCIÓN AQUÍ: Se añade app_layer.h
+$(SRCDIR)/robust_mode_reset.o: $(SRCDIR)/robust_mode_reset.c $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h $(LIBDIR)/app_layer.h
 
 $(LIBDIR)/nrf24.o:            $(LIBDIR)/nrf24.c            $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h
 $(LIBDIR)/utils.o:            $(LIBDIR)/utils.c            $(LIBDIR)/utils.h
