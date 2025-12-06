@@ -276,7 +276,7 @@ def RX_flow(scenario) :
 
 
 def main():
-    btn_stop.when_pressed = trigger_reset
+    #btn_stop.when_pressed = trigger_reset
 
     INFO("--- SYSTEM ONLINE ---")
 
