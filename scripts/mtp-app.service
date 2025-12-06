@@ -1,0 +1,17 @@
+[Unit]
+Description=MTP Application Service
+After=network.target pigpiod.service
+Wants=pigpiod.service
+
+[Service]
+Type=simple
+User=mtpa
+WorkingDirectory=/home/mtpa/nrf24.mtp
+ExecStart=/bin/bash /home/mtpa/nrf24.mtp/scripts/deploy.sh
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

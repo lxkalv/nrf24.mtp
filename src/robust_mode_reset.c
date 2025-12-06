@@ -8,10 +8,12 @@
 #include <time.h>
 #include <zlib.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "libs/nrf24.h"
 #include "libs/logger.h"
 #include "libs/app_layer.h"
+
 
 #define MAX_PAYLOAD         32
 #define CONTROL_PREFIX      0xFF
@@ -47,6 +49,8 @@ typedef struct {
     unsigned retr_delay;
     unsigned retr_tries;
 } robust_radio_params_t;
+
+static volatile int abort_requested = 0;
 
 static robust_radio_params_t g_radio_params = {
     .channel        = 90,
@@ -457,59 +461,6 @@ static int send_stream_finish(nrf24_t *radio,
     return ret;
 }
 
-static int send_stream_finish_with_timeout_rx(nrf24_t *radio,
-                                              uint64_t *rf_bytes_total,
-                                              uint64_t *rf_frames_total)
-{
-    uint8_t msg[2] = { CONTROL_PREFIX, MSG_STREAM_FINISH };
-    double start = now_seconds();
-    unsigned attempt = 0;
-
-    while ((now_seconds() - start) * 1000.0 < FINISH_ACK_TIMEOUT_MS) {
-        if (rf_bytes_total) {
-            *rf_bytes_total += sizeof(msg);
-        }
-        if (rf_frames_total) {
-            *rf_frames_total += 1;
-        }
-
-        if (nrf24_send_blocking(radio,
-                                 msg,
-                                 sizeof(msg),
-                                 CONTROL_TIMEOUT_MS) == 0) {
-            logger_succ("robust RX: STREAM_FINISH confirmation delivered to TX");
-            return 0;
-        }
-
-        if (errno != ETIMEDOUT) {
-            logger_error("robust RX: failed to send STREAM_FINISH confirmation: %s",
-                         strerror(errno));
-            return -1;
-        }
-
-        ++attempt;
-        if (attempt == 1 || (attempt % 50) == 0) {
-            logger_warn("robust RX: STREAM_FINISH confirmation timeout (attempt %u)", attempt);
-        }
-
-        if ((attempt % 200) == 0) {
-            logger_warn("robust RX: %u STREAM_FINISH confirmation timeouts, reconfiguring radio",
-                        attempt);
-            if (configure_radio_runtime(radio) != 0) {
-                logger_error("robust RX: radio reconfigure failed while acknowledging STREAM_FINISH");
-                return -1;
-            }
-            if (ensure_mode_tx(radio) != 0) {
-                return -1;
-            }
-        }
-    }
-
-    logger_warn("robust RX: STREAM_FINISH confirmation window elapsed; finishing without TX ack");
-    errno = ETIMEDOUT;
-    return 1;
-}
-
 static int wait_for_stream_finish_ack(nrf24_t *radio)
 {
     if (ensure_mode_rx(radio) != 0) {
@@ -677,6 +628,47 @@ static int wait_for_stream_ready(nrf24_t *radio,
     }
 
     return 1; /* timeout, caller may retry */
+}
+
+/**
+ * Save the partially received compressed data to disk.
+ *
+ * Writes out the current contents of compressed up to compressed_len.
+ *
+ * Returns 0 on success, -1 on error.
+ */
+static int save_partial_file(const app_config_t *cfg,
+                             const uint8_t *compressed,
+                             size_t compressed_len)
+{
+    if (!cfg || !cfg->file_path_rx || !cfg->file_path_rx[0]) {
+        logger_error("save_partial_file: destination path not set");
+        return -1;
+    }
+    if (!compressed) {
+        logger_error("save_partial_file: compressed buffer is NULL");
+        return -1;
+    }
+
+    const char *path = cfg->file_path_rx;
+    FILE *fp = fopen(path, "wb");  // overwrite each time we save a snapshot
+    if (!fp) {
+        logger_error("save_partial_file: fopen('%s') failed: %s",
+                     path, strerror(errno));
+        return -1;
+    }
+
+    size_t written = fwrite(compressed, 1, compressed_len, fp);
+    if (written != compressed_len) {
+        logger_error("save_partial_file: fwrite failed (written=%zu expected=%zu)",
+                     written, compressed_len);
+        fclose(fp);
+        return -1;
+    }
+
+    fclose(fp);
+    logger_info("save_partial_file: wrote %zu bytes to '%s'", compressed_len, path);
+    return 0;
 }
 
 static int send_stream_ready(nrf24_t *radio,
@@ -1153,6 +1145,8 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     unsigned next_rx_progress_pct = 10;
     int32_t highest_frame_seen = -1;
     double rx_start = now_seconds();
+    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);   
 
     logger_info("robust RX: waiting for STREAM_INFO");
 
@@ -1171,6 +1165,24 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
 
         rf_rx_bytes += len;
         rf_rx_frames += 1;
+
+
+        char cmd[16];
+        ssize_t n = read(STDIN_FILENO, cmd, sizeof(cmd) - 1);
+        if (n > 0) {
+            cmd[n] = '\0';
+            if (strstr(cmd, "STOP") != NULL) {
+                logger_warn("RX: STOP command received from Python! Aborting...");
+                abort_requested = 1;
+            }
+        }
+
+        if (abort_requested) {
+            if (save_partial_file(cfg, compressed, compressed_len) != 0) {
+                logger_warn("robust RX: failed to save partial file");
+            }
+            abort();
+        }
 
         if (len < 1) {
             logger_warn("robust RX: empty frame");
@@ -1305,14 +1317,9 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 if (ensure_mode_tx(&radio) != 0) {
                     goto cleanup;
                 }
-                int finish_send = send_stream_finish_with_timeout_rx(&radio,
-                                                                      &rf_tx_bytes,
-                                                                      &rf_tx_frames);
-                if (finish_send < 0) {
+                if (send_stream_finish(&radio, &rf_tx_bytes, &rf_tx_frames) != 0) {
+                    logger_error("robust RX: failed to acknowledge STREAM_FINISH");
                     goto cleanup;
-                }
-                if (finish_send > 0) {
-                    logger_warn("robust RX: proceeding without STREAM_FINISH acknowledgment from TX");
                 }
                 if (ensure_mode_rx(&radio) != 0) {
                     goto cleanup;
@@ -1330,6 +1337,8 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             logger_warn("robust RX: unknown control type %u", type);
             continue;
         }
+
+        
 
         if (!have_info) {
             logger_warn("robust RX: data frame before STREAM_INFO");

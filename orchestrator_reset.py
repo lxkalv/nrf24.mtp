@@ -4,7 +4,7 @@ import sys
 import threading
 import os
 from pathlib import Path
-from datetime import datetime
+import subprocess
 
 # :::: COLORING FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 def RED(message: str) -> str:
@@ -33,57 +33,6 @@ def BLUE(message: str) -> str:
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
-class OrchestratorLogger:
-    """Mimics the robust_mode logger: colored console output + timestamped file."""
-
-    def __init__(self, base_name: str = "orchestrator") -> None:
-        self._base_name = base_name
-        self.log_path: Path | None = None
-        self._file_handle = None
-        self._lock = threading.Lock()
-        self._domain_prefix = f"[{self._base_name.lower()}]"
-        self._open_log_file()
-
-    def _open_log_file(self) -> None:
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
-            self.log_path = LOG_DIR / f"{self._base_name}_{timestamp}.log"
-            self._file_handle = self.log_path.open("w", encoding="utf-8")
-            header_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            self._file_handle.write(
-                f"[{header_ts}] Log file created (requested name '{self._base_name}.log')\n"
-            )
-            self._file_handle.flush()
-        except OSError as exc:
-            self._file_handle = None
-            warning = f"Could not open log file '{self.log_path}' ({exc})"
-            print(f"{YELLOW('[WARN]:')} {warning}")
-
-    def log(self, level: str, message: str, colorizer, end: str = "\n") -> None:
-        prefix = f"{self._domain_prefix}[{level}]"
-        console_line = f"{colorizer(prefix + ':')} {message}"
-        print(console_line, end=end, flush=True)
-
-        if not self._file_handle:
-            return
-
-        with self._lock:
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            self._file_handle.write(f"[{ts}] {prefix}: {message}\n")
-            self._file_handle.flush()
-
-
-LOGGER: OrchestratorLogger | None = None
-
-
-def get_logger() -> OrchestratorLogger:
-    global LOGGER
-    if LOGGER is None:
-        LOGGER = OrchestratorLogger()
-    return LOGGER
-
-
 
 
 
@@ -92,25 +41,25 @@ def ERROR(message: str, end = "\n") -> None:
     """
     Prints a message to the console with the red prefix `[~ERR]:`
     """
-    get_logger().log("ERRO", message, RED, end=end)
+    print(f"{RED('[~ERR]:')} {message}", end = end)
 
 def SUCC(message: str, end = "\n") -> None:
     """
     Prints a message to the console with the green prefix `[SUCC]:`
     """
-    get_logger().log("SUCC", message, GREEN, end=end)
+    print(f"{GREEN('[SUCC]:')} {message}", end = end)
 
 def WARN(message: str, end = "\n") -> None:
     """
     Prints a message to the console with the yellow prefix `[WARN]:`
     """
-    get_logger().log("WARN", message, YELLOW, end=end)
+    print(f"{YELLOW('[WARN]:')} {message}", end = end)
 
 def INFO(message: str, end = "\n") -> None:
     """
     Prints a message to the console with the blue prefix `[INFO]:`
     """
-    get_logger().log("INFO", message, BLUE, end=end)
+    print(f"{BLUE('[INFO]:')} {message}", end = end)
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 # --- CUSTOM EXCEPTION ---
@@ -135,7 +84,6 @@ switch_scenario = DigitalInputDevice(17, pull_up=True)
 
 # --- CONSTANTS ---
 USB_MOUNT_PATH = Path("/media")
-LOG_DIR = Path("logs")
 global_stop_flag = threading.Event()
 
 def check_usb_connected() -> bool:
@@ -156,30 +104,20 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
     location and returns the path to first one ordered alphabetically
     """
 
-    candidates = []
-    for file in usb_mount_path.iterdir():
-        if not file.is_file():
-            continue
+    file = [
+        file
+        for file in usb_mount_path.iterdir()
+        if file.is_file()
+        and file.suffix == ".txt"
+        and not str(file).startswith(".")
+    ]
 
-        name = file.name
-        if name.startswith('.'):
-            INFO(f"Skipping hidden file '{name}' on USB")
-            continue
-        if name.startswith('._'):
-            INFO(f"Skipping Apple resource file '{name}' on USB")
-            continue
-        if file.suffix.lower() != ".txt":
-            continue
+    file = sorted(file)
 
-        candidates.append(file)
-
-    if not candidates:
-        WARN(f"No .txt files found on USB mount '{usb_mount_path}'")
+    if not file:
         return None
 
-    selected = sorted(candidates)[0].resolve()
-    INFO(f"Selected USB source file '{selected}'")
-    return selected
+    return file[0].resolve()
 
 def trigger_reset():
     """Runs in background when STOP is pressed."""
@@ -205,25 +143,16 @@ def Tx_flow(scenario):
         path = check_usb_connected()
       
 
-    INFO(f"USB connected at '{path.resolve()}'")
+    INFO("USB connected")
 
     # USB Detected: LED goes Solid
     led_insert_usb.on()
 
     path_archivo_usb=find_valid_txt_file_in_usb(path)
-    if path_archivo_usb is None:
-        ERROR("No valid .txt file found on USB. Resetting flow.")
-        raise SoftReset
-
-    try:
-        file_size = path_archivo_usb.stat().st_size
-    except OSError:
-        file_size = 0
-    INFO(f"Grabbing '{path_archivo_usb}' ({file_size} bytes)")
+    INFO(f"Grabbing {path_archivo_usb.resolve()}")
     content = path_archivo_usb.read_bytes()
     path_file_to_transmit = Path("file_to_transmit.txt").resolve()
     path_file_to_transmit.write_bytes(content)
-    SUCC(f"Cached '{path_file_to_transmit}' ({len(content)} bytes) for RF transmission")
 
     led_insert_usb.off()
     check_stop()
@@ -250,35 +179,62 @@ def Tx_flow(scenario):
     led_rxtx_status.blink()
 
     if scenario == "P2P":
-
-        INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
-        cmd = "./bin/robust_mode --verify-config --mode TX --file-path-tx file_to_transmit.txt --pa-level HIGH --channel 75"
-        INFO(f"Executing: {cmd}")
-        result = os.system(cmd)
-        exit_code = result >> 8 if result >= 0 else result
-        if exit_code == 0:
-            SUCC("robust_mode TX completed successfully")
-        else:
-            ERROR(f"robust_mode TX failed (exit code {exit_code})")
-
-        led_rxtx_status.off() 
-
-
+        c_execution = [
+            "./bin/robust_mode_reset",
+            "--verify-config", 
+            "--mode", "TX", 
+            "--file-path-tx", "file_to_transmit.txt", 
+            "--pa-level", "MAX", 
+            "--channel", "75"
+        ]
+        reset = False
+        while True:
+            process = subprocess.Popen(c_execution)
+            while process.poll() is None:
+                if btn_stop.is_pressed:
+                    reset = True
+                    break
+                time.sleep(3)
+            if reset:
+                process.terminate()
+                led_rxtx_status.off() 
+                os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                led_rxtx_status.off() 
+                break
 
 def RX_flow(scenario) :
     INFO("We are in RX mode")
     led_rxtx_status.blink()
 
     if scenario == "P2P":
-        INFO("[State] Simple mode (P2P). Recieving P2P...")
-        cmd = "./bin/robust_mode --verify-config --mode RX --file-path-rx received_file.txt --pa-level HIGH --channel 75"
-        INFO(f"Executing: {cmd}")
-        result = os.system(cmd)
-        exit_code = result >> 8 if result >= 0 else result
-        if exit_code == 0:
-            SUCC("robust_mode RX completed successfully")
-        else:
-            ERROR(f"robust_mode RX failed (exit code {exit_code})")
+
+        c_execution = [
+            "./bin/robust_mode_reset",
+            "--verify-config", 
+            "--mode", "RX", 
+            "--file-path-rx", "received_file.txt", 
+            "--pa-level", "MAX", 
+            "--channel", "75"
+        ]
+        reset = False
+        while True:
+            process = subprocess.Popen(c_execution,stdin=subprocess.PIPE,text=True)
+
+            while process.poll() is None:
+                if btn_stop.is_pressed:
+                    process.stdin.write("STOP\n")
+                    time.sleep(3)
+                    process.stdin.flush()
+                    break
+                time.sleep(3)
+            if reset:
+                process.terminate()
+                led_rxtx_status.off() 
+                break
+            else:
+                led_rxtx_status.off() 
+                break
 
         led_rxtx_status.off() 
 
@@ -290,8 +246,10 @@ def RX_flow(scenario) :
             check_stop()
             path = check_usb_connected()
 
-        path = path.resolve()
-        INFO(f"USB connected at '{path}'")
+        path.resolve()
+        
+
+        INFO("USB connected")
         # USB Detected: LED goes Solid
         led_insert_usb.on()
 
@@ -299,16 +257,17 @@ def RX_flow(scenario) :
         content = file_path.read_bytes()
 
         (path / "received_file.txt").write_bytes(content)
-        SUCC(f"Wrote {(path / 'received_file.txt').resolve()} ({len(content)} bytes)")
+        INFO(f"Wrinting to {(path / 'received_file.txt').resolve()}")
 
+        
         check_stop()
         INFO("[State] Please Remove USB.")
         led_extract_usb.blink(on_time=0.5, off_time=0.5)        
         while check_usb_connected() is not None:
             check_stop()
 
+    
         INFO("[State] USB Removed.")
-        SUCC("RX flow complete; file delivered to USB drive")
 
 
 
@@ -317,13 +276,7 @@ def RX_flow(scenario) :
 
 
 def main():
-    logger_instance = get_logger()
-    if logger_instance.log_path:
-        INFO(f"Logging to file '{logger_instance.log_path}'")
-    else:
-        WARN("File logging disabled; falling back to console-only output")
-
-    btn_stop.when_pressed = trigger_reset
+    #btn_stop.when_pressed = trigger_reset
 
     INFO("--- SYSTEM ONLINE ---")
 
@@ -348,7 +301,6 @@ def main():
             while not btn_interact.is_pressed:
                 check_stop()
                 time.sleep(0.05)
-            INFO("[User] INTERACT pressed; locking configuration switches")
 
             # Read Hardware Switches
             mode = "TX" if switch_mode.is_active else "RX"
@@ -371,15 +323,12 @@ def main():
             elif mode=="RX":
                 RX_flow(scenario)
                 time.sleep(1)
-            else:
-                ERROR(f"Unsupported mode '{mode}' selected; restarting")
-                continue
                 
             # --- 4. TX/RX PROCESS PHASE ---
             if scenario == "Network":
                 # NETWORK MODE 
                 INFO("[State] Network mode selected.")
-                WARN("Network mode functionality is not implemented yet; skipping workflow")
+                pass
 
             # Cleanup
             led_insert_usb.off() 
