@@ -231,7 +231,7 @@ def RX_flow(scenario) :
             if reset:
                 process.terminate()
                 led_rxtx_status.off() 
-                os.execl(sys.executable, sys.executable, *sys.argv)
+                break
             else:
                 led_rxtx_status.off() 
                 break
