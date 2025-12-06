@@ -16,6 +16,7 @@
 #endif
 
 #define DEFAULT_SPI_DEVICE "/dev/spidev0.0"
+#define P2P_CHANNEL          90
 
 static const char *get_spi_device_path(void)
 {
@@ -87,8 +88,6 @@ static int configure_radio_from_app(nrf24_t *radio, const app_config_t *cfg)
 }
 
 /* ---- Protocol constants ---- */
-
-#define P2P_CHANNEL          90
 
 #define BURST_DATA_MAX       7905   /* bytes of DATA (excluding ChunkID) per burst */
 #define CHUNK_DATA_MAX       31     /* bytes of DATA per frame (<=31 so payload<=32) */
@@ -433,13 +432,13 @@ static int run_tx(const char *spi_dev,
                   const app_config_t *cfg)
 {
     nrf24_t radio;
-    nrf24_config_t cfg = {
+    nrf24_config_t radio_cfg = {
         .spi_device   = spi_dev,
         .spi_speed_hz = 8000000,
         .ce_gpio      = (uint8_t)ce_bcm
     };
 
-    if (nrf24_init(&radio, &cfg) < 0) {
+    if (nrf24_init(&radio, &radio_cfg) < 0) {
         logger_error("nrf24_init failed: %s", strerror(errno));
         return 1;
     }
@@ -835,13 +834,13 @@ static int run_rx(const char *spi_dev,
                   const app_config_t *cfg)
 {
     nrf24_t radio;
-    nrf24_config_t cfg = {
+    nrf24_config_t radio_cfg = {
         .spi_device   = spi_dev,
         .spi_speed_hz = 8000000,
         .ce_gpio      = (uint8_t)ce_bcm
     };
 
-    if (nrf24_init(&radio, &cfg) < 0) {
+    if (nrf24_init(&radio, &radio_cfg) < 0) {
         logger_error("nrf24_init failed: %s", strerror(errno));
         return 1;
     }
