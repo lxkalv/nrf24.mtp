@@ -87,6 +87,29 @@ static int configure_radio_from_app(nrf24_t *radio, const app_config_t *cfg)
     return 0;
 }
 
+static int maybe_verify_radio_config(const app_config_t *cfg,
+                                     nrf24_t *radio,
+                                     const char *phase)
+{
+    if (!cfg || !cfg->verify_config) {
+        return 0;
+    }
+
+    if (phase) {
+        logger_info("Verifying radio configuration (phase: %s) via register readback",
+                    phase);
+    } else {
+        logger_info("Verifying radio configuration via register readback");
+    }
+
+    if (nrf24_dump_config(radio) < 0) {
+        logger_error("nrf24_dump_config failed while verifying radio config: %s",
+                     strerror(errno));
+        return -1;
+    }
+    return 0;
+}
+
 /* ---- Protocol constants ---- */
 
 #define BURST_DATA_MAX       7905   /* bytes of DATA (excluding ChunkID) per burst */
@@ -444,6 +467,10 @@ static int run_tx(const char *spi_dev,
     }
     if (configure_radio_from_app(&radio, cfg) < 0) {
         logger_error("Failed to configure radio for TX");
+        nrf24_deinit(&radio);
+        return 1;
+    }
+    if (maybe_verify_radio_config(cfg, &radio, "tx-init") < 0) {
         nrf24_deinit(&radio);
         return 1;
     }
@@ -846,6 +873,10 @@ static int run_rx(const char *spi_dev,
     }
     if (configure_radio_from_app(&radio, cfg) < 0) {
         logger_error("Failed to configure radio for RX");
+        nrf24_deinit(&radio);
+        return 1;
+    }
+    if (maybe_verify_radio_config(cfg, &radio, "rx-init") < 0) {
         nrf24_deinit(&radio);
         return 1;
     }
