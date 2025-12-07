@@ -19,7 +19,8 @@
 #define DATA_PREFIX                              0x00
 #define DEFAULT_SPI_DEVICE           "/dev/spidev0.0"
 
-#define MSG_STREAM_INFO                          0x01
+#define MSG_STREAM_INFO         TRANS_MSG_STREAM_INFO
+#define MSG_BURST_INFO           TRANS_MSG_BURST_INFO
 #define MSG_STREAM_FINISH                        0x02
 #define MSG_CHECKSUM                             0x03
 #define MSG_STREAM_READY                         0x04
