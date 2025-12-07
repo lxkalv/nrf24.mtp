@@ -156,6 +156,13 @@ typedef struct {
     uint8_t  last_burst_last_frame_len;
 } PageBurstLayout;
 
+typedef struct {
+    int      valid;
+    uint8_t  page_id;
+    uint8_t  burst_id;
+    uint8_t  checksum[CHECKSUM_SIZE];
+} LastChecksumCache;
+
 static void page_burst_layout_reset(PageBurstLayout *layout) {
     if (!layout) return;
     
@@ -203,6 +210,51 @@ static void log_stream_info_format(const char *context)
                 "[2]=reserved0, [3]=reserved1, [4..7]=compressed_len_le, "
                 "[8..11]=frame_count_le, [12..15]=original_len_le",
                 context);
+}
+
+static int resend_cached_checksum(nrf24_t *radio,
+                                  LastChecksumCache *cache,
+                                  uint64_t *rf_bytes_total,
+                                  uint64_t *rf_frames_total,
+                                  const app_config_t *cfg)
+{
+    if (!cache || !cache->valid) {
+        return -1;
+    }
+
+    radio_prepare_for_tx(radio);
+    if (nrf24_set_mode_tx(radio) < 0) {
+        logger_error("P2P RX: nrf24_set_mode_tx failed while resending cached checksum");
+        return -1;
+    }
+
+    int rc = send_with_deadline(radio,
+                                cache->checksum,
+                                CHECKSUM_SIZE,
+                                CONTROL_TIMEOUT_MS,
+                                CONTROL_TIMEOUT_MS * 3u,
+                                "DUP_CHECKSUM",
+                                rf_bytes_total,
+                                rf_frames_total,
+                                cfg);
+
+    radio_prepare_for_rx(radio);
+    if (nrf24_set_mode_rx(radio) < 0) {
+        logger_error("P2P RX: nrf24_set_mode_rx failed after resending cached checksum");
+        return -1;
+    }
+
+    if (rc == 0) {
+        logger_info("P2P RX: duplicate burst ACK re-sent for Page %u, Burst %u",
+                    (unsigned)cache->page_id,
+                    (unsigned)cache->burst_id);
+    } else if (rc > 0) {
+        logger_warn("P2P RX: duplicate burst ACK resend timed out for Page %u, Burst %u",
+                    (unsigned)cache->page_id,
+                    (unsigned)cache->burst_id);
+    }
+
+    return rc;
 }
 
 /* ---- Time helper ---- */
@@ -312,7 +364,7 @@ static int send_with_retries(nrf24_t *radio,
 
 
         /* Keep retrying forever, but every so often we reconfigure the radio */
-        if (attempt % 500 == 0) {
+        if (attempt % 100 == 0) {
             logger_warn("%s: %u consecutive timeouts, reconfiguring radio",
                         what, attempt);
             if (configure_radio_from_app(radio, cfg) < 0) {
@@ -1073,6 +1125,11 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
             uint8_t checksum_bytes[CHECKSUM_SIZE];
             checksum_final(chk_state, checksum_bytes);
 
+            last_checksum_cache.valid    = 1;
+            last_checksum_cache.page_id  = cur_burst_page_id;
+            last_checksum_cache.burst_id = (uint8_t)cur_burst_id;
+            memcpy(last_checksum_cache.checksum, checksum_bytes, CHECKSUM_SIZE);
+
 
             logger_info("P2P TX: Page %u, BURST %u -> %u compressed bytes in %u frames, checksum 0x%016llX",
                         page_id, burst_id, (unsigned)burst_data_bytes, num_chunks,
@@ -1354,6 +1411,8 @@ static int run_rx(const char *spi_dev,
     uint64_t rf_bytes_total      = 0;  /* all bytes received and sent (checksums) */
     uint64_t rf_frames_total     = 0;  /* frames RX+TX */
 
+    LastChecksumCache last_checksum_cache = {0};
+
 
     while (!transfer_finished) {
         uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
@@ -1429,6 +1488,7 @@ static int run_rx(const char *spi_dev,
                 memset(page_finished, 0, sizeof(page_finished));
                 stream_buffers_ready = 0;
                 page_burst_layout_array_reset(rx_page_layouts, MAX_PAGES);
+                last_checksum_cache.valid = 0;
             }
 
             if (!stream_buffers_ready) {
@@ -1604,13 +1664,26 @@ static int run_rx(const char *spi_dev,
                 active_page_valid = 0;
             }
 
+            last_checksum_cache.valid = 0;
+
             transfer_finished = 1;
             break;
         }
 
         /* DATA frame */
         if (!in_burst) {
-            logger_warn("P2P RX: DATA frame received before BURST_INFO, ignoring");
+            if (last_checksum_cache.valid) {
+                logger_warn("P2P RX: DATA frame received before BURST_INFO; assuming duplicate of [P%u|B%u]",
+                            (unsigned)last_checksum_cache.page_id,
+                            (unsigned)last_checksum_cache.burst_id);
+                (void)resend_cached_checksum(&radio,
+                                             &last_checksum_cache,
+                                             &rf_bytes_total,
+                                             &rf_frames_total,
+                                             cfg);
+            } else {
+                logger_warn("P2P RX: DATA frame received before BURST_INFO, ignoring");
+            }
             continue;
         }
 
