@@ -120,6 +120,10 @@ static int maybe_verify_radio_config(const app_config_t *cfg,
 #define CHECKSUM_TIMEOUT_MS  1000   /* wait up to 1 s for checksum */
 #define CONTROL_TIMEOUT_MS   100    /* per-attempt timeout when sending control frames */
 #define DATA_TIMEOUT_MS      20     /* per-attempt timeout when sending data frames */
+
+#define STREAM_INFO_ECHO_WAIT_MS  500   /* TX waits up to 0.5 s for RX echo */
+#define STREAM_INFO_ECHO_SEND_MS  300   /* RX retries echo for 0.3 s */
+
 #define CHECKSUM_SIZE        8      /* 64-bit FNV-1a checksum */
 /* Control message IDs */
 #define MSG_INFO             0xFF
@@ -249,6 +253,102 @@ static int send_with_retries(nrf24_t *radio,
             }
         }
     }
+}
+
+/* Similar to send_with_retries but bounded by deadline_ms. Returns:
+ *   0  -> frame delivered and ACKed
+ *   1  -> deadline elapsed (treated as soft timeout)
+ *  -1  -> fatal error (non-timeout failure)
+ */
+static int send_with_deadline(nrf24_t *radio,
+                              const uint8_t *buf,
+                              uint8_t len,
+                              unsigned int timeout_ms,
+                              unsigned int deadline_ms,
+                              const char *what,
+                              uint64_t *rf_bytes_total,
+                              uint64_t *rf_frames_total,
+                              const app_config_t *cfg)
+{
+    if (deadline_ms == 0) {
+        deadline_ms = timeout_ms;
+    }
+
+    double deadline_start = now_seconds();
+    unsigned int attempt = 0;
+
+    while ((now_seconds() - deadline_start) * 1000.0 < (double)deadline_ms) {
+        if (rf_bytes_total)  *rf_bytes_total  += len;
+        if (rf_frames_total) *rf_frames_total += 1;
+
+        int ret = nrf24_send_blocking(radio, buf, len, timeout_ms);
+        if (ret == 0) {
+            return 0;
+        }
+
+        if (errno != ETIMEDOUT) {
+            logger_error("nrf24_send_blocking(%s) failed: %s", what, strerror(errno));
+            return -1;
+        }
+
+        ++attempt;
+        if (attempt == 1 || (attempt % 25) == 0) {
+            logger_warn("%s: timeout (no ACK) on attempt %u within deadline", what, attempt);
+        }
+
+        if (attempt % 200 == 0) {
+            logger_warn("%s: %u consecutive timeouts during bounded send, reconfiguring radio",
+                        what, attempt);
+            if (configure_radio_from_app(radio, cfg) < 0) {
+                logger_error("%s: failed to reconfigure radio during bounded retries", what);
+                return -1;
+            }
+        }
+    }
+
+    logger_warn("%s: deadline of %u ms elapsed after %u attempt(s)",
+                what, deadline_ms, attempt);
+    errno = ETIMEDOUT;
+    return 1;
+}
+
+static int wait_for_stream_info_echo(nrf24_t *radio,
+                                     const uint8_t expected[P2P_STREAM_INFO_SIZE],
+                                     unsigned int wait_ms,
+                                     uint64_t *rf_bytes_total,
+                                     uint64_t *rf_frames_total)
+{
+    double start = now_seconds();
+    while ((now_seconds() - start) * 1000.0 < (double)wait_ms) {
+        uint8_t buf[NRF24_MAX_PAYLOAD_SIZE];
+        uint8_t len = sizeof(buf);
+        int ret = nrf24_recv_blocking(radio, buf, &len, 50);
+        if (ret < 0) {
+            if (errno == ETIMEDOUT) {
+                continue;
+            }
+            logger_error("P2P TX: nrf24_recv_blocking while waiting for STREAM_INFO echo failed: %s",
+                         strerror(errno));
+            return -1;
+        }
+
+        if (len > 0) {
+            if (rf_bytes_total)  *rf_bytes_total  += len;
+            if (rf_frames_total) *rf_frames_total += 1;
+        }
+
+        if (len == P2P_STREAM_INFO_SIZE &&
+            buf[0] == MSG_INFO &&
+            buf[1] == P2P_MSG_STREAM_INFO &&
+            memcmp(buf, expected, P2P_STREAM_INFO_SIZE) == 0) {
+            logger_succ("P2P TX: STREAM_INFO echo received and verified");
+            return 0;
+        }
+
+        logger_warn("P2P TX: ignoring frame (len=%u) while waiting for STREAM_INFO echo", len);
+    }
+
+    return 1;
 }
 
 
@@ -719,17 +819,45 @@ static int run_tx(const char *spi_dev,
                 (unsigned long long)orig_len,
                 (unsigned long long)total_frames_planned);
 
+    int stream_info_confirmed = 0;
+    while (!stream_info_confirmed) {
+        if (send_with_retries(&radio,
+                              stream_info,
+                              sizeof(stream_info),
+                              CONTROL_TIMEOUT_MS,
+                              "STREAM_INFO",
+                              &tx_rf_bytes_total,
+                              &tx_rf_frames_total,
+                              cfg) < 0) {
+            logger_error("Failed to send STREAM_INFO");
+            goto tx_cleanup;
+        }
 
-    if (send_with_retries(&radio,
-                          stream_info,
-                          sizeof(stream_info),
-                          CONTROL_TIMEOUT_MS,
-                          "STREAM_INFO",
-                          &tx_rf_bytes_total,
-                          &tx_rf_frames_total,
-                          cfg) < 0) {
-        logger_error("Failed to send STREAM_INFO");
-        goto tx_cleanup;
+        if (nrf24_set_mode_rx(&radio) < 0) {
+            logger_error("nrf24_set_mode_rx failed while waiting for STREAM_INFO echo");
+            goto tx_cleanup;
+        }
+
+        int wait_rc = wait_for_stream_info_echo(&radio,
+                                                stream_info,
+                                                STREAM_INFO_ECHO_WAIT_MS,
+                                                &tx_rf_bytes_total,
+                                                &tx_rf_frames_total);
+
+        if (wait_rc < 0) {
+            goto tx_cleanup;
+        }
+
+        if (nrf24_set_mode_tx(&radio) < 0) {
+            logger_error("nrf24_set_mode_tx failed after STREAM_INFO echo window");
+            goto tx_cleanup;
+        }
+
+        if (wait_rc == 0) {
+            stream_info_confirmed = 1;
+        } else {
+            logger_warn("P2P TX: STREAM_INFO echo window elapsed; resending STREAM_INFO");
+        }
     }
 
 
@@ -1057,9 +1185,10 @@ static int run_rx(const char *spi_dev,
 
 
      /* Per-page state (current page in progress) */
-     uint8_t  active_page_id      = 0;
-     int      active_page_valid   = 0;
-     int      page_has_data       = 0;  /* any stored bursts? */
+    uint8_t  active_page_id      = 0;
+    int      active_page_valid   = 0;
+    int      page_has_data       = 0;  /* any stored bursts? */
+    int      last_logged_stream_page = -1;
      uint8_t  burst_received[MAX_BURSTS_PER_PAGE];
      memset(burst_received, 0, sizeof(burst_received));
      unsigned bursts_completed    = 0;
@@ -1173,6 +1302,48 @@ static int run_rx(const char *spi_dev,
                         expected_stream_compressed,
                         expected_stream_orig,
                         expected_stream_frames);
+
+            uint8_t stream_info_reply[P2P_STREAM_INFO_SIZE];
+            memcpy(stream_info_reply, buf, P2P_STREAM_INFO_SIZE);
+
+            if (nrf24_set_mode_tx(&radio) < 0) {
+                logger_error("nrf24_set_mode_tx failed before STREAM_INFO echo");
+                page_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+
+            int echo_rc = send_with_deadline(&radio,
+                                             stream_info_reply,
+                                             (uint8_t)P2P_STREAM_INFO_SIZE,
+                                             CONTROL_TIMEOUT_MS,
+                                             STREAM_INFO_ECHO_SEND_MS,
+                                             "STREAM_INFO_ECHO",
+                                             &rf_bytes_total,
+                                             &rf_frames_total,
+                                             cfg);
+
+            if (echo_rc < 0) {
+                page_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+
+            if (echo_rc == 0) {
+                logger_succ("P2P RX: STREAM_INFO echoed back to TX");
+            } else {
+                logger_warn("P2P RX: STREAM_INFO echo window elapsed; returning to RX");
+            }
+
+            if (nrf24_set_mode_rx(&radio) < 0) {
+                logger_error("nrf24_set_mode_rx failed after STREAM_INFO echo");
+                page_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
             continue;
         }
 
@@ -1197,12 +1368,13 @@ static int run_rx(const char *spi_dev,
 
 
             int is_finished_page = (page_id < MAX_PAGES && page_finished[page_id]);
-
+            int page_changed = 0;
 
             if (!is_finished_page) {
                 if (!active_page_valid) {
                     active_page_valid = 1;
                     active_page_id = page_id;
+                    page_changed = 1;
                 } else if (page_id != active_page_id) {
                     flush_active_page(active_page_id,
                                       page_finished,
@@ -1214,7 +1386,18 @@ static int run_rx(const char *spi_dev,
                                       &bursts_completed,
                                       burst_received);
                     active_page_id = page_id;
+                    page_changed = 1;
                 }
+            }
+
+            if (!is_finished_page && page_changed &&
+                last_logged_stream_page != (int)active_page_id) {
+                logger_info("P2P RX: STREAM_INFO (Page %u) -> comp=%u B, orig=%u B, frames=%u",
+                            (unsigned)active_page_id,
+                            expected_stream_compressed,
+                            expected_stream_orig,
+                            expected_stream_frames);
+                last_logged_stream_page = (int)active_page_id;
             }
 
 
