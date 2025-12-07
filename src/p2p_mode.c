@@ -212,6 +212,16 @@ static void log_stream_info_format(const char *context)
                 context);
 }
 
+static int send_with_deadline(nrf24_t *radio,
+                              const uint8_t *buf,
+                              uint8_t len,
+                              unsigned int timeout_ms,
+                              unsigned int deadline_ms,
+                              const char *what,
+                              uint64_t *rf_bytes_total,
+                              uint64_t *rf_frames_total,
+                              const app_config_t *cfg);
+
 static int resend_cached_checksum(nrf24_t *radio,
                                   LastChecksumCache *cache,
                                   uint64_t *rf_bytes_total,
@@ -1124,11 +1134,6 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
 
             uint8_t checksum_bytes[CHECKSUM_SIZE];
             checksum_final(chk_state, checksum_bytes);
-
-            last_checksum_cache.valid    = 1;
-            last_checksum_cache.page_id  = cur_burst_page_id;
-            last_checksum_cache.burst_id = (uint8_t)cur_burst_id;
-            memcpy(last_checksum_cache.checksum, checksum_bytes, CHECKSUM_SIZE);
 
 
             logger_info("P2P TX: Page %u, BURST %u -> %u compressed bytes in %u frames, checksum 0x%016llX",
