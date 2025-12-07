@@ -142,8 +142,23 @@ int logger_init(const char *file_path)
 
     (void)ensure_dir("logs");
 
+    char final_path[512];
+
     char base_prefix[256];
     size_t copy_len = base_len;
+    const size_t max_final = sizeof(final_path) - 1;
+    const size_t ts_len = strlen(ts);
+    const size_t constants = strlen("logs/") + ts_len + 6; /* "logs/" + '/' + '-' + ".log" */
+
+    if (constants >= max_final) {
+        copy_len = 0;
+    } else {
+        size_t max_per_base = (max_final - constants) / 2; /* base appears twice */
+        if (copy_len > max_per_base) {
+            copy_len = max_per_base;
+        }
+    }
+
     if (copy_len >= sizeof(base_prefix)) {
         copy_len = sizeof(base_prefix) - 1;
     }
@@ -155,8 +170,6 @@ int logger_init(const char *file_path)
                    "logs/%s",
                    base_prefix);
     (void)ensure_dir(subdir);
-
-    char final_path[512];
     (void)snprintf(final_path, sizeof(final_path),
                    "%s/%s-%s.log",
                    subdir, base_prefix, ts);
