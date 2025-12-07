@@ -43,6 +43,16 @@ static void radio_prepare_for_rx(nrf24_t *radio) {
     radio_flush_rx_fifo(radio);
 }
 
+#define RADIO_MODE_SETTLE_US 300  /* give nRF24 time (us) to re-arm after mode switches */
+
+static void radio_mode_settle_delay(void)
+{
+    struct timespec ts;
+    ts.tv_sec  = 0;
+    ts.tv_nsec = (long)RADIO_MODE_SETTLE_US * 1000L;
+    nanosleep(&ts, NULL);
+}
+
 #define DEFAULT_SPI_DEVICE "/dev/spidev0.0"
 #define P2P_CHANNEL        90
 
@@ -238,6 +248,7 @@ static int resend_cached_checksum(nrf24_t *radio,
         logger_error("P2P RX: nrf24_set_mode_tx failed while resending cached checksum");
         return -1;
     }
+    radio_mode_settle_delay();
 
     int rc = send_with_deadline(radio,
                                 cache->checksum,
@@ -254,6 +265,7 @@ static int resend_cached_checksum(nrf24_t *radio,
         logger_error("P2P RX: nrf24_set_mode_rx failed after resending cached checksum");
         return -1;
     }
+    radio_mode_settle_delay();
 
     if (rc == 0) {
         logger_info("P2P RX: duplicate burst ACK re-sent for Page %u, Burst %u",
@@ -873,6 +885,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
         nrf24_deinit(&radio);
         return 1;
     }
+    radio_mode_settle_delay();
 
     // LOAD FILE TO TRANSMIT INTO MEMORY AND READ DATA
     FILE *fin = fopen(input_path, "rb");
@@ -1031,6 +1044,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
             logger_error("nrf24_set_mode_rx failed while waiting for STREAM_INFO echo");
             goto tx_cleanup;
         }
+        radio_mode_settle_delay();
 
         int wait_rc = wait_for_stream_info_echo(&radio,
                                                 stream_info,
@@ -1046,6 +1060,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
             logger_error("nrf24_set_mode_tx failed after STREAM_INFO echo window");
             goto tx_cleanup;
         }
+        radio_mode_settle_delay();
 
         if (wait_rc == 0) {
             stream_info_confirmed = 1;
@@ -1194,6 +1209,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
                     logger_error("nrf24_set_mode_rx failed");
                     goto tx_cleanup;
                 }
+                radio_mode_settle_delay();
 
 
                 double wait_start = now_seconds();
@@ -1240,6 +1256,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
                         logger_error("nrf24_set_mode_tx failed");
                         goto tx_cleanup;
                     }
+                    radio_mode_settle_delay();
                     continue;
                 }
 
@@ -1251,6 +1268,7 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
                     logger_error("nrf24_set_mode_tx failed");
                     goto tx_cleanup;
                 }
+                radio_mode_settle_delay();
             }
 
 
@@ -1352,6 +1370,7 @@ static int run_rx(const char *spi_dev,
         nrf24_deinit(&radio);
         return 1;
     }
+    radio_mode_settle_delay();
 
 
     FILE *fout = fopen(output_path, "wb");
@@ -1542,6 +1561,7 @@ static int run_rx(const char *spi_dev,
                 nrf24_deinit(&radio);
                 return 1;
             }
+            radio_mode_settle_delay();
 
             int echo_rc = send_with_deadline(&radio, stream_info_reply, (uint8_t)P2P_STREAM_INFO_SIZE, CONTROL_TIMEOUT_MS, STREAM_INFO_ECHO_SEND_MS, "STREAM_INFO_ECHO", &rf_bytes_total, &rf_frames_total, cfg);
 
@@ -1566,6 +1586,7 @@ static int run_rx(const char *spi_dev,
                 nrf24_deinit(&radio);
                 return 1;
             }
+            radio_mode_settle_delay();
             continue;
         }
 
@@ -1774,6 +1795,7 @@ static int run_rx(const char *spi_dev,
                 nrf24_deinit(&radio);
                 return 1;
             }
+            radio_mode_settle_delay();
 
             int checksum_rc = send_with_deadline(&radio,
                                                  checksum_bytes,
@@ -1793,6 +1815,7 @@ static int run_rx(const char *spi_dev,
                 nrf24_deinit(&radio);
                 return 1;
             }
+            radio_mode_settle_delay();
 
             in_burst = 0;
 
