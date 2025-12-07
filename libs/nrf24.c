@@ -250,20 +250,20 @@ int nrf24_read_buf(nrf24_t *dev, uint8_t cmd, uint8_t *data, uint8_t len)
 
 /* --------- small helpers around registers --------- */
 
-static int nrf24_flush_tx(nrf24_t *dev)
+int nrf24_flush_tx(nrf24_t *dev)
 {
     uint8_t cmd = NRF24_CMD_FLUSH_TX;
     return spi_transfer(dev->spi_fd, &cmd, NULL, 1);
 }
 
-static int nrf24_flush_rx(nrf24_t *dev)
+int nrf24_flush_rx(nrf24_t *dev)
 {
     uint8_t cmd = NRF24_CMD_FLUSH_RX;
     return spi_transfer(dev->spi_fd, &cmd, NULL, 1);
 }
 
 /* Flush both TX and RX FIFOs */
-static int nrf24_flush_tx_rx(nrf24_t *dev)
+int nrf24_flush_tx_rx(nrf24_t *dev)
 {
     if (nrf24_flush_tx(dev) < 0)
         return -1;
@@ -275,7 +275,7 @@ static int nrf24_flush_tx_rx(nrf24_t *dev)
 }
 
 
-static int nrf24_clear_interrupts(nrf24_t *dev)
+int nrf24_clear_interrupts(nrf24_t *dev)
 {
     return nrf24_write_reg(dev, NRF24_REG_STATUS,
                            NRF24_STATUS_RX_DR |

@@ -15,6 +15,42 @@
 #error "p2p_mode is Linux-only; build on Raspberry Pi / POSIX targets"
 #endif
 
+static void radio_clear_irq_flags(nrf24_t *radio)
+{
+    if (!radio) {
+        return;
+    }
+    (void)nrf24_clear_interrupts(radio);
+}
+
+static void radio_flush_tx_fifo(nrf24_t *radio)
+{
+    if (!radio) {
+        return;
+    }
+    (void)nrf24_flush_tx(radio);
+}
+
+static void radio_flush_rx_fifo(nrf24_t *radio)
+{
+    if (!radio) {
+        return;
+    }
+    (void)nrf24_flush_rx(radio);
+}
+
+static void radio_prepare_for_tx(nrf24_t *radio)
+{
+    radio_clear_irq_flags(radio);
+    radio_flush_tx_fifo(radio);
+}
+
+static void radio_prepare_for_rx(nrf24_t *radio)
+{
+    radio_clear_irq_flags(radio);
+    radio_flush_rx_fifo(radio);
+}
+
 #define DEFAULT_SPI_DEVICE "/dev/spidev0.0"
 #define P2P_CHANNEL          90
 
@@ -390,16 +426,53 @@ static void free_burst(Burst *b)
 }
 
 
-static void page_stream_free(PageStream *ps)
+static void page_stream_reset_contents(PageStream *ps)
 {
-    if (!ps->bursts) return;
-    for (size_t i = 0; i < ps->count; ++i) {
+    if (!ps || !ps->bursts) {
+        return;
+    }
+    for (size_t i = 0; i < ps->capacity; ++i) {
         free_burst(&ps->bursts[i]);
     }
+    ps->count = 0;
+}
+
+
+static void page_stream_free(PageStream *ps)
+{
+    if (!ps || !ps->bursts) {
+        return;
+    }
+    page_stream_reset_contents(ps);
     free(ps->bursts);
     ps->bursts   = NULL;
     ps->count    = 0;
     ps->capacity = 0;
+}
+
+
+static int page_stream_reserve(PageStream *ps, size_t burst_capacity)
+{
+    if (!ps) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (ps->bursts && ps->capacity == burst_capacity) {
+        page_stream_reset_contents(ps);
+        return 0;
+    }
+
+    page_stream_free(ps);
+
+    ps->bursts = (Burst *)calloc(burst_capacity, sizeof(Burst));
+    if (!ps->bursts) {
+        return -1;
+    }
+
+    ps->capacity = burst_capacity;
+    ps->count    = 0;
+    return 0;
 }
 
 
@@ -596,8 +669,7 @@ static void reset_page_buffer(PageStream *ps,
                               unsigned *bursts_completed,
                               uint8_t burst_received[MAX_BURSTS_PER_PAGE])
 {
-    page_stream_free(ps);
-    page_stream_init(ps);
+    page_stream_reset_contents(ps);
     if (page_has_data) {
         *page_has_data = 0;
     }
@@ -607,6 +679,28 @@ static void reset_page_buffer(PageStream *ps,
     if (burst_received) {
         memset(burst_received, 0, MAX_BURSTS_PER_PAGE);
     }
+}
+
+
+static int prepare_rx_stream_buffers(PageStream *ps,
+                                     int *page_has_data,
+                                     unsigned *bursts_completed,
+                                     uint8_t burst_received[MAX_BURSTS_PER_PAGE])
+{
+    if (page_stream_reserve(ps, MAX_BURSTS_PER_PAGE) < 0) {
+        return -1;
+    }
+
+    if (page_has_data) {
+        *page_has_data = 0;
+    }
+    if (bursts_completed) {
+        *bursts_completed = 0;
+    }
+    if (burst_received) {
+        memset(burst_received, 0, MAX_BURSTS_PER_PAGE);
+    }
+    return 0;
 }
 
 
@@ -833,6 +927,7 @@ static int run_tx(const char *spi_dev,
             goto tx_cleanup;
         }
 
+        radio_prepare_for_rx(&radio);
         if (nrf24_set_mode_rx(&radio) < 0) {
             logger_error("nrf24_set_mode_rx failed while waiting for STREAM_INFO echo");
             goto tx_cleanup;
@@ -848,6 +943,7 @@ static int run_tx(const char *spi_dev,
             goto tx_cleanup;
         }
 
+        radio_prepare_for_tx(&radio);
         if (nrf24_set_mode_tx(&radio) < 0) {
             logger_error("nrf24_set_mode_tx failed after STREAM_INFO echo window");
             goto tx_cleanup;
@@ -1171,11 +1267,12 @@ static int run_rx(const char *spi_dev,
      double t_start        = 0.0;
 
 
-     uint8_t  chunk_id_bytes           = 0;
-     uint32_t expected_stream_compressed = 0;
-     uint32_t expected_stream_frames     = 0;
-     uint32_t expected_stream_orig       = 0;
-     int      have_stream_info           = 0;
+    uint8_t  chunk_id_bytes           = 0;
+    uint32_t expected_stream_compressed = 0;
+    uint32_t expected_stream_frames     = 0;
+    uint32_t expected_stream_orig       = 0;
+    int      have_stream_info           = 0;
+    int      stream_buffers_ready       = 0;
 
 
      /* Per-page "finished" flags: once a page is appended, we won't append again,
@@ -1281,8 +1378,23 @@ static int run_rx(const char *spi_dev,
                                       burst_received);
                 }
                 memset(page_finished, 0, sizeof(page_finished));
-            } else {
-                logger_info("P2P RX: STREAM_INFO matches current transfer; keeping buffered data");
+                stream_buffers_ready = 0;
+            }
+
+            if (!stream_buffers_ready) {
+                if (prepare_rx_stream_buffers(&stream,
+                                              &page_has_data,
+                                              &bursts_completed,
+                                              burst_received) < 0) {
+                    logger_error("P2P RX: unable to allocate buffers for new STREAM_INFO");
+                    page_stream_free(&stream);
+                    fclose(fout);
+                    nrf24_deinit(&radio);
+                    return 1;
+                }
+                stream_buffers_ready = 1;
+            } else if (same_stream) {
+                logger_warn("P2P RX: STREAM_INFO already prepared; replying immediately");
             }
 
 
@@ -1306,6 +1418,7 @@ static int run_rx(const char *spi_dev,
             uint8_t stream_info_reply[P2P_STREAM_INFO_SIZE];
             memcpy(stream_info_reply, buf, P2P_STREAM_INFO_SIZE);
 
+            radio_prepare_for_tx(&radio);
             if (nrf24_set_mode_tx(&radio) < 0) {
                 logger_error("nrf24_set_mode_tx failed before STREAM_INFO echo");
                 page_stream_free(&stream);
@@ -1337,6 +1450,7 @@ static int run_rx(const char *spi_dev,
                 logger_warn("P2P RX: STREAM_INFO echo window elapsed; returning to RX");
             }
 
+            radio_prepare_for_rx(&radio);
             if (nrf24_set_mode_rx(&radio) < 0) {
                 logger_error("nrf24_set_mode_rx failed after STREAM_INFO echo");
                 page_stream_free(&stream);
