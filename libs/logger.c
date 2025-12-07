@@ -107,27 +107,36 @@ int logger_init(const char *file_path)
         return 0;
     }
 
-    /* Build timestamped path inside "logs/<basename>" directory.
+    /* Build timestamped path inside "logs/<optional_dir>/<basename>" directory tree.
      *
-     * Example:
+     * Examples:
      *   file_path = "p2p_tx.log"
-     *   -> logs/p2p_tx/p2p_tx-YYYY-MM-DD_HH-MM-SS.log
+     *     -> logs/p2p_tx/p2p_tx-YYYY-MM-DD_HH-MM-SS.log
+     *   file_path = "p2p/p2p_tx.log"
+     *     -> logs/p2p/p2p_tx/p2p_tx-YYYY-MM-DD_HH-MM-SS.log
      */
 
     char ts[32];
     logger_timestamp(ts, sizeof(ts));  /* seconds precision, with '_' */
 
-    /* Extract basename: strip directory components ('/' or '\\') */
-    const char *base = file_path;
-    const char *slash_fwd  = strrchr(file_path, '/');
-    const char *slash_back = strrchr(file_path, '\\');
-    const char *slash = slash_fwd;
-
-    if (slash_back && (!slash || slash_back > slash)) {
-        slash = slash_back;
+    /* Extract optional directory and basename (strip separators) */
+    char normalized[512];
+    snprintf(normalized, sizeof(normalized), "%s", file_path);
+    for (size_t i = 0; normalized[i] != '\0'; ++i) {
+        if (normalized[i] == '\\') {
+            normalized[i] = '/';
+        }
     }
-    if (slash) {
-        base = slash + 1;
+
+    char dir_part[512] = {0};
+    const char *base = normalized;
+    char *last_sep = strrchr(normalized, '/');
+    if (last_sep) {
+        *last_sep = '\0';
+        base = last_sep + 1;
+        if (*normalized) {
+            snprintf(dir_part, sizeof(dir_part), "%s", normalized);
+        }
     }
 
     /* Strip extension from basename (e.g., ".log") */
@@ -166,9 +175,52 @@ int logger_init(const char *file_path)
     base_prefix[copy_len] = '\0';
 
     char subdir[512];
-    (void)snprintf(subdir, sizeof(subdir),
-                   "logs/%s",
-                   base_prefix);
+    if (dir_part[0] != '\0') {
+        char accum[512];
+        size_t accum_len = (size_t)snprintf(accum, sizeof(accum), "logs");
+        if (accum_len >= sizeof(accum)) {
+            accum[sizeof(accum) - 1] = '\0';
+            accum_len = strlen(accum);
+        }
+
+        const char *segment = dir_part;
+        while (*segment) {
+            while (*segment == '/') {
+                ++segment;
+            }
+            if (!*segment) {
+                break;
+            }
+            const char *next = strchr(segment, '/');
+            size_t seg_len = next ? (size_t)(next - segment) : strlen(segment);
+            if (seg_len == 0) {
+                segment = next ? next + 1 : segment;
+                continue;
+            }
+            if (accum_len + 1 + seg_len >= sizeof(accum)) {
+                seg_len = sizeof(accum) - accum_len - 2;
+                if ((int)seg_len <= 0) {
+                    break;
+                }
+            }
+            accum[accum_len++] = '/';
+            memcpy(accum + accum_len, segment, seg_len);
+            accum_len += seg_len;
+            accum[accum_len] = '\0';
+            (void)ensure_dir(accum);
+            segment = next ? next + 1 : segment + seg_len;
+        }
+
+        if (accum_len == 0) {
+            snprintf(accum, sizeof(accum), "logs");
+        }
+
+        (void)snprintf(subdir, sizeof(subdir), "%s/%s", accum, base_prefix);
+    } else {
+        (void)snprintf(subdir, sizeof(subdir),
+                       "logs/%s",
+                       base_prefix);
+    }
     (void)ensure_dir(subdir);
     (void)snprintf(final_path, sizeof(final_path),
                    "%s/%s-%s.log",

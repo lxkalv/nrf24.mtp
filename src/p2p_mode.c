@@ -53,6 +53,59 @@ static void radio_mode_settle_delay(void)
     nanosleep(&ts, NULL);
 }
 
+static void log_mode_error(const char *mode, const char *context)
+{
+    if (context && *context) {
+        logger_error("nrf24_set_mode_%s failed (%s)", mode, context);
+    } else {
+        logger_error("nrf24_set_mode_%s failed", mode);
+    }
+}
+
+static int radio_enter_tx(nrf24_t *radio, int flush_fifo, const char *context)
+{
+    if (!radio) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (flush_fifo) {
+        radio_prepare_for_tx(radio);
+    } else {
+        radio_clear_irq_flags(radio);
+    }
+
+    if (nrf24_set_mode_tx(radio) < 0) {
+        log_mode_error("tx", context);
+        return -1;
+    }
+
+    radio_mode_settle_delay();
+    return 0;
+}
+
+static int radio_enter_rx(nrf24_t *radio, int flush_fifo, const char *context)
+{
+    if (!radio) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (flush_fifo) {
+        radio_prepare_for_rx(radio);
+    } else {
+        radio_clear_irq_flags(radio);
+    }
+
+    if (nrf24_set_mode_rx(radio) < 0) {
+        log_mode_error("rx", context);
+        return -1;
+    }
+
+    radio_mode_settle_delay();
+    return 0;
+}
+
 #define DEFAULT_SPI_DEVICE "/dev/spidev0.0"
 #define P2P_CHANNEL        90
 
@@ -243,12 +296,9 @@ static int resend_cached_checksum(nrf24_t *radio,
         return -1;
     }
 
-    radio_prepare_for_tx(radio);
-    if (nrf24_set_mode_tx(radio) < 0) {
-        logger_error("P2P RX: nrf24_set_mode_tx failed while resending cached checksum");
+    if (radio_enter_tx(radio, 1, "while resending cached checksum") < 0) {
         return -1;
     }
-    radio_mode_settle_delay();
 
     int rc = send_with_deadline(radio,
                                 cache->checksum,
@@ -260,12 +310,9 @@ static int resend_cached_checksum(nrf24_t *radio,
                                 rf_frames_total,
                                 cfg);
 
-    radio_clear_irq_flags(radio);
-    if (nrf24_set_mode_rx(radio) < 0) {
-        logger_error("P2P RX: nrf24_set_mode_rx failed after resending cached checksum");
+    if (radio_enter_rx(radio, 0, "after resending cached checksum") < 0) {
         return -1;
     }
-    radio_mode_settle_delay();
 
     if (rc == 0) {
         logger_info("P2P RX: duplicate burst ACK re-sent for Page %u, Burst %u",
@@ -880,12 +927,10 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
         return 1;
     }
 
-    if (nrf24_set_mode_tx(&radio) < 0) {
-        logger_error("nrf24_set_mode_tx failed");
+    if (radio_enter_tx(&radio, 1, "during TX init") < 0) {
         nrf24_deinit(&radio);
         return 1;
     }
-    radio_mode_settle_delay();
 
     // LOAD FILE TO TRANSMIT INTO MEMORY AND READ DATA
     FILE *fin = fopen(input_path, "rb");
@@ -1039,12 +1084,9 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
             goto tx_cleanup;
         }
 
-        radio_prepare_for_rx(&radio);
-        if (nrf24_set_mode_rx(&radio) < 0) {
-            logger_error("nrf24_set_mode_rx failed while waiting for STREAM_INFO echo");
+        if (radio_enter_rx(&radio, 1, "while waiting for STREAM_INFO echo") < 0) {
             goto tx_cleanup;
         }
-        radio_mode_settle_delay();
 
         int wait_rc = wait_for_stream_info_echo(&radio,
                                                 stream_info,
@@ -1055,12 +1097,9 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
         if (wait_rc < 0) goto tx_cleanup;
         
 
-        radio_prepare_for_tx(&radio);
-        if (nrf24_set_mode_tx(&radio) < 0) {
-            logger_error("nrf24_set_mode_tx failed after STREAM_INFO echo window");
+        if (radio_enter_tx(&radio, 1, "after STREAM_INFO echo window") < 0) {
             goto tx_cleanup;
         }
-        radio_mode_settle_delay();
 
         if (wait_rc == 0) {
             stream_info_confirmed = 1;
@@ -1205,11 +1244,9 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
                 }
 
 
-                if (nrf24_set_mode_rx(&radio) < 0) {
-                    logger_error("nrf24_set_mode_rx failed");
+                if (radio_enter_rx(&radio, 1, "waiting for burst checksum") < 0) {
                     goto tx_cleanup;
                 }
-                radio_mode_settle_delay();
 
 
                 double wait_start = now_seconds();
@@ -1252,11 +1289,9 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
                 if (!got_valid_checksum) {
                     logger_warn("P2P TX: checksum timeout for Page %u, Burst %u, resending",
                                 page_id, burst_id);
-                    if (nrf24_set_mode_tx(&radio) < 0) {
-                        logger_error("nrf24_set_mode_tx failed");
+                    if (radio_enter_tx(&radio, 1, "after checksum timeout") < 0) {
                         goto tx_cleanup;
                     }
-                    radio_mode_settle_delay();
                     continue;
                 }
 
@@ -1264,11 +1299,9 @@ static int run_tx(const char *spi_dev, int ce_bcm, const char *input_path, const
                 burst_done = 1;
 
 
-                if (nrf24_set_mode_tx(&radio) < 0) {
-                    logger_error("nrf24_set_mode_tx failed");
+                if (radio_enter_tx(&radio, 1, "before next BURST_INFO") < 0) {
                     goto tx_cleanup;
                 }
-                radio_mode_settle_delay();
             }
 
 
@@ -1365,12 +1398,10 @@ static int run_rx(const char *spi_dev,
         nrf24_deinit(&radio);
         return 1;
     }
-    if (nrf24_set_mode_rx(&radio) < 0) {
-        logger_error("nrf24_set_mode_rx failed");
+    if (radio_enter_rx(&radio, 1, "during RX init") < 0) {
         nrf24_deinit(&radio);
         return 1;
     }
-    radio_mode_settle_delay();
 
 
     FILE *fout = fopen(output_path, "wb");
@@ -1553,15 +1584,12 @@ static int run_rx(const char *spi_dev,
             uint8_t stream_info_reply[P2P_STREAM_INFO_SIZE];
             memcpy(stream_info_reply, buf, P2P_STREAM_INFO_SIZE);
 
-            radio_prepare_for_tx(&radio);
-            if (nrf24_set_mode_tx(&radio) < 0) {
-                logger_error("nrf24_set_mode_tx failed before STREAM_INFO echo");
+            if (radio_enter_tx(&radio, 1, "before STREAM_INFO echo") < 0) {
                 page_stream_free(&stream);
                 fclose(fout);
                 nrf24_deinit(&radio);
                 return 1;
             }
-            radio_mode_settle_delay();
 
             int echo_rc = send_with_deadline(&radio, stream_info_reply, (uint8_t)P2P_STREAM_INFO_SIZE, CONTROL_TIMEOUT_MS, STREAM_INFO_ECHO_SEND_MS, "STREAM_INFO_ECHO", &rf_bytes_total, &rf_frames_total, cfg);
 
@@ -1578,15 +1606,12 @@ static int run_rx(const char *spi_dev,
                 logger_warn("P2P RX: STREAM_INFO echo window elapsed; returning to RX");
             }
 
-            radio_prepare_for_rx(&radio);
-            if (nrf24_set_mode_rx(&radio) < 0) {
-                logger_error("nrf24_set_mode_rx failed after STREAM_INFO echo");
+            if (radio_enter_rx(&radio, 1, "after STREAM_INFO echo") < 0) {
                 page_stream_free(&stream);
                 fclose(fout);
                 nrf24_deinit(&radio);
                 return 1;
             }
-            radio_mode_settle_delay();
             continue;
         }
 
@@ -1787,15 +1812,12 @@ static int run_rx(const char *spi_dev,
             }
 
             /* 3) Try to send checksum back to TX (bounded time) */
-            radio_prepare_for_tx(&radio);
-            if (nrf24_set_mode_tx(&radio) < 0) {
-                logger_error("nrf24_set_mode_tx failed");
+            if (radio_enter_tx(&radio, 1, "before sending burst checksum") < 0) {
                 page_stream_free(&stream);
                 fclose(fout);
                 nrf24_deinit(&radio);
                 return 1;
             }
-            radio_mode_settle_delay();
 
             int checksum_rc = send_with_deadline(&radio,
                                                  checksum_bytes,
@@ -1807,15 +1829,12 @@ static int run_rx(const char *spi_dev,
                                                  &rf_frames_total,
                                                  cfg);
 
-            radio_clear_irq_flags(&radio);
-            if (nrf24_set_mode_rx(&radio) < 0) {
-                logger_error("nrf24_set_mode_rx failed");
+            if (radio_enter_rx(&radio, 0, "after sending burst checksum") < 0) {
                 page_stream_free(&stream);
                 fclose(fout);
                 nrf24_deinit(&radio);
                 return 1;
             }
-            radio_mode_settle_delay();
 
             in_burst = 0;
 

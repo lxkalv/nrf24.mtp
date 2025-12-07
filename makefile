@@ -12,7 +12,7 @@ LDFLAGS = -lz
 
 # Programs (names only)
 # Added robust_mode_reset here
-PROGS     = quick_mode fast_mode p2p_mode p3p_mode robust_mode robust_mode_reset
+PROGS     = quick_mode fast_mode p2p_mode p2p_simple_mode p3p_mode robust_mode robust_mode_reset
 BIN_PROGS = $(addprefix $(BINDIR)/,$(PROGS))
 
 # Library objects
@@ -28,13 +28,14 @@ LIB_OBJS = \
 
 # ---------- Default / convenience targets ----------
 
-.PHONY: help all quick fast p2p p3p robust robust_reset clean
+.PHONY: help all quick fast p2p p2p_simple p3p robust robust_reset clean
 
 help:
 	@echo "Available targets:"
 	@echo "  make quick         -> build bin/quick_mode"
 	@echo "  make fast          -> build bin/fast_mode"
 	@echo "  make p2p           -> build bin/p2p_mode"
+	@echo "  make p2p_simple    -> build bin/p2p_simple_mode"
 	@echo "  make p3p           -> build bin/p3p_mode"
 	@echo "  make robust        -> build bin/robust_mode"
 	@echo "  make robust_reset  -> build bin/robust_mode_reset"
@@ -48,6 +49,8 @@ quick: $(BINDIR)/quick_mode
 fast: $(BINDIR)/fast_mode
 
 p2p: $(BINDIR)/p2p_mode
+
+p2p_simple: $(BINDIR)/p2p_simple_mode
 
 p3p: $(BINDIR)/p3p_mode
 
@@ -77,6 +80,10 @@ $(BINDIR)/p2p_mode: $(SRCDIR)/p2p_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/logger.o $(
 	mkdir -p $(BINDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
+$(BINDIR)/p2p_simple_mode: $(SRCDIR)/p2p_simple_mode.o $(LIBDIR)/nrf24.o $(LIBDIR)/logger.o $(LIBDIR)/app_layer.o
+	mkdir -p $(BINDIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
 # New p3p_mode: uses all layered libs
 $(BINDIR)/p3p_mode: $(SRCDIR)/p3p_mode.o $(LIB_OBJS)
 	mkdir -p $(BINDIR)
@@ -97,6 +104,7 @@ $(BINDIR)/robust_mode_reset: $(SRCDIR)/robust_mode_reset.o $(LIBDIR)/nrf24.o $(L
 $(SRCDIR)/quick_mode.o: $(SRCDIR)/quick_mode.c $(LIBDIR)/nrf24.h
 $(SRCDIR)/fast_mode.o:  $(SRCDIR)/fast_mode.c  $(LIBDIR)/nrf24.h
 $(SRCDIR)/p2p_mode.o:   $(SRCDIR)/p2p_mode.c   $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h $(LIBDIR)/app_layer.h
+$(SRCDIR)/p2p_simple_mode.o: $(SRCDIR)/p2p_simple_mode.c $(LIBDIR)/nrf24.h $(LIBDIR)/logger.h $(LIBDIR)/app_layer.h
 $(SRCDIR)/p3p_mode.o:   $(SRCDIR)/p3p_mode.c   \
                         $(LIBDIR)/logger.h \
                         $(LIBDIR)/app_layer.h \
