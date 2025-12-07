@@ -840,8 +840,6 @@ static int run_tx(const char *spi_dev,
         goto cleanup;
     }
 
-    tx_start = now_seconds();
-
     if (send_stream_info(&radio,
                          (uint8_t)id_bytes,
                          (uint32_t)compressed_len,
@@ -882,6 +880,7 @@ static int run_tx(const char *spi_dev,
         }
     }
 
+    tx_start = now_seconds();
     sleep_ms_posix(20);
     uint64_t checksum_state;
     checksum_init(&checksum_state);
@@ -1152,7 +1151,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     uint64_t rf_tx_frames = 0;
     unsigned next_rx_progress_pct = 10;
     int32_t highest_frame_seen = -1;
-    double rx_start = now_seconds();
+    double rx_start = 0.0;
 
     logger_info("p2p RX: waiting for STREAM_INFO");
 
@@ -1344,6 +1343,10 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         if (len <= 1 + id_bytes) {
             logger_warn("p2p RX: DATA frame too short (len=%u)", len);
             continue;
+        }
+
+        if (rx_start == 0.0) {
+            rx_start = now_seconds(); /* start RX timer when data begins */
         }
 
         if (checksum_sent) {
