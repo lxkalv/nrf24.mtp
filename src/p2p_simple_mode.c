@@ -46,416 +46,331 @@
 
 typedef struct {
     uint8_t  channel;
-    if (!spi_dev) {
-        logger_error("run_rx: missing SPI device");
-        return 1;
+    unsigned data_rate_kbps;
+    int      pa_level_dbm;
+    unsigned crc_bytes;
+    unsigned retr_delay;
+    unsigned retr_tries;
+} p2p_radio_params_t;
+
+static p2p_radio_params_t g_radio_params = {
+    .channel        = 90,
+    .data_rate_kbps = 250,
+    .pa_level_dbm   = 0,
+    .crc_bytes      = 2,
+    .retr_delay     = 6,
+    .retr_tries     = 15
+};
+
+static unsigned map_data_rate_kbps(app_data_rate_t rate)
+{
+    switch (rate) {
+    case APP_DATA_RATE_250KBPS: return 250;
+    case APP_DATA_RATE_2MBPS:   return 2000;
+    case APP_DATA_RATE_1MBPS:
+    default:                    return 1000;
+    }
+}
+
+static void sleep_ms_posix(unsigned int ms)
+{
+    struct timespec req;
+    req.tv_sec = ms / 1000;
+    req.tv_nsec = (ms % 1000) * 1000000L;
+    nanosleep(&req, NULL);
+}
+
+static int map_pa_level_dbm(app_pa_level_t level)
+{
+    switch (level) {
+    case APP_PA_MAX:  return 0;
+    case APP_PA_HIGH: return -6;
+    case APP_PA_LOW:  return -12;
+    case APP_PA_MIN:
+    default:          return -18;
+    }
+}
+
+static unsigned map_crc_bytes(app_crc_bytes_t crc)
+{
+    switch (crc) {
+    case APP_CRC_OFF: return 0;
+    case APP_CRC_8:   return 1;
+    case APP_CRC_16:
+    default:          return 2;
+    }
+}
+
+static void update_radio_params_from_config(const app_config_t *cfg)
+{
+    if (!cfg) {
+        return;
     }
 
-    nrf24_t radio;
-    uint8_t ce_pin = (uint8_t)((cfg && cfg->ce_pin >= 0 && cfg->ce_pin <= 255)
-                               ? cfg->ce_pin : 22);
-    nrf24_config_t radio_cfg = {
-        .spi_device   = spi_dev,
-        .spi_speed_hz = 8000000,
-        .ce_gpio      = ce_pin
-    };
+    g_radio_params.channel        = (uint8_t)cfg->channel;
+    g_radio_params.data_rate_kbps = map_data_rate_kbps(cfg->data_rate);
+    g_radio_params.pa_level_dbm   = map_pa_level_dbm(cfg->pa_level);
+    g_radio_params.crc_bytes      = map_crc_bytes(cfg->crc_bytes);
+    g_radio_params.retr_delay     = (unsigned)cfg->retransmission_delay;
+    g_radio_params.retr_tries     = (unsigned)cfg->retransmission_tries;
+}
 
-    uint32_t page_expected_comp[TRANS_NUM_PAGES] = {0};
-    uint32_t page_orig_sizes[TRANS_NUM_PAGES] = {0};
-    uint32_t page_offsets[TRANS_NUM_PAGES] = {0};
-    uint8_t  page_completed[TRANS_NUM_PAGES] = {0};
-    uint8_t *final_output = NULL;
-    size_t   final_output_len = 0;
-    uint8_t *page_buffer = NULL;
-    size_t   page_buffer_cap = 0;
-    uint8_t  active_page_id = 0;
-    uint32_t active_page_expected = 0;
-    uint32_t active_page_received = 0;
-    uint64_t active_page_checksum_state = 0;
-    uint8_t  burst_frame_lengths[TRANS_MAX_FRAMES_PER_BURST];
-    uint8_t  burst_expected_frames = 0;
-    uint8_t  burst_frame_index = 0;
-    uint8_t  burst_page_id = 0;
-    int      in_burst = 0;
-    int      have_stream_info = 0;
-    uint32_t total_orig_size = 0;
-    uint64_t expected_total_comp = 0;
-    uint32_t expected_total_frames = 0;
-    uint64_t compressed_total = 0;
-    uint64_t uncompressed_total = 0;
-    uint64_t rf_rx_bytes = 0;
-    uint64_t rf_rx_frames = 0;
-    uint64_t rf_tx_bytes = 0;
-    uint64_t rf_tx_frames = 0;
-    uint32_t pages_completed = 0;
-    double   rx_start = 0.0;
-    int      transfer_finished = 0;
-    int      output_stored = 0;
-    int      radio_ready = 0;
-    int      exit_code = 1;
+static int configure_radio_runtime(nrf24_t *radio)
+{
+    return nrf24_configure_advanced(radio,
+                                    g_radio_params.channel,
+                                    g_radio_params.data_rate_kbps,
+                                    g_radio_params.pa_level_dbm,
+                                    g_radio_params.crc_bytes,
+                                    g_radio_params.retr_delay,
+                                    g_radio_params.retr_tries);
+}
 
-    if (nrf24_init(&radio, &radio_cfg) < 0) {
-        logger_error("nrf24_init failed: %s", strerror(errno));
-        return 1;
-    }
-    radio_ready = 1;
-
-    if (configure_radio_runtime(&radio) < 0) {
-        logger_error("configure_radio_runtime failed: %s", strerror(errno));
-        goto cleanup_rx;
-    }
-    if (maybe_verify_radio_config(cfg, &radio, "RX init") != 0) {
-        goto cleanup_rx;
-    }
-    if (ensure_mode_rx(&radio) != 0) {
-        goto cleanup_rx;
+static int maybe_verify_radio_config(const app_config_t *cfg,
+                                     nrf24_t *radio,
+                                     const char *phase)
+{
+    if (!cfg || !cfg->verify_config) {
+        return 0;
     }
 
-    logger_info("p2p RX: waiting for STREAM_INFO");
+    if (phase) {
+        logger_info("Verifying radio configuration (%s phase) via module readback", phase);
+    } else {
+        logger_info("Verifying radio configuration via module readback");
+    }
 
-    while (!transfer_finished) {
-        uint8_t buf[MAX_PAYLOAD];
-        uint8_t len = sizeof(buf);
-        int ret = nrf24_recv_blocking(&radio, buf, &len, 0);
-        if (ret < 0) {
-            if (errno == ETIMEDOUT) {
-                continue;
-            }
-            logger_error("p2p RX: nrf24_recv_blocking failed: %s", strerror(errno));
-            goto cleanup_rx;
-        }
+    if (nrf24_dump_config(radio) < 0) {
+        logger_error("nrf24_dump_config failed: %s", strerror(errno));
+        return -1;
+    }
+    return 0;
+}
 
-        if (len > 0) {
-            rf_rx_bytes += len;
-            rf_rx_frames += 1;
-        }
+static const char *get_spi_device_path(void)
+{
+    const char *env = getenv("NRF24_SPI_DEVICE");
+    if (env && *env) {
+        return env;
+    }
+    return DEFAULT_SPI_DEVICE;
+}
 
-        if (rx_start == 0.0) {
-            rx_start = now_seconds();
-        }
+static double now_seconds(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
 
-        if (len == 0) {
-            continue;
-        }
+static void encode_u32_le(uint8_t *dst, uint32_t v)
+{
+    dst[0] = (uint8_t)(v & 0xFFu);
+    dst[1] = (uint8_t)((v >> 8) & 0xFFu);
+    dst[2] = (uint8_t)((v >> 16) & 0xFFu);
+    dst[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
 
-        if (buf[0] == CONTROL_PREFIX) {
-            if (len < 2) {
-                logger_warn("p2p RX: short control frame");
-                continue;
-            }
+static uint32_t decode_u32_le(const uint8_t *src)
+{
+    return (uint32_t)(src[0] | (src[1] << 8) | (src[2] << 16) | (src[3] << 24));
+}
 
-            uint8_t msg_type = buf[1];
-            if (msg_type == MSG_STREAM_INFO) {
-                if (len < STREAM_INFO_SIZE) {
-                    logger_warn("p2p RX: malformed STREAM_INFO (len=%u)", len);
-                    continue;
-                }
+static void encode_u64_le(uint8_t *dst, uint64_t v)
+{
+    for (size_t i = 0; i < 8; ++i) {
+        dst[i] = (uint8_t)(v & 0xFFu);
+        v >>= 8;
+    }
+}
 
-                if (trans_parse_stream_info(buf,
-                                            &total_orig_size,
-                                            page_expected_comp) != 0) {
-                    logger_error("p2p RX: failed to parse STREAM_INFO payload");
-                    goto cleanup_rx;
-                }
+static uint64_t decode_u64_le(const uint8_t *src)
+{
+    uint64_t v = 0;
+    for (int i = 7; i >= 0; --i) {
+        v = (v << 8) | src[i];
+    }
+    return v;
+}
 
-                expected_total_comp = 0;
-                for (size_t i = 0; i < TRANS_NUM_PAGES; ++i) {
-                    expected_total_comp += page_expected_comp[i];
-                    page_completed[i] = 0;
-                }
-                expected_total_frames = estimate_total_frames(page_expected_comp);
-                compute_page_orig_sizes(total_orig_size, page_orig_sizes);
+static int compress_buffer(const uint8_t *in,
+                           size_t in_len,
+                           uint8_t **out_buf,
+                           size_t *out_len)
+{
+    if (!out_buf || !out_len) {
+        logger_error("compress_buffer: invalid outputs");
+        return -1;
+    }
 
-                uint32_t offset = 0;
-                for (size_t i = 0; i < TRANS_NUM_PAGES; ++i) {
-                    page_offsets[i] = offset;
-                    offset += page_orig_sizes[i];
-                }
+    uLong src_len = (uLong)in_len;
+    uLong bound = compressBound(src_len == 0 ? 1 : src_len);
+    if (bound == 0) {
+        bound = 1;
+    }
 
-                free(final_output);
-                final_output = NULL;
-                final_output_len = total_orig_size;
-                if (final_output_len > 0) {
-                    final_output = (uint8_t *)malloc(final_output_len);
-                    if (!final_output) {
-                        logger_error("p2p RX: malloc(%zu) failed for output", final_output_len);
-                        goto cleanup_rx;
-                    }
-                }
+    uint8_t *buf = (uint8_t *)malloc(bound);
+    if (!buf) {
+        logger_error("compress_buffer: malloc(%lu) failed", (unsigned long)bound);
+        return -1;
+    }
 
-                have_stream_info = 1;
-                pages_completed = 0;
-                compressed_total = 0;
-                uncompressed_total = 0;
-                active_page_id = 0;
-                active_page_expected = page_expected_comp[0];
-                active_page_received = 0;
-                trans_checksum_init(&active_page_checksum_state);
-                in_burst = 0;
+    uLong dest_len = bound;
+    int zret = compress2(buf, &dest_len, in ? in : (const Bytef *)"", src_len, 6);
+    if (zret != Z_OK) {
+        logger_error("compress2 failed (zret=%d)", zret);
+        free(buf);
+        return -1;
+    }
 
-                logger_info("p2p RX: STREAM_INFO -> total_orig=%u bytes, total_comp=%llu bytes",
-                            total_orig_size,
-                            (unsigned long long)expected_total_comp);
+    *out_buf = buf;
+    *out_len = (size_t)dest_len;
+    return 0;
+}
 
-                int ready_rc = send_stream_ready(&radio,
-                                                 1,
-                                                 expected_total_frames,
-                                                 (uint32_t)expected_total_comp,
-                                                 &rf_tx_bytes,
-                                                 &rf_tx_frames);
-                if (ready_rc < 0) {
-                    goto cleanup_rx;
-                }
-                if (ready_rc > 0) {
-                    logger_warn("p2p RX: STREAM_READY timed out; awaiting STREAM_INFO resend");
-                }
-                continue;
-            }
+static int decompress_buffer(const uint8_t *in,
+                             size_t in_len,
+                             uint8_t **out_buf,
+                             size_t out_len)
+{
+    if ((!in && in_len > 0) || !out_buf) {
+        logger_error("decompress_buffer: invalid arguments");
+        return -1;
+    }
 
-            if (msg_type == MSG_STREAM_FINISH) {
-                if (!output_stored) {
-                    const char *dest_label = (cfg && cfg->file_path_rx && cfg->file_path_rx[0])
-                                           ? cfg->file_path_rx
-                                           : "(auto)";
-                    const uint8_t *out_ptr = final_output_len > 0 ? final_output : NULL;
-                    if (app_store_file_bytes(cfg ? cfg->file_path_rx : NULL,
-                                             out_ptr,
-                                             final_output_len) != 0) {
-                        logger_error("p2p RX: failed to store output file");
-                        goto cleanup_rx;
-                    }
-                    output_stored = 1;
-                    logger_succ("p2p RX: stored '%s' (%u bytes)", dest_label, total_orig_size);
-                }
-
-                if (ensure_mode_tx(&radio) != 0) {
-                    goto cleanup_rx;
-                }
-                int ack_rc = send_stream_finish_with_timeout_rx(&radio,
-                                                                 &rf_tx_bytes,
-                                                                 &rf_tx_frames);
-                if (ack_rc < 0) {
-                    goto cleanup_rx;
-                }
-                if (ensure_mode_rx(&radio) != 0) {
-                    goto cleanup_rx;
-                }
-
-                transfer_finished = 1;
-                break;
-            }
-
-            if (msg_type == MSG_BURST_INFO) {
-                if (!have_stream_info) {
-                    logger_warn("p2p RX: BURST_INFO before STREAM_INFO");
-                    continue;
-                }
-
-                uint8_t page_id = 0;
-                uint8_t burst_id = 0;
-                uint16_t burst_size = 0;
-                if (trans_parse_burst_info(buf,
-                                           len,
-                                           &page_id,
-                                           &burst_id,
-                                           &burst_size) != 0) {
-                    logger_warn("p2p RX: malformed BURST_INFO frame");
-                    continue;
-                }
-
-                if (page_id >= TRANS_NUM_PAGES) {
-                    logger_warn("p2p RX: page %u exceeds limit", page_id);
-                    continue;
-                }
-
-                if (page_id != active_page_id) {
-                    logger_info("p2p RX: switching to Page %u", page_id);
-                    active_page_id = page_id;
-                    active_page_expected = page_expected_comp[page_id];
-                    active_page_received = 0;
-                    trans_checksum_init(&active_page_checksum_state);
-                    in_burst = 0;
-                }
-
-                if (burst_size == 0) {
-                    logger_info("p2p RX: Page %u declared empty", page_id);
-                    if (active_page_expected != 0) {
-                        logger_warn("p2p RX: unexpected empty burst for non-empty page %u", page_id);
-                    }
-                    uint64_t checksum_state;
-                    trans_checksum_init(&checksum_state);
-                    uint64_t checksum_value = trans_checksum_final(checksum_state);
-                    if (send_page_checksum(&radio,
-                                           page_id,
-                                           checksum_value,
-                                           &rf_tx_bytes,
-                                           &rf_tx_frames) < 0) {
-                        goto cleanup_rx;
-                    }
-                    page_completed[page_id] = 1;
-                    ++pages_completed;
-                    continue;
-                }
-
-                if (trans_derive_frame_layout(burst_size,
-                                              &burst_expected_frames,
-                                              burst_frame_lengths) != 0) {
-                    logger_warn("p2p RX: invalid burst layout (page=%u, size=%u)",
-                                page_id,
-                                burst_size);
-                    continue;
-                }
-
-                if (burst_id == 0 && active_page_received > 0) {
-                    logger_warn("p2p RX: restart detected for Page %u; discarding partial data", page_id);
-                    active_page_received = 0;
-                    trans_checksum_init(&active_page_checksum_state);
-                }
-
-                if (active_page_expected > page_buffer_cap) {
-                    uint8_t *tmp = (uint8_t *)realloc(page_buffer,
-                                                       active_page_expected > 0 ? active_page_expected : 1);
-                    if (!tmp) {
-                        logger_error("p2p RX: realloc(%u) failed for page buffer", active_page_expected);
-                        goto cleanup_rx;
-                    }
-                    page_buffer = tmp;
-                    page_buffer_cap = active_page_expected;
-                }
-
-                burst_page_id = page_id;
-                burst_frame_index = 0;
-                in_burst = 1;
-                continue;
-            }
-
-            if (msg_type == MSG_CHECKSUM) {
-                logger_info("p2p RX: checksum control ignored on RX side");
-                continue;
-            }
-
-            logger_warn("p2p RX: unknown control message 0x%02X", msg_type);
-            continue;
-        }
-
-        if (!have_stream_info) {
-            logger_warn("p2p RX: data frame before STREAM_INFO");
-            continue;
-        }
-
-        if (!in_burst) {
-            logger_warn("p2p RX: data frame received outside of burst context");
-            continue;
-        }
-
-        if (burst_page_id != active_page_id) {
-            logger_warn("p2p RX: burst/page mismatch (%u vs %u)", burst_page_id, active_page_id);
-            continue;
-        }
-
-        if (len != burst_frame_lengths[burst_frame_index]) {
-            logger_warn("p2p RX: frame len mismatch (expected %u, got %u)",
-                        burst_frame_lengths[burst_frame_index],
-                        len);
-            continue;
-        }
-
-        uint8_t frame_id = buf[0];
-        if (frame_id != burst_frame_index) {
-            logger_warn("p2p RX: frame order mismatch (expected %u, got %u)",
-                        burst_frame_index,
-                        frame_id);
-            continue;
-        }
-
-        if (active_page_received + (len - 1) > active_page_expected) {
-            logger_warn("p2p RX: page buffer overflow (page %u)", active_page_id);
-            continue;
-        }
-
-        memcpy(page_buffer + active_page_received, &buf[1], len - 1);
-        active_page_received += (len - 1);
-        trans_checksum_update(&active_page_checksum_state, buf, len);
-
-        ++burst_frame_index;
-        if (burst_frame_index == burst_expected_frames) {
-            in_burst = 0;
-            burst_frame_index = 0;
-        }
-
-        if (active_page_received == active_page_expected) {
-            uint64_t checksum_value = trans_checksum_final(active_page_checksum_state);
-            if (send_page_checksum(&radio,
-                                   active_page_id,
-                                   checksum_value,
-                                   &rf_tx_bytes,
-                                   &rf_tx_frames) < 0) {
-                goto cleanup_rx;
-            }
-
-            compressed_total += active_page_received;
-            uncompressed_total += page_orig_sizes[active_page_id];
-
-            if (page_orig_sizes[active_page_id] > 0) {
-                uint8_t *page_out = NULL;
-                if (decompress_buffer(page_buffer,
-                                       active_page_received,
-                                       &page_out,
-                                       page_orig_sizes[active_page_id]) != 0) {
-                    logger_error("p2p RX: failed to decompress page %u", active_page_id);
-                    free(page_out);
-                    goto cleanup_rx;
-                }
-                memcpy(final_output + page_offsets[active_page_id],
-                       page_out,
-                       page_orig_sizes[active_page_id]);
-                free(page_out);
-            }
-
-            page_completed[active_page_id] = 1;
-            ++pages_completed;
-
-            active_page_id += 1;
-            if (active_page_id < TRANS_NUM_PAGES) {
-                active_page_expected = page_expected_comp[active_page_id];
-            } else {
-                active_page_expected = 0;
-            }
-            active_page_received = 0;
-            trans_checksum_init(&active_page_checksum_state);
+    uint8_t *buf = NULL;
+    if (out_len > 0) {
+        buf = (uint8_t *)malloc(out_len);
+        if (!buf) {
+            logger_error("malloc(%zu) failed for decompression", out_len);
+            return -1;
         }
     }
 
-    if (rx_start > 0.0) {
-        double rx_end = now_seconds();
-        double elapsed = rx_end - rx_start;
-        if (elapsed <= 0.0) {
-            elapsed = 1e-9;
+    uLongf dest_len = (uLongf)out_len;
+    int zret = uncompress(buf,
+                          &dest_len,
+                          in ? in : (const Bytef *)"",
+                          (uLong)in_len);
+    if (zret != Z_OK || dest_len != out_len) {
+        logger_error("uncompress failed (zret=%d, dest=%lu expected=%zu)",
+                     zret,
+                     (unsigned long)dest_len,
+                     out_len);
+        free(buf);
+        return -1;
+    }
+
+    *out_buf = buf;
+    return 0;
+}
+
+typedef struct {
+    uint8_t        *comp_data;
+    size_t          comp_len;
+    uint32_t        orig_len;
+    trans_burst_t  *bursts;
+    size_t          burst_count;
+    uint64_t        checksum;
+} tx_page_t;
+
+static void free_tx_page(tx_page_t *page);
+static void free_tx_pages(tx_page_t pages[TRANS_NUM_PAGES]);
+static int build_tx_pages(const uint8_t *file_data,
+                          size_t file_len,
+                          tx_page_t pages[TRANS_NUM_PAGES],
+                          uint32_t page_comp_sizes[TRANS_NUM_PAGES],
+                          uint64_t *total_comp_len,
+                          uint32_t *total_frames_planned);
+static int wait_for_page_checksum(nrf24_t *radio,
+                                  uint8_t expected_page_id,
+                                  uint64_t expected_checksum);
+static int send_page_checksum(nrf24_t *radio,
+                              uint8_t page_id,
+                              uint64_t checksum,
+                              uint64_t *rf_bytes_total,
+                              uint64_t *rf_frames_total);
+static void compute_page_orig_sizes(uint32_t total_orig_len,
+                                    uint32_t out_sizes[TRANS_NUM_PAGES]);
+static uint32_t estimate_total_frames(const uint32_t page_comp_sizes[TRANS_NUM_PAGES]);
+
+static int send_with_retries(nrf24_t *radio,
+                             const uint8_t *buf,
+                             uint8_t len,
+                             unsigned timeout_ms,
+                             const char *label,
+                             uint64_t *rf_bytes_total,
+                             uint64_t *rf_frames_total)
+{
+    if (!radio || !buf || len == 0) {
+        logger_error("send_with_retries(%s): invalid args", label ? label : "frame");
+        return -1;
+    }
+
+    unsigned attempt = 0;
+    while (1) {
+        if (rf_bytes_total) {
+            *rf_bytes_total += len;
         }
-        double user_rate_kib = (elapsed > 0.0)
-                             ? (((double)total_orig_size) / 1024.0) / elapsed
-                             : 0.0;
-        double rf_rate_kib   = (elapsed > 0.0)
-                             ? (((double)rf_rx_bytes) / 1024.0) / elapsed
-                             : 0.0;
-        logger_info("p2p RX throughput: user=%.2f KiB/s (%u bytes in %.2fs), rf=%.2f KiB/s (%llu bytes, %llu frames)",
-                    user_rate_kib,
-                    total_orig_size,
-                    elapsed,
-                    rf_rate_kib,
-                    (unsigned long long)rf_rx_bytes,
-                    (unsigned long long)rf_rx_frames);
-    }
+        if (rf_frames_total) {
+            *rf_frames_total += 1;
+        }
 
-    exit_code = 0;
+        int ret = nrf24_send_blocking(radio, buf, len, timeout_ms);
+        if (ret == 0) {
+            return 0;
+        }
 
-cleanup_rx:
-    free(page_buffer);
-    free(final_output);
-    if (radio_ready) {
-        nrf24_deinit(&radio);
+        if (errno != ETIMEDOUT) {
+            logger_error("nrf24_send_blocking(%s) failed: %s",
+                         label ? label : "frame",
+                         strerror(errno));
+            return -1;
+        }
+
+        ++attempt;
+        if (attempt == 1 || (attempt % 50) == 0) {
+            logger_warn("%s: timeout waiting for ACK (attempt %u)",
+                        label ? label : "frame",
+                        attempt);
+        }
+
+        if ((attempt % 200) == 0) {
+            logger_warn("%s: %u consecutive timeouts, reconfiguring radio",
+                        label ? label : "frame",
+                        attempt);
+            if (configure_radio_runtime(radio) != 0) {
+                logger_error("Failed to reconfigure radio during retries: %s",
+                             strerror(errno));
+                return -1;
+            }
+        }
     }
-    return exit_code;
+}
+
+static int ensure_mode_tx(nrf24_t *radio)
+{
+    if (nrf24_set_mode_tx(radio) < 0) {
+        logger_error("nrf24_set_mode_tx failed: %s", strerror(errno));
+        return -1;
+    }
+    sleep_ms_posix(MODE_SWITCH_TX_DELAY_MS);
+    return 0;
+}
+
+static int ensure_mode_rx(nrf24_t *radio)
+{
+    if (nrf24_set_mode_rx(radio) < 0) {
+        logger_error("nrf24_set_mode_rx failed: %s", strerror(errno));
+        return -1;
+    }
+    sleep_ms_posix(MODE_SWITCH_RX_DELAY_MS);
+    return 0;
+}
+
+static int send_stream_info(nrf24_t *radio,
+                            uint32_t total_orig_len,
+                            const uint32_t page_comp_sizes[TRANS_NUM_PAGES],
                             uint64_t total_comp_len,
                             uint32_t total_frames,
                             uint64_t *rf_bytes_total,
@@ -601,64 +516,6 @@ static int wait_for_stream_finish_ack(nrf24_t *radio)
         return -1;
     }
     return 1;
-}
-
-static int send_checksum_with_timeout(nrf24_t *radio,
-                                      uint64_t checksum,
-                                      uint64_t *rf_bytes_total,
-                                      uint64_t *rf_frames_total)
-{
-    uint8_t msg[2 + CHECKSUM_SIZE];
-    msg[0] = CONTROL_PREFIX;
-    msg[1] = MSG_CHECKSUM;
-    encode_u64_le(&msg[2], checksum);
-
-    double start = now_seconds();
-    unsigned attempt = 0;
-
-    while ((now_seconds() - start) * 1000.0 < CHECKSUM_SEND_WINDOW_MS) {
-        if (rf_bytes_total) {
-            *rf_bytes_total += sizeof(msg);
-        }
-        if (rf_frames_total) {
-            *rf_frames_total += 1;
-        }
-
-        int ret = nrf24_send_blocking(radio,
-                                      msg,
-                                      sizeof(msg),
-                                      CONTROL_TIMEOUT_MS);
-        if (ret == 0) {
-            logger_succ("p2p RX: CHECKSUM acknowledged by TX");
-            return 0;
-        }
-
-        if (errno != ETIMEDOUT) {
-            logger_error("p2p RX: nrf24_send_blocking(CHECKSUM) failed: %s",
-                         strerror(errno));
-            return -1;
-        }
-
-        ++attempt;
-        if (attempt == 1 || (attempt % 50) == 0) {
-            logger_warn("p2p RX: checksum timeout (attempt %u)", attempt);
-        }
-
-        if ((attempt % 200) == 0) {
-            logger_warn("p2p RX: %u checksum timeouts, reconfiguring radio", attempt);
-            if (configure_radio_runtime(radio) != 0) {
-                logger_error("p2p RX: failed to reconfigure radio during checksum retries");
-                return -1;
-            }
-            if (ensure_mode_tx(radio) != 0) {
-                return -1;
-            }
-        }
-        sleep_ms_posix(50);
-    }
-
-    errno = ETIMEDOUT;
-    return -1;
 }
 
 static int wait_for_stream_ready(nrf24_t *radio,
@@ -1100,64 +957,78 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         .ce_gpio      = ce_pin
     };
 
-    if (nrf24_init(&radio, &radio_cfg) < 0) {
-        logger_error("nrf24_init failed: %s", strerror(errno));
-        return 1;
-    }
-    if (configure_radio_runtime(&radio) < 0) {
-        logger_error("configure_radio_runtime failed: %s", strerror(errno));
-        nrf24_deinit(&radio);
-        return 1;
-    }
-    if (maybe_verify_radio_config(cfg, &radio, "RX init") != 0) {
-        nrf24_deinit(&radio);
-        return 1;
-    }
-    if (ensure_mode_rx(&radio) != 0) {
-        nrf24_deinit(&radio);
-        return 1;
-    }
-
-    uint8_t *compressed = NULL;
-    size_t compressed_len = 0;
-    size_t compressed_cap = 0;
-    uint8_t *frame_received = NULL;
-    unsigned id_bytes = 0;
-    size_t payload_bytes = 0;
-    uint32_t frames_received = 0;
-    uint32_t expected_frames = 0;
-    uint32_t original_len = 0;
-    int checksum_sent = 0;
-    int have_info = 0;
-    int output_stored = 0;
+    uint32_t page_expected_comp[TRANS_NUM_PAGES] = {0};
+    uint32_t page_orig_sizes[TRANS_NUM_PAGES] = {0};
+    uint32_t page_offsets[TRANS_NUM_PAGES] = {0};
+    uint8_t *final_output = NULL;
+    size_t   final_output_len = 0;
+    uint8_t *page_buffer = NULL;
+    size_t   page_buffer_cap = 0;
+    uint8_t  active_page_id = 0;
+    uint32_t active_page_expected = 0;
+    uint32_t active_page_received = 0;
+    uint64_t active_page_checksum_state = 0;
+    uint8_t  burst_frame_lengths[TRANS_MAX_FRAMES_PER_BURST];
+    uint8_t  burst_expected_frames = 0;
+    uint8_t  burst_frame_index = 0;
+    uint8_t  burst_page_id = 0;
+    int      in_burst = 0;
+    int      have_stream_info = 0;
+    uint32_t total_orig_size = 0;
+    uint64_t expected_total_comp = 0;
+    uint32_t expected_total_frames = 0;
     uint64_t rf_rx_bytes = 0;
     uint64_t rf_rx_frames = 0;
     uint64_t rf_tx_bytes = 0;
     uint64_t rf_tx_frames = 0;
-    unsigned next_rx_progress_pct = 10;
-    int32_t highest_frame_seen = -1;
-    double rx_start = 0.0;
+    uint32_t pages_completed = 0;
+    double   rx_start = 0.0;
+    int      transfer_finished = 0;
+    int      output_stored = 0;
+    int      radio_ready = 0;
+    int      exit_code = 1;
+
+    if (nrf24_init(&radio, &radio_cfg) < 0) {
+        logger_error("nrf24_init failed: %s", strerror(errno));
+        return 1;
+    }
+    radio_ready = 1;
+
+    if (configure_radio_runtime(&radio) < 0) {
+        logger_error("configure_radio_runtime failed: %s", strerror(errno));
+        goto cleanup_rx;
+    }
+    if (maybe_verify_radio_config(cfg, &radio, "RX init") != 0) {
+        goto cleanup_rx;
+    }
+    if (ensure_mode_rx(&radio) != 0) {
+        goto cleanup_rx;
+    }
 
     logger_info("p2p RX: waiting for STREAM_INFO");
 
-    int done = 0;
-    while (!done) {
+    while (!transfer_finished) {
         uint8_t buf[MAX_PAYLOAD];
         uint8_t len = sizeof(buf);
-        int ret = nrf24_recv_blocking(&radio, buf, &len, 500);
+        int ret = nrf24_recv_blocking(&radio, buf, &len, 0);
         if (ret < 0) {
             if (errno == ETIMEDOUT) {
                 continue;
             }
             logger_error("p2p RX: nrf24_recv_blocking failed: %s", strerror(errno));
-            goto cleanup;
+            goto cleanup_rx;
         }
 
-        rf_rx_bytes += len;
-        rf_rx_frames += 1;
+        if (len > 0) {
+            rf_rx_bytes += len;
+            rf_rx_frames += 1;
+        }
 
-        if (len < 1) {
-            logger_warn("p2p RX: empty frame");
+        if (rx_start == 0.0) {
+            rx_start = now_seconds();
+        }
+
+        if (len == 0) {
             continue;
         }
 
@@ -1167,277 +1038,284 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 continue;
             }
 
-            uint8_t type = buf[1];
-            if (type == MSG_STREAM_INFO) {
+            uint8_t msg_type = buf[1];
+            if (msg_type == MSG_STREAM_INFO) {
                 if (len < STREAM_INFO_SIZE) {
                     logger_warn("p2p RX: malformed STREAM_INFO (len=%u)", len);
                     continue;
                 }
 
-                uint8_t new_id_bytes        = buf[2];
-                uint32_t new_compressed_len = decode_u32_le(&buf[4]);
-                uint32_t new_expected_frames= decode_u32_le(&buf[8]);
-                uint32_t new_original_len   = decode_u32_le(&buf[12]);
-
-                if (new_id_bytes == 0 || new_id_bytes > 4) {
-                    logger_error("p2p RX: invalid FrameID length %u", new_id_bytes);
-                    goto cleanup;
+                if (trans_parse_stream_info(buf,
+                                            &total_orig_size,
+                                            page_expected_comp) != 0) {
+                    logger_error("p2p RX: failed to parse STREAM_INFO payload");
+                    goto cleanup_rx;
                 }
 
-                size_t new_payload_bytes = MAX_PAYLOAD - 1 - new_id_bytes;
-                if (new_payload_bytes == 0) {
-                    logger_error("p2p RX: payload too small for FrameIDs");
-                    goto cleanup;
+                expected_total_comp = 0;
+                for (size_t i = 0; i < TRANS_NUM_PAGES; ++i) {
+                    expected_total_comp += page_expected_comp[i];
+                }
+                expected_total_frames = estimate_total_frames(page_expected_comp);
+                compute_page_orig_sizes(total_orig_size, page_orig_sizes);
+
+                uint32_t offset = 0;
+                for (size_t i = 0; i < TRANS_NUM_PAGES; ++i) {
+                    page_offsets[i] = offset;
+                    offset += page_orig_sizes[i];
                 }
 
-                if (new_compressed_len > UINT32_MAX) {
-                    logger_error("p2p RX: compressed length too large");
-                    goto cleanup;
-                }
-
-                if (new_expected_frames == 0 && new_compressed_len > 0) {
-                    new_expected_frames = (uint32_t)((new_compressed_len + new_payload_bytes - 1) / new_payload_bytes);
-                }
-
-                int same_stream = have_info &&
-                                  new_id_bytes        == id_bytes &&
-                                  new_compressed_len  == compressed_len &&
-                                  new_expected_frames == expected_frames &&
-                                  new_original_len    == original_len;
-
-                if (!same_stream) {
-                    if (new_compressed_len > 0) {
-                        uint8_t *tmp = (uint8_t *)realloc(compressed, new_compressed_len);
-                        if (!tmp) {
-                            logger_error("p2p RX: realloc(%u) failed", new_compressed_len);
-                            goto cleanup;
-                        }
-                        compressed = tmp;
-                    } else {
-                        free(compressed);
-                        compressed = NULL;
+                free(final_output);
+                final_output = NULL;
+                final_output_len = total_orig_size;
+                if (final_output_len > 0) {
+                    final_output = (uint8_t *)malloc(final_output_len);
+                    if (!final_output) {
+                        logger_error("p2p RX: malloc(%zu) failed for output", final_output_len);
+                        goto cleanup_rx;
                     }
-                    compressed_cap = new_compressed_len;
-
-                    free(frame_received);
-                    frame_received = NULL;
-                    if (new_expected_frames > 0) {
-                        frame_received = (uint8_t *)calloc(new_expected_frames, 1);
-                        if (!frame_received) {
-                            logger_error("p2p RX: calloc failed for frame tracking");
-                            goto cleanup;
-                        }
-                    }
-
-                    if (compressed && new_compressed_len > 0) {
-                        memset(compressed, 0, new_compressed_len);
-                    }
-                    frames_received = 0;
-                    checksum_sent = 0;
-                    next_rx_progress_pct = 10;
-                    highest_frame_seen = -1;
-                } else {
-                    logger_info("p2p RX: STREAM_INFO matches current transfer; keeping buffered frames");
                 }
 
-                id_bytes = new_id_bytes;
-                compressed_len = new_compressed_len;
-                expected_frames = new_expected_frames;
-                original_len = new_original_len;
-                payload_bytes = new_payload_bytes;
-                have_info = 1;
+                have_stream_info = 1;
+                pages_completed = 0;
+                active_page_id = 0;
+                active_page_expected = page_expected_comp[0];
+                active_page_received = 0;
+                trans_checksum_init(&active_page_checksum_state);
+                in_burst = 0;
 
-                logger_info("p2p RX: STREAM_INFO -> comp=%zu bytes, orig=%u bytes, frames=%u, id_bytes=%u",
-                            compressed_len,
-                            original_len,
-                            expected_frames,
-                            id_bytes);
+                logger_info("p2p RX: STREAM_INFO -> total_orig=%u bytes, total_comp=%llu bytes",
+                            total_orig_size,
+                            (unsigned long long)expected_total_comp);
 
-                int ready_send = send_stream_ready(&radio,
-                                                   id_bytes,
-                                                   expected_frames,
-                                                   (uint32_t)compressed_len,
-                                                   &rf_tx_bytes,
-                                                   &rf_tx_frames);
-                if (ready_send < 0) {
-                    goto cleanup;
+                int ready_rc = send_stream_ready(&radio,
+                                                 1,
+                                                 expected_total_frames,
+                                                 (uint32_t)expected_total_comp,
+                                                 &rf_tx_bytes,
+                                                 &rf_tx_frames);
+                if (ready_rc < 0) {
+                    goto cleanup_rx;
                 }
-                if (ready_send > 0) {
-                    logger_warn("p2p RX: STREAM_READY delivery timed out, waiting for retransmit");
-                    continue;
+                if (ready_rc > 0) {
+                    logger_warn("p2p RX: STREAM_READY timed out; awaiting STREAM_INFO resend");
                 }
                 continue;
             }
 
-            if (type == MSG_STREAM_FINISH) {
-                if (!checksum_sent) {
-                    logger_warn("p2p RX: STREAM_FINISH received before checksum sent");
-                }
+            if (msg_type == MSG_STREAM_FINISH) {
                 if (!output_stored) {
-                    if (store_decompressed_output(cfg,
-                                                  compressed,
-                                                  compressed_len,
-                                                  original_len) != 0) {
-                        logger_error("p2p RX: failed to finalize output; aborting");
-                        goto cleanup;
+                    const char *dest_label = (cfg && cfg->file_path_rx && cfg->file_path_rx[0])
+                                           ? cfg->file_path_rx
+                                           : "(auto)";
+                    const uint8_t *out_ptr = final_output_len > 0 ? final_output : NULL;
+                    if (app_store_file_bytes(cfg ? cfg->file_path_rx : NULL,
+                                             out_ptr,
+                                             final_output_len) != 0) {
+                        logger_error("p2p RX: failed to store output file");
+                        goto cleanup_rx;
                     }
                     output_stored = 1;
-                } else {
-                    logger_info("p2p RX: STREAM_FINISH already processed; resending ack");
+                    logger_succ("p2p RX: stored '%s' (%u bytes)", dest_label, total_orig_size);
                 }
 
                 if (ensure_mode_tx(&radio) != 0) {
-                    goto cleanup;
+                    goto cleanup_rx;
                 }
-                int finish_send = send_stream_finish_with_timeout_rx(&radio,
-                                                                      &rf_tx_bytes,
-                                                                      &rf_tx_frames);
-                if (finish_send < 0) {
-                    goto cleanup;
-                }
-                if (finish_send > 0) {
-                    logger_warn("p2p RX: proceeding without STREAM_FINISH acknowledgment from TX");
+                int ack_rc = send_stream_finish_with_timeout_rx(&radio,
+                                                                 &rf_tx_bytes,
+                                                                 &rf_tx_frames);
+                if (ack_rc < 0) {
+                    goto cleanup_rx;
                 }
                 if (ensure_mode_rx(&radio) != 0) {
-                    goto cleanup;
+                    goto cleanup_rx;
                 }
 
-                done = 1;
+                transfer_finished = 1;
                 break;
             }
 
-            if (type == MSG_CHECKSUM) {
-                logger_info("p2p RX: checksum echoed back, ignoring");
+            if (msg_type == MSG_BURST_INFO) {
+                if (!have_stream_info) {
+                    logger_warn("p2p RX: BURST_INFO before STREAM_INFO");
+                    continue;
+                }
+
+                uint8_t page_id = 0;
+                uint8_t burst_id = 0;
+                uint16_t burst_size = 0;
+                if (trans_parse_burst_info(buf,
+                                           len,
+                                           &page_id,
+                                           &burst_id,
+                                           &burst_size) != 0) {
+                    logger_warn("p2p RX: malformed BURST_INFO frame");
+                    continue;
+                }
+
+                if (page_id >= TRANS_NUM_PAGES) {
+                    logger_warn("p2p RX: page %u exceeds limit", page_id);
+                    continue;
+                }
+
+                if (page_id != active_page_id) {
+                    logger_info("p2p RX: switching to Page %u", page_id);
+                    active_page_id = page_id;
+                    active_page_expected = page_expected_comp[page_id];
+                    active_page_received = 0;
+                    trans_checksum_init(&active_page_checksum_state);
+                    in_burst = 0;
+                }
+
+                if (burst_size == 0) {
+                    logger_info("p2p RX: Page %u declared empty", page_id);
+                    uint64_t checksum_state;
+                    trans_checksum_init(&checksum_state);
+                    uint64_t checksum_value = trans_checksum_final(checksum_state);
+                    if (send_page_checksum(&radio,
+                                           page_id,
+                                           checksum_value,
+                                           &rf_tx_bytes,
+                                           &rf_tx_frames) < 0) {
+                        goto cleanup_rx;
+                    }
+                    ++pages_completed;
+                    continue;
+                }
+
+                if (trans_derive_frame_layout(burst_size,
+                                              &burst_expected_frames,
+                                              burst_frame_lengths) != 0) {
+                    logger_warn("p2p RX: invalid burst layout (page=%u, size=%u)",
+                                page_id,
+                                burst_size);
+                    continue;
+                }
+
+                if (burst_id == 0 && active_page_received > 0) {
+                    logger_warn("p2p RX: restart detected for Page %u; discarding partial data", page_id);
+                    active_page_received = 0;
+                    trans_checksum_init(&active_page_checksum_state);
+                }
+
+                if (active_page_expected > page_buffer_cap) {
+                    uint8_t *tmp = (uint8_t *)realloc(page_buffer,
+                                                       active_page_expected > 0 ? active_page_expected : 1);
+                    if (!tmp) {
+                        logger_error("p2p RX: realloc(%u) failed for page buffer", active_page_expected);
+                        goto cleanup_rx;
+                    }
+                    page_buffer = tmp;
+                    page_buffer_cap = active_page_expected;
+                }
+
+                burst_page_id = page_id;
+                burst_frame_index = 0;
+                in_burst = 1;
                 continue;
             }
 
-            logger_warn("p2p RX: unknown control type %u", type);
+            if (msg_type == MSG_CHECKSUM) {
+                logger_info("p2p RX: checksum control ignored on RX side");
+                continue;
+            }
+
+            logger_warn("p2p RX: unknown control message 0x%02X", msg_type);
             continue;
         }
 
-        if (!have_info) {
+        if (!have_stream_info) {
             logger_warn("p2p RX: data frame before STREAM_INFO");
             continue;
         }
 
-        if (buf[0] != DATA_PREFIX) {
-            logger_warn("p2p RX: data frame has invalid prefix 0x%02X", buf[0]);
+        if (!in_burst) {
+            logger_warn("p2p RX: data frame received outside of burst context");
             continue;
         }
 
-        if (len <= 1 + id_bytes) {
-            logger_warn("p2p RX: DATA frame too short (len=%u)", len);
+        if (burst_page_id != active_page_id) {
+            logger_warn("p2p RX: burst/page mismatch (%u vs %u)", burst_page_id, active_page_id);
             continue;
         }
 
-        if (rx_start == 0.0) {
-            rx_start = now_seconds(); /* start RX timer when data begins */
-        }
-
-        if (checksum_sent) {
-            logger_warn("p2p RX: data received after checksum sent; assuming TX resend");
-            checksum_sent = 0;
-            highest_frame_seen = -1;
-            next_rx_progress_pct = 10;
-        }
-
-        uint32_t frame_id = 0;
-        for (unsigned b = 0; b < id_bytes; ++b) {
-            frame_id |= ((uint32_t)buf[1 + b]) << (8 * b);
-        }
-
-        if (frame_id >= expected_frames && expected_frames > 0) {
-            logger_warn("p2p RX: FrameID %u out of range (%u)", frame_id, expected_frames);
+        if (burst_frame_index >= burst_expected_frames) {
+            logger_warn("p2p RX: burst frame index overflow (page %u)", burst_page_id);
             continue;
         }
 
-        size_t chunk_len = len - 1 - id_bytes;
-        size_t offset = (size_t)frame_id * payload_bytes;
-        if (offset + chunk_len > compressed_len) {
-            logger_warn("p2p RX: chunk exceeds buffer (%zu > %zu)", offset + chunk_len, compressed_len);
+        if (len != burst_frame_lengths[burst_frame_index]) {
+            logger_warn("p2p RX: frame len mismatch (expected %u, got %u)",
+                        burst_frame_lengths[burst_frame_index],
+                        len);
             continue;
         }
 
-        memcpy(compressed + offset, &buf[1 + id_bytes], chunk_len);
-        if (frame_received && !frame_received[frame_id]) {
-            frame_received[frame_id] = 1;
-            ++frames_received;
+        uint8_t frame_id = buf[0];
+        if (frame_id != burst_frame_index) {
+            logger_warn("p2p RX: frame order mismatch (expected %u, got %u)",
+                        burst_frame_index,
+                        frame_id);
+            continue;
+        }
 
-            if (expected_frames > 0 && (int32_t)frame_id > highest_frame_seen) {
-                highest_frame_seen = (int32_t)frame_id;
-                uint32_t pct = (uint32_t)(((uint64_t)(frame_id + 1) * 100u) / expected_frames);
-                if (frame_id + 1 >= expected_frames) {
-                    pct = 100;
-                }
-                if (pct >= next_rx_progress_pct) {
-                    logger_info("p2p RX: progress %u%% (frame_id=%u/%u)",
-                                pct,
-                                frame_id + 1,
-                                expected_frames);
-                    while (next_rx_progress_pct <= pct && next_rx_progress_pct < 100) {
-                        next_rx_progress_pct += 10;
-                    }
-                }
+        if (active_page_received + (len - 1) > active_page_expected) {
+            logger_warn("p2p RX: page buffer overflow (page %u)", active_page_id);
+            continue;
+        }
+
+        memcpy(page_buffer + active_page_received, &buf[1], len - 1);
+        active_page_received += (len - 1);
+        trans_checksum_update(&active_page_checksum_state, buf, len);
+
+        ++burst_frame_index;
+        if (burst_frame_index == burst_expected_frames) {
+            in_burst = 0;
+            burst_frame_index = 0;
+        }
+
+        if (active_page_received == active_page_expected) {
+            uint64_t checksum_value = trans_checksum_final(active_page_checksum_state);
+            if (send_page_checksum(&radio,
+                                   active_page_id,
+                                   checksum_value,
+                                   &rf_tx_bytes,
+                                   &rf_tx_frames) < 0) {
+                goto cleanup_rx;
             }
-        }
 
-        if (expected_frames == 0) {
-            continue;
-        }
-
-        if (!checksum_sent && frame_id == expected_frames - 1) {
-            int missing_total = 0;
-            if (frame_received) {
-                for (uint32_t missing = 0; missing < expected_frames; ++missing) {
-                    if (!frame_received[missing]) {
-                        logger_warn("p2p RX: frame %u missing before checksum send", missing);
-                        ++missing_total;
-                    }
+            if (page_orig_sizes[active_page_id] > 0) {
+                uint8_t *page_out = NULL;
+                if (decompress_buffer(page_buffer,
+                                       active_page_received,
+                                       &page_out,
+                                       page_orig_sizes[active_page_id]) != 0) {
+                    logger_error("p2p RX: failed to decompress page %u", active_page_id);
+                    free(page_out);
+                    goto cleanup_rx;
                 }
+                memcpy(final_output + page_offsets[active_page_id],
+                       page_out,
+                       page_orig_sizes[active_page_id]);
+                free(page_out);
             }
-            if (missing_total == 0) {
-                logger_info("p2p RX: last frame (ID=%u) received, checksum covers all frames", frame_id);
+
+            ++pages_completed;
+
+            active_page_id += 1;
+            if (active_page_id < TRANS_NUM_PAGES) {
+                active_page_expected = page_expected_comp[active_page_id];
             } else {
-                logger_warn("p2p RX: checksum computed with %d missing frame(s)", missing_total);
+                active_page_expected = 0;
             }
-
-            uint64_t checksum_state;
-            checksum_init(&checksum_state);
-            checksum_update(&checksum_state, compressed, compressed_len);
-            uint64_t rx_checksum = checksum_final(checksum_state);
-
-            if (ensure_mode_tx(&radio) != 0) {
-                goto cleanup;
-            }
-            if (send_checksum_with_timeout(&radio,
-                                           rx_checksum,
-                                           &rf_tx_bytes,
-                                           &rf_tx_frames) != 0) {
-                logger_warn("p2p RX: checksum send window elapsed, expecting resend");
-                if (ensure_mode_rx(&radio) != 0) {
-                    goto cleanup;
-                }
-                continue;
-            }
-            checksum_sent = 1;
-            if (ensure_mode_rx(&radio) != 0) {
-                goto cleanup;
-            }
+            active_page_received = 0;
+            trans_checksum_init(&active_page_checksum_state);
         }
     }
 
-    if (!checksum_sent && expected_frames > 0) {
-        logger_warn("p2p RX: transfer finished without checksum phase");
-    }
-
-    if (!output_stored) {
-        if (store_decompressed_output(cfg,
-                                      compressed,
-                                      compressed_len,
-                                      original_len) != 0) {
-            goto cleanup;
-        }
-        output_stored = 1;
+    if (!transfer_finished) {
+        logger_warn("p2p RX: stream ended without STREAM_FINISH");
     }
 
     if (rx_start > 0.0) {
@@ -1446,27 +1324,31 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         if (elapsed <= 0.0) {
             elapsed = 1e-9;
         }
-        double user_rate_kib = ((double)original_len / 1024.0) / elapsed;
-        double rf_rate_kib   = ((double)rf_rx_bytes / 1024.0) / elapsed;
+        double user_rate_kib = (elapsed > 0.0)
+                             ? (((double)total_orig_size) / 1024.0) / elapsed
+                             : 0.0;
+        double rf_rate_kib   = (elapsed > 0.0)
+                             ? (((double)rf_rx_bytes) / 1024.0) / elapsed
+                             : 0.0;
         logger_info("p2p RX throughput: user=%.2f KiB/s (%u bytes in %.2fs), rf=%.2f KiB/s (%llu bytes, %llu frames)",
                     user_rate_kib,
-                    original_len,
+                    total_orig_size,
                     elapsed,
                     rf_rate_kib,
                     (unsigned long long)rf_rx_bytes,
                     (unsigned long long)rf_rx_frames);
     }
 
-    nrf24_deinit(&radio);
-    free(frame_received);
-    free(compressed);
-    return 0;
+    logger_info("p2p RX: completed %u/%u pages", pages_completed, TRANS_NUM_PAGES);
+    exit_code = 0;
 
-cleanup:
-    nrf24_deinit(&radio);
-    free(frame_received);
-    free(compressed);
-    return 1;
+cleanup_rx:
+    free(page_buffer);
+    free(final_output);
+    if (radio_ready) {
+        nrf24_deinit(&radio);
+    }
+    return exit_code;
 }
 
 int main(int argc, char **argv)
