@@ -968,7 +968,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     uint8_t  active_page_id = 0;
     uint32_t active_page_expected = 0;
     uint32_t active_page_received = 0;
-    uint64_t active_page_checksum_state = 0;
     uint8_t  burst_frame_lengths[TRANS_MAX_FRAMES_PER_BURST];
     uint8_t  burst_expected_frames = 0;
     uint8_t  burst_frame_index = 0;
@@ -1082,7 +1081,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 active_page_id = 0;
                 active_page_expected = page_expected_comp[0];
                 active_page_received = 0;
-                trans_checksum_init(&active_page_checksum_state);
                 in_burst = 0;
 
                 logger_info("p2p RX: STREAM_INFO -> total_orig=%u bytes, total_comp=%llu bytes",
@@ -1165,7 +1163,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                     active_page_id = page_id;
                     active_page_expected = page_expected_comp[page_id];
                     active_page_received = 0;
-                    trans_checksum_init(&active_page_checksum_state);
                     in_burst = 0;
                 }
 
@@ -1197,7 +1194,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 if (burst_id == 0 && active_page_received > 0) {
                     logger_warn("p2p RX: restart detected for Page %u; discarding partial data", page_id);
                     active_page_received = 0;
-                    trans_checksum_init(&active_page_checksum_state);
                 }
 
                 if (active_page_expected > page_buffer_cap) {
@@ -1268,7 +1264,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
 
         memcpy(page_buffer + active_page_received, &buf[1], len - 1);
         active_page_received += (len - 1);
-        trans_checksum_update(&active_page_checksum_state, &buf[1], len - 1);
 
         ++burst_frame_index;
         if (burst_frame_index == burst_expected_frames) {
@@ -1277,7 +1272,11 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         }
 
         if (active_page_received == active_page_expected) {
-            uint64_t checksum_value = trans_checksum_final(active_page_checksum_state);
+            uint64_t checksum_state;
+            trans_checksum_init(&checksum_state);
+            /* hash the assembled compressed page so TX/RX share identical bytes */
+            trans_checksum_update(&checksum_state, page_buffer, active_page_received);
+            uint64_t checksum_value = trans_checksum_final(checksum_state);
             if (send_page_checksum(&radio,
                                    active_page_id,
                                    checksum_value,
@@ -1311,7 +1310,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 active_page_expected = 0;
             }
             active_page_received = 0;
-            trans_checksum_init(&active_page_checksum_state);
         }
     }
 
