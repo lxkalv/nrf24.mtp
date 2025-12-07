@@ -15,87 +15,73 @@
 #error "p2p_mode is Linux-only; build on Raspberry Pi / POSIX targets"
 #endif
 
-static void radio_clear_irq_flags(nrf24_t *radio)
-{
-    if (!radio) {
-        return;
-    }
+static void radio_clear_irq_flags(nrf24_t *radio) {
+    if (!radio) return;
+
     (void)nrf24_clear_interrupts(radio);
 }
 
-static void radio_flush_tx_fifo(nrf24_t *radio)
-{
-    if (!radio) {
-        return;
-    }
+static void radio_flush_tx_fifo(nrf24_t *radio) {
+    if (!radio) return;
+
     (void)nrf24_flush_tx(radio);
 }
 
-static void radio_flush_rx_fifo(nrf24_t *radio)
-{
-    if (!radio) {
-        return;
-    }
+static void radio_flush_rx_fifo(nrf24_t *radio) {
+    if (!radio) return;
+
     (void)nrf24_flush_rx(radio);
 }
 
-static void radio_prepare_for_tx(nrf24_t *radio)
-{
+static void radio_prepare_for_tx(nrf24_t *radio) {
     radio_clear_irq_flags(radio);
     radio_flush_tx_fifo(radio);
 }
 
-static void radio_prepare_for_rx(nrf24_t *radio)
-{
+static void radio_prepare_for_rx(nrf24_t *radio) {
     radio_clear_irq_flags(radio);
     radio_flush_rx_fifo(radio);
 }
 
 #define DEFAULT_SPI_DEVICE "/dev/spidev0.0"
-#define P2P_CHANNEL          90
+#define P2P_CHANNEL        90
 
-static const char *get_spi_device_path(void)
-{
+static const char *get_spi_device_path(void) {
     const char *env = getenv("NRF24_SPI_DEVICE");
-    if (env && *env) {
-        return env;
-    }
+    
+    if (env && *env) return env;
     return DEFAULT_SPI_DEVICE;
 }
 
-static unsigned data_rate_to_kbps(app_data_rate_t rate)
-{
+static unsigned data_rate_to_kbps(app_data_rate_t rate) {
     switch (rate) {
-    case APP_DATA_RATE_250KBPS: return 250;
-    case APP_DATA_RATE_2MBPS:   return 2000;
-    case APP_DATA_RATE_1MBPS:
-    default:                    return 1000;
+        case APP_DATA_RATE_250KBPS: return  250;
+        case APP_DATA_RATE_2MBPS:   return 2000;
+        case APP_DATA_RATE_1MBPS:
+        default:                    return 1000;
     }
 }
 
-static int pa_level_to_dbm(app_pa_level_t level)
-{
+static int pa_level_to_dbm(app_pa_level_t level) {
     switch (level) {
-    case APP_PA_LOW:  return -12;
-    case APP_PA_HIGH: return -6;
-    case APP_PA_MAX:  return 0;
-    case APP_PA_MIN:
-    default:          return -18;
+        case APP_PA_LOW:  return -12;
+        case APP_PA_HIGH: return - 6;
+        case APP_PA_MAX:  return   0;
+        case APP_PA_MIN:
+        default:          return -18;
     }
 }
 
-static unsigned crc_bytes_from_cfg(app_crc_bytes_t crc_opt)
-{
+static unsigned crc_bytes_from_cfg(app_crc_bytes_t crc_opt) {
     switch (crc_opt) {
-    case APP_CRC_OFF: return 0;
-    case APP_CRC_8:   return 1;
-    case APP_CRC_16:
-    default:          return 2;
+        case APP_CRC_OFF: return 0;
+        case APP_CRC_8:   return 1;
+        case APP_CRC_16:
+        default:          return 2;
     }
 }
 
-static int configure_radio_from_app(nrf24_t *radio, const app_config_t *cfg)
-{
+static int configure_radio_from_app(nrf24_t *radio, const app_config_t *cfg) {
     if (!radio) {
         errno = EINVAL;
         return -1;
@@ -108,13 +94,7 @@ static int configure_radio_from_app(nrf24_t *radio, const app_config_t *cfg)
     const unsigned  retr_tries    = cfg ? (unsigned)cfg->retransmission_tries : 15u;
     const uint8_t   channel       = cfg ? (uint8_t)(cfg->channel & 0x7Fu) : (uint8_t)P2P_CHANNEL;
 
-    if (nrf24_configure_advanced(radio,
-                                 channel,
-                                 data_rate_kbps,
-                                 pa_dbm,
-                                 crc_bytes,
-                                 retr_delay,
-                                 retr_tries) < 0) {
+    if (nrf24_configure_advanced(radio, channel, data_rate_kbps, pa_dbm, crc_bytes, retr_delay, retr_tries) < 0) {
         logger_error("Failed to configure nRF24 (channel=%u, rate=%u kbps, PA=%d dBm)",
                      (unsigned)channel, data_rate_kbps, pa_dbm);
         return -1;
@@ -123,13 +103,8 @@ static int configure_radio_from_app(nrf24_t *radio, const app_config_t *cfg)
     return 0;
 }
 
-static int maybe_verify_radio_config(const app_config_t *cfg,
-                                     nrf24_t *radio,
-                                     const char *phase)
-{
-    if (!cfg || !cfg->verify_config) {
-        return 0;
-    }
+static int maybe_verify_radio_config(const app_config_t *cfg, nrf24_t *radio, const char *phase) {
+    if (!cfg || !cfg->verify_config) return 0;
 
     if (phase) {
         logger_info("Verifying radio configuration (phase: %s) via register readback",
@@ -145,6 +120,7 @@ static int maybe_verify_radio_config(const app_config_t *cfg,
     }
     return 0;
 }
+
 /* ---- Protocol constants ---- */
 #define BURST_DATA_MAX       7905   /* bytes of DATA (excluding ChunkID) per burst */
 #define CHUNK_DATA_MAX       31     /* bytes of DATA per frame (<=31 so payload<=32) */
@@ -171,39 +147,39 @@ static int maybe_verify_radio_config(const app_config_t *cfg,
 #define P2P_NUM_PAGES        10
 #define MAX_BURSTS_PER_PAGE  255   /* burst_id is 8-bit on the air */
 #define MAX_PAGES            16    /* safety margin for page_finished array */
+
 /* ---- Time helper ---- */
-static double now_seconds(void)
-{
+static double now_seconds(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
+
 /* ---- Little-endian helpers ---- */
-static void encode_u16_le(uint8_t *dst, uint16_t v)
-{
+static void encode_u16_le(uint8_t *dst, uint16_t v) {
     dst[0] = (uint8_t)(v & 0xFFu);
     dst[1] = (uint8_t)((v >> 8) & 0xFFu);
 }
-static uint16_t decode_u16_le(const uint8_t *src)
-{
+
+static uint16_t decode_u16_le(const uint8_t *src) {
     return (uint16_t)(src[0] | ((uint16_t)src[1] << 8));
 }
-static void encode_u32_le(uint8_t *dst, uint32_t v)
-{
+
+static void encode_u32_le(uint8_t *dst, uint32_t v) {
     dst[0] = (uint8_t)(v & 0xFFu);
     dst[1] = (uint8_t)((v >> 8) & 0xFFu);
     dst[2] = (uint8_t)((v >> 16) & 0xFFu);
     dst[3] = (uint8_t)((v >> 24) & 0xFFu);
 }
-static uint32_t decode_u32_le(const uint8_t *src)
-{
+
+static uint32_t decode_u32_le(const uint8_t *src) {
     return (uint32_t)(src[0] |
                       (src[1] << 8) |
                       (src[2] << 16) |
                       (src[3] << 24));
 }
-static void encode_u64_le(uint8_t *dst, uint64_t v)
-{
+
+static void encode_u64_le(uint8_t *dst, uint64_t v) {
     for (int i = 0; i < 8; ++i) {
         dst[i] = (uint8_t)(v & 0xFFu);
         v >>= 8;
@@ -212,28 +188,27 @@ static void encode_u64_le(uint8_t *dst, uint64_t v)
 /* ---- 64-bit FNV-1a checksum ---- */
 
 #define FNV64_OFFSET_BASIS  1469598103934665603ULL
-#define FNV64_PRIME         1099511628211ULL
+#define FNV64_PRIME               1099511628211ULL
 
 
-static void checksum_init(uint64_t *state)
-{
+static void checksum_init(uint64_t *state) {
     *state = FNV64_OFFSET_BASIS;
 }
 
 
-static void checksum_update(uint64_t *state, const uint8_t *data, size_t len)
-{
+static void checksum_update(uint64_t *state, const uint8_t *data, size_t len) {
     uint64_t h = *state;
+
     for (size_t i = 0; i < len; ++i) {
         h ^= (uint64_t)data[i];
         h *= FNV64_PRIME;
     }
+
     *state = h;
 }
 
 
-static void checksum_final(uint64_t state, uint8_t out[CHECKSUM_SIZE])
-{
+static void checksum_final(uint64_t state, uint8_t out[CHECKSUM_SIZE]) {
     encode_u64_le(out, state);
 }
 
@@ -1285,7 +1260,6 @@ static int run_rx(const char *spi_dev,
     uint8_t  active_page_id      = 0;
     int      active_page_valid   = 0;
     int      page_has_data       = 0;  /* any stored bursts? */
-    int      last_logged_stream_page = -1;
      uint8_t  burst_received[MAX_BURSTS_PER_PAGE];
      memset(burst_received, 0, sizeof(burst_received));
      unsigned bursts_completed    = 0;
@@ -1410,7 +1384,8 @@ static int run_rx(const char *spi_dev,
             }
 
 
-            logger_info("P2P RX: STREAM_INFO -> comp=%u B, orig=%u B, frames=%u",
+            logger_info("P2P RX: STREAM_INFO -> chunk_id_bytes=%u, comp=%u B, orig=%u B, frames=%u",
+                        (unsigned)chunk_id_bytes,
                         expected_stream_compressed,
                         expected_stream_orig,
                         expected_stream_frames);
@@ -1503,17 +1478,6 @@ static int run_rx(const char *spi_dev,
                     page_changed = 1;
                 }
             }
-
-            if (!is_finished_page && page_changed &&
-                last_logged_stream_page != (int)active_page_id) {
-                logger_info("P2P RX: STREAM_INFO (Page %u) -> comp=%u B, orig=%u B, frames=%u",
-                            (unsigned)active_page_id,
-                            expected_stream_compressed,
-                            expected_stream_orig,
-                            expected_stream_frames);
-                last_logged_stream_page = (int)active_page_id;
-            }
-
 
             cur_burst_page_id = page_id;
             cur_burst_id      = burst_id;
@@ -1880,4 +1844,3 @@ int main(int argc, char **argv)
     logger_close();
     return ret;
 }
-
