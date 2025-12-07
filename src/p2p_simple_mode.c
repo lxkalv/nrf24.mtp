@@ -35,6 +35,8 @@
 #define STREAM_READY_SIZE   11
 #define STREAM_READY_MAX_ATTEMPTS 400
 #define STREAM_READY_WINDOW_MS    2000
+#define MODE_SWITCH_TX_DELAY_MS   12
+#define MODE_SWITCH_RX_DELAY_MS   6
 
 #define FNV64_OFFSET_BASIS  1469598103934665603ULL
 #define FNV64_PRIME         1099511628211ULL
@@ -395,6 +397,7 @@ static int ensure_mode_tx(nrf24_t *radio)
         logger_error("nrf24_set_mode_tx failed: %s", strerror(errno));
         return -1;
     }
+    sleep_ms_posix(MODE_SWITCH_TX_DELAY_MS); /* let PA settle before we send */
     return 0;
 }
 
@@ -404,6 +407,7 @@ static int ensure_mode_rx(nrf24_t *radio)
         logger_error("nrf24_set_mode_rx failed: %s", strerror(errno));
         return -1;
     }
+    sleep_ms_posix(MODE_SWITCH_RX_DELAY_MS);
     return 0;
 }
 
