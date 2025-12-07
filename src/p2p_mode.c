@@ -132,6 +132,7 @@ static int maybe_verify_radio_config(const app_config_t *cfg, nrf24_t *radio, co
 #define CHECKSUM_TIMEOUT_MS  1000   /* wait up to 1 s for checksum */
 #define CONTROL_TIMEOUT_MS   100    /* per-attempt timeout when sending control frames */
 #define DATA_TIMEOUT_MS      20     /* per-attempt timeout when sending data frames */
+#define CHECKSUM_SEND_DEADLINE_MS 250 /* RX stays in TX mode at most 250 ms when replying */
 
 #define STREAM_INFO_ECHO_WAIT_MS  500   /* TX waits up to 0.5 s for RX echo */
 #define STREAM_INFO_ECHO_SEND_MS  300   /* RX retries echo for 0.3 s */
@@ -242,13 +243,13 @@ static int resend_cached_checksum(nrf24_t *radio,
                                 cache->checksum,
                                 CHECKSUM_SIZE,
                                 CONTROL_TIMEOUT_MS,
-                                CONTROL_TIMEOUT_MS * 3u,
+                                CHECKSUM_SEND_DEADLINE_MS,
                                 "DUP_CHECKSUM",
                                 rf_bytes_total,
                                 rf_frames_total,
                                 cfg);
 
-    radio_prepare_for_rx(radio);
+    radio_clear_irq_flags(radio);
     if (nrf24_set_mode_rx(radio) < 0) {
         logger_error("P2P RX: nrf24_set_mode_rx failed after resending cached checksum");
         return -1;
@@ -1765,6 +1766,7 @@ static int run_rx(const char *spi_dev,
             }
 
             /* 3) Try to send checksum back to TX (bounded time) */
+            radio_prepare_for_tx(&radio);
             if (nrf24_set_mode_tx(&radio) < 0) {
                 logger_error("nrf24_set_mode_tx failed");
                 page_stream_free(&stream);
@@ -1773,70 +1775,17 @@ static int run_rx(const char *spi_dev,
                 return 1;
             }
 
-            const double send_deadline_ms = 500.0;  /* total window */
-            double send_start = now_seconds();
-            unsigned attempt = 0;
-            int checksum_sent_ok = 0;
+            int checksum_rc = send_with_deadline(&radio,
+                                                 checksum_bytes,
+                                                 CHECKSUM_SIZE,
+                                                 CONTROL_TIMEOUT_MS,
+                                                 CHECKSUM_SEND_DEADLINE_MS,
+                                                 "BURST_CHECKSUM",
+                                                 &rf_bytes_total,
+                                                 &rf_frames_total,
+                                                 cfg);
 
-            while (!checksum_sent_ok &&
-                   (now_seconds() - send_start) * 1000.0 < send_deadline_ms) {
-
-                rf_bytes_total  += CHECKSUM_SIZE;
-                rf_frames_total += 1;
-
-                int ret2 = nrf24_send_blocking(&radio, checksum_bytes, CHECKSUM_SIZE, CONTROL_TIMEOUT_MS);
-
-                if (ret2 == 0) {
-                    checksum_sent_ok = 1;
-                    break;
-                }
-
-                if (errno != ETIMEDOUT) {
-                    logger_error("P2P RX: nrf24_send_blocking(CHECKSUM) failed: %s",
-                          strerror(errno));
-                    page_stream_free(&stream);
-                    fclose(fout);
-                    nrf24_deinit(&radio);
-                    return 1;
-                }
-
-                attempt++;
-                if (attempt == 1 || (attempt % 50) == 0) {
-                    logger_warn("CHECKSUM: timeout (no ACK) on attempt %u for %u-byte frame",
-                         attempt, CHECKSUM_SIZE);
-                }
-
-                if (attempt % 200 == 0) {
-                    logger_warn("P2P RX: %u checksum timeouts, reconfiguring radio", attempt);
-                    if (configure_radio_from_app(&radio, cfg) == 0) {
-                        (void)nrf24_set_mode_tx(&radio);
-                    }
-                }
-            }
-
-            if (!checksum_sent_ok) {
-                logger_warn("P2P RX: checksum timeout for Page %u, BURST %u; returning to RX "
-                     "(TX may resend it)",
-                     (unsigned)cur_burst_page_id, (unsigned)cur_burst_id);
-
-                in_burst = 0;
-
-                if (nrf24_set_mode_rx(&radio) < 0) {
-                    logger_error("nrf24_set_mode_rx failed");
-                    page_stream_free(&stream);
-                    fclose(fout);
-                    nrf24_deinit(&radio);
-                    return 1;
-                }
-                continue;
-            }
-
-
-            logger_succ("P2P RX: checksum for Page %u, BURST %u sent successfully",
-                 (unsigned)cur_burst_page_id, (unsigned)cur_burst_id);
-
-            in_burst = 0;
-
+            radio_clear_irq_flags(&radio);
             if (nrf24_set_mode_rx(&radio) < 0) {
                 logger_error("nrf24_set_mode_rx failed");
                 page_stream_free(&stream);
@@ -1844,6 +1793,33 @@ static int run_rx(const char *spi_dev,
                 nrf24_deinit(&radio);
                 return 1;
             }
+
+            in_burst = 0;
+
+            if (checksum_rc < 0) {
+                logger_error("P2P RX: failed to send checksum for Page %u, BURST %u",
+                             (unsigned)cur_burst_page_id,
+                             (unsigned)cur_burst_id);
+                page_stream_free(&stream);
+                fclose(fout);
+                nrf24_deinit(&radio);
+                return 1;
+            }
+
+            if (checksum_rc > 0) {
+                logger_warn("P2P RX: checksum deadline (Page %u, BURST %u) elapsed; returning to RX",
+                            (unsigned)cur_burst_page_id,
+                            (unsigned)cur_burst_id);
+                continue;
+            }
+
+            last_checksum_cache.valid    = 1;
+            last_checksum_cache.page_id  = cur_burst_page_id;
+            last_checksum_cache.burst_id = (uint8_t)cur_burst_id;
+            memcpy(last_checksum_cache.checksum, checksum_bytes, CHECKSUM_SIZE);
+
+            logger_succ("P2P RX: checksum for Page %u, BURST %u sent successfully",
+                 (unsigned)cur_burst_page_id, (unsigned)cur_burst_id);
 
             /* 4) If this is the "active" page and we know how many bursts it
              * should have, and we've seen them all at least once, decompress
