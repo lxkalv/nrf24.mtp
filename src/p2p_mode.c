@@ -1097,8 +1097,9 @@ static int run_tx(const char *spi_dev,
 
             PageBurstLayout *tx_layout = &tx_page_layouts[page_id];
             tx_layout->frames_per_burst[burst_id] = (uint8_t)num_chunks;
-            if (burst_id + 1 > tx_layout->burst_count) {
-                tx_layout->burst_count = burst_id + 1;
+            unsigned new_burst_count = (unsigned)burst_id + 1u;
+            if (new_burst_count > tx_layout->burst_count) {
+                tx_layout->burst_count = new_burst_count;
             }
             tx_layout->last_burst_index = (int)burst_id;
             tx_layout->last_burst_last_frame_len = burst_sizes[num_chunks - 1];
@@ -1444,6 +1445,7 @@ static int run_rx(const char *spi_dev,
                 }
                 memset(page_finished, 0, sizeof(page_finished));
                 stream_buffers_ready = 0;
+                page_burst_layout_array_reset(rx_page_layouts, MAX_PAGES);
             }
 
             if (!stream_buffers_ready) {
@@ -1544,19 +1546,13 @@ static int run_rx(const char *spi_dev,
             uint8_t page_id  = buf[2];
             uint8_t burst_id = buf[3];
             uint16_t size_of_burst = decode_u16_le(&buf[4]);
-                                      &bursts_completed,
-                                      burst_received,
-                                      rx_page_layouts);
             int is_finished_page = (page_id < MAX_PAGES && page_finished[page_id]);
-            int page_changed = 0;
 
             if (!is_finished_page) {
                 if (!active_page_valid) {
                     active_page_valid = 1;
                     active_page_id = page_id;
-                    page_changed = 1;
                 } else if (page_id != active_page_id) {
-                page_burst_layout_array_reset(rx_page_layouts, MAX_PAGES);
                     flush_active_page(active_page_id,
                                       page_finished,
                                       &stream,
@@ -1568,7 +1564,6 @@ static int run_rx(const char *spi_dev,
                                       burst_received,
                                       rx_page_layouts);
                     active_page_id = page_id;
-                    page_changed = 1;
                 }
             }
 
@@ -1604,8 +1599,9 @@ static int run_rx(const char *spi_dev,
                     : 0u;
                 rx_layout->comp_bytes += payload_bytes;
                 rx_layout->frames_per_burst[burst_id] = (uint8_t)frames_in_burst;
-                if (burst_id + 1 > rx_layout->burst_count) {
-                    rx_layout->burst_count = burst_id + 1;
+                unsigned new_rx_burst_count = (unsigned)burst_id + 1u;
+                if (new_rx_burst_count > rx_layout->burst_count) {
+                    rx_layout->burst_count = new_rx_burst_count;
                 }
                 if ((int)burst_id >= rx_layout->last_burst_index) {
                     rx_layout->last_burst_index = (int)burst_id;
