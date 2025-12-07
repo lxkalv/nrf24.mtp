@@ -78,4 +78,10 @@ int  nrf24_recv_blocking(nrf24_t *dev,
                          void *payload, uint8_t *length_inout,
                          unsigned int timeout_ms);
 
+/* IRQ/FIFO helpers (safe to call repeatedly; used when toggling TX/RX) */
+int  nrf24_clear_interrupts(nrf24_t *dev);
+int  nrf24_flush_tx(nrf24_t *dev);
+int  nrf24_flush_rx(nrf24_t *dev);
+int  nrf24_flush_tx_rx(nrf24_t *dev);
+
 #endif /* NRF24_H */
