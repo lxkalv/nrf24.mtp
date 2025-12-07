@@ -148,6 +148,70 @@ static int maybe_verify_radio_config(const app_config_t *cfg, nrf24_t *radio, co
 #define MAX_BURSTS_PER_PAGE  255   /* burst_id is 8-bit on the air */
 #define MAX_PAGES            16    /* safety margin for page_finished array */
 
+typedef struct {
+    size_t   comp_bytes;
+    unsigned burst_count;
+    uint8_t  frames_per_burst[MAX_BURSTS_PER_PAGE];
+    int      last_burst_index;
+    uint8_t  last_burst_last_frame_len;
+} PageBurstLayout;
+
+static void page_burst_layout_reset(PageBurstLayout *layout)
+{
+    if (!layout) {
+        return;
+    }
+    layout->comp_bytes = 0;
+    layout->burst_count = 0;
+    layout->last_burst_index = -1;
+    layout->last_burst_last_frame_len = 0;
+    memset(layout->frames_per_burst, 0, sizeof(layout->frames_per_burst));
+}
+
+static void page_burst_layout_array_reset(PageBurstLayout *layouts, size_t count)
+{
+    if (!layouts) {
+        return;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        page_burst_layout_reset(&layouts[i]);
+    }
+}
+
+static void log_page_burst_layout(const char *context,
+                                  unsigned page_id,
+                                  const PageBurstLayout *layout)
+{
+    if (!layout) {
+        return;
+    }
+    if (layout->burst_count == 0 && layout->comp_bytes == 0) {
+        logger_info("%s: Page %u layout -> comp=0 B, bursts=0", context, page_id);
+        return;
+    }
+    logger_info("%s: Page %u layout -> comp=%zu B, bursts=%u, last burst last frame=%u B",
+                context,
+                page_id,
+                (size_t)layout->comp_bytes,
+                layout->burst_count,
+                (unsigned)layout->last_burst_last_frame_len);
+
+    for (unsigned b = 0; b < layout->burst_count; ++b) {
+        logger_info("%s:   Burst %u -> frames=%u",
+                    context,
+                    b,
+                    (unsigned)layout->frames_per_burst[b]);
+    }
+}
+
+static void log_stream_info_format(const char *context)
+{
+    logger_info("%s: STREAM_INFO format -> [0]=MSG_INFO, [1]=P2P_MSG_STREAM_INFO, "
+                "[2]=reserved0, [3]=reserved1, [4..7]=compressed_len_le, "
+                "[8..11]=frame_count_le, [12..15]=original_len_le",
+                context);
+}
+
 /* ---- Time helper ---- */
 static double now_seconds(void) {
     struct timespec ts;
@@ -687,10 +751,14 @@ static void flush_active_page(uint8_t page_id,
                               uint64_t *uncompressed_total,
                               int *page_has_data,
                               unsigned *bursts_completed,
-                              uint8_t burst_received[MAX_BURSTS_PER_PAGE])
+                              uint8_t burst_received[MAX_BURSTS_PER_PAGE],
+                              PageBurstLayout *page_layouts)
 {
     if (!page_has_data || !*page_has_data) {
         reset_page_buffer(ps, page_has_data, bursts_completed, burst_received);
+        if (page_layouts && page_id < MAX_PAGES) {
+            page_burst_layout_reset(&page_layouts[page_id]);
+        }
         return;
     }
 
@@ -703,6 +771,10 @@ static void flush_active_page(uint8_t page_id,
         logger_succ("P2P RX: flushing buffered Page %u (%u bursts)",
                     (unsigned)page_id,
                     stored_bursts);
+        if (page_layouts && page_id < MAX_PAGES) {
+            log_page_burst_layout("P2P RX", page_id, &page_layouts[page_id]);
+            page_burst_layout_reset(&page_layouts[page_id]);
+        }
         (void)decompress_page_to_file(ps, fout, compressed_total, uncompressed_total);
         page_finished[page_id] = 1;
     }
@@ -803,6 +875,9 @@ static int run_tx(const char *spi_dev,
     TxPageInfo pages[P2P_NUM_PAGES];
     memset(pages, 0, sizeof(pages));
 
+    PageBurstLayout tx_page_layouts[P2P_NUM_PAGES];
+    page_burst_layout_array_reset(tx_page_layouts, P2P_NUM_PAGES);
+
 
     uint64_t total_compressed    = 0;
     uint64_t total_frames_planned = 0;
@@ -847,6 +922,7 @@ static int run_tx(const char *spi_dev,
         size_t comp_len = (size_t)dest_len;
         pages[page_id].comp_data = comp_page;
         pages[page_id].comp_len  = comp_len;
+        tx_page_layouts[page_id].comp_bytes = comp_len;
 
 
         double ratio = (page_len == 0)
@@ -876,8 +952,8 @@ static int run_tx(const char *spi_dev,
     uint8_t stream_info[P2P_STREAM_INFO_SIZE] = {0};
     stream_info[0] = MSG_INFO;
     stream_info[1] = P2P_MSG_STREAM_INFO;
-    stream_info[2] = 1;  /* chunk IDs fit in one byte */
-    stream_info[3] = 0;
+    stream_info[2] = 0;  /* reserved */
+    stream_info[3] = 0;  /* reserved */
     encode_u32_le(&stream_info[4],  (uint32_t)total_compressed);
     encode_u32_le(&stream_info[8],  (uint32_t)total_frames_planned);
     encode_u32_le(&stream_info[12], (uint32_t)orig_len);
@@ -887,6 +963,7 @@ static int run_tx(const char *spi_dev,
                 (unsigned long long)total_compressed,
                 (unsigned long long)orig_len,
                 (unsigned long long)total_frames_planned);
+    log_stream_info_format("P2P TX");
 
     int stream_info_confirmed = 0;
     while (!stream_info_confirmed) {
@@ -1018,6 +1095,14 @@ static int run_tx(const char *spi_dev,
                         page_id, burst_id, (unsigned)burst_data_bytes, num_chunks,
                         (unsigned long long)chk_state);
 
+            PageBurstLayout *tx_layout = &tx_page_layouts[page_id];
+            tx_layout->frames_per_burst[burst_id] = (uint8_t)num_chunks;
+            if (burst_id + 1 > tx_layout->burst_count) {
+                tx_layout->burst_count = burst_id + 1;
+            }
+            tx_layout->last_burst_index = (int)burst_id;
+            tx_layout->last_burst_last_frame_len = burst_sizes[num_chunks - 1];
+
 
             int burst_done = 0;
             while (!burst_done) {
@@ -1133,6 +1218,8 @@ static int run_tx(const char *spi_dev,
         if (page_len > 0) {
             logger_info("P2P TX: Page %u fully transmitted", page_id);
         }
+
+        log_page_burst_layout("P2P TX", page_id, &tx_page_layouts[page_id]);
     }
 
 
@@ -1231,18 +1318,21 @@ static int run_rx(const char *spi_dev,
     PageStream stream;
     page_stream_init(&stream);
 
+    PageBurstLayout rx_page_layouts[MAX_PAGES];
+    page_burst_layout_array_reset(rx_page_layouts, MAX_PAGES);
+
 
     const int listen_channel = cfg ? cfg->channel : P2P_CHANNEL;
     logger_info("P2P RX: waiting for STREAM_INFO / BURST_INFO on channel %d...",
                 listen_channel);
 
 
-     int transfer_finished = 0;
-     int tx_started        = 0;
-     double t_start        = 0.0;
+    int transfer_finished = 0;
+    int tx_started        = 0;
+    double t_start        = 0.0;
+    int stream_info_format_logged = 0;
 
 
-    uint8_t  chunk_id_bytes           = 0;
     uint32_t expected_stream_compressed = 0;
     uint32_t expected_stream_frames     = 0;
     uint32_t expected_stream_orig       = 0;
@@ -1320,14 +1410,14 @@ static int run_rx(const char *spi_dev,
             }
 
 
-            uint8_t incoming_chunk_bytes = buf[2];
+            uint8_t reserved0 = buf[2];
+            uint8_t reserved1 = buf[3];
             uint32_t incoming_comp    = decode_u32_le(&buf[4]);
             uint32_t incoming_frames  = decode_u32_le(&buf[8]);
             uint32_t incoming_orig    = decode_u32_le(&buf[12]);
 
 
             int same_stream = have_stream_info &&
-                              incoming_chunk_bytes == chunk_id_bytes &&
                               incoming_comp       == expected_stream_compressed &&
                               incoming_frames     == expected_stream_frames &&
                               incoming_orig       == expected_stream_orig;
@@ -1343,7 +1433,8 @@ static int run_rx(const char *spi_dev,
                                       &uncompressed_total,
                                       &page_has_data,
                                       &bursts_completed,
-                                      burst_received);
+                                      burst_received,
+                                      rx_page_layouts);
                     active_page_valid = 0;
                 } else {
                     reset_page_buffer(&stream,
@@ -1372,23 +1463,22 @@ static int run_rx(const char *spi_dev,
             }
 
 
-            chunk_id_bytes             = incoming_chunk_bytes;
             expected_stream_compressed = incoming_comp;
             expected_stream_frames     = incoming_frames;
             expected_stream_orig       = incoming_orig;
             have_stream_info           = 1;
 
-
-            if (chunk_id_bytes != 1) {
-                logger_warn("P2P RX: unexpected chunk ID width %u (expected 1)", chunk_id_bytes);
+            if (!stream_info_format_logged) {
+                log_stream_info_format("P2P RX");
+                stream_info_format_logged = 1;
             }
 
-
-            logger_info("P2P RX: STREAM_INFO -> chunk_id_bytes=%u, comp=%u B, orig=%u B, frames=%u",
-                        (unsigned)chunk_id_bytes,
+            logger_info("P2P RX: STREAM_INFO -> comp=%u B, orig=%u B, frames=%u (reserved0=%u, reserved1=%u)",
                         expected_stream_compressed,
                         expected_stream_orig,
-                        expected_stream_frames);
+                        expected_stream_frames,
+                        (unsigned)reserved0,
+                        (unsigned)reserved1);
 
             uint8_t stream_info_reply[P2P_STREAM_INFO_SIZE];
             memcpy(stream_info_reply, buf, P2P_STREAM_INFO_SIZE);
@@ -1454,8 +1544,9 @@ static int run_rx(const char *spi_dev,
             uint8_t page_id  = buf[2];
             uint8_t burst_id = buf[3];
             uint16_t size_of_burst = decode_u16_le(&buf[4]);
-
-
+                                      &bursts_completed,
+                                      burst_received,
+                                      rx_page_layouts);
             int is_finished_page = (page_id < MAX_PAGES && page_finished[page_id]);
             int page_changed = 0;
 
@@ -1465,6 +1556,7 @@ static int run_rx(const char *spi_dev,
                     active_page_id = page_id;
                     page_changed = 1;
                 } else if (page_id != active_page_id) {
+                page_burst_layout_array_reset(rx_page_layouts, MAX_PAGES);
                     flush_active_page(active_page_id,
                                       page_finished,
                                       &stream,
@@ -1473,7 +1565,8 @@ static int run_rx(const char *spi_dev,
                                       &uncompressed_total,
                                       &page_has_data,
                                       &bursts_completed,
-                                      burst_received);
+                                      burst_received,
+                                      rx_page_layouts);
                     active_page_id = page_id;
                     page_changed = 1;
                 }
@@ -1504,6 +1597,22 @@ static int run_rx(const char *spi_dev,
                  (unsigned)page_id, (unsigned)burst_id,
                  (unsigned)size_of_burst, frames_in_burst);
 
+            if (page_id < MAX_PAGES && !is_finished_page) {
+                PageBurstLayout *rx_layout = &rx_page_layouts[page_id];
+                size_t payload_bytes = (size_of_burst >= frames_in_burst)
+                    ? (size_t)size_of_burst - (size_t)frames_in_burst
+                    : 0u;
+                rx_layout->comp_bytes += payload_bytes;
+                rx_layout->frames_per_burst[burst_id] = (uint8_t)frames_in_burst;
+                if (burst_id + 1 > rx_layout->burst_count) {
+                    rx_layout->burst_count = burst_id + 1;
+                }
+                if ((int)burst_id >= rx_layout->last_burst_index) {
+                    rx_layout->last_burst_index = (int)burst_id;
+                    rx_layout->last_burst_last_frame_len = last_len;
+                }
+            }
+
 
             in_burst = 1;
             continue;
@@ -1524,7 +1633,8 @@ static int run_rx(const char *spi_dev,
                                   &uncompressed_total,
                                   &page_has_data,
                                   &bursts_completed,
-                                  burst_received);
+                                  burst_received,
+                                  rx_page_layouts);
                 active_page_valid = 0;
             }
 
@@ -1742,7 +1852,8 @@ static int run_rx(const char *spi_dev,
                           &uncompressed_total,
                           &page_has_data,
                           &bursts_completed,
-                          burst_received);
+                          burst_received,
+                          rx_page_layouts);
         active_page_valid = 0;
     }
 
