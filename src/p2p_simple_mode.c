@@ -1268,7 +1268,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
 
         memcpy(page_buffer + active_page_received, &buf[1], len - 1);
         active_page_received += (len - 1);
-        trans_checksum_update(&active_page_checksum_state, buf, len);
+        trans_checksum_update(&active_page_checksum_state, &buf[1], len - 1);
 
         ++burst_frame_index;
         if (burst_frame_index == burst_expected_frames) {
