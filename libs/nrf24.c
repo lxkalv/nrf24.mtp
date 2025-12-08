@@ -45,6 +45,11 @@
 #define NRF24_REG_DYNPD            0x1C
 #define NRF24_REG_FEATURE          0x1D
 
+#define NRF24_FIFO_STATUS_RX_EMPTY (1 << 0)
+#define NRF24_FIFO_STATUS_RX_FULL  (1 << 1)
+#define NRF24_FIFO_STATUS_TX_EMPTY (1 << 4)
+#define NRF24_FIFO_STATUS_TX_FULL  (1 << 5)
+
 #define NRF24_FEATURE_EN_DPL       (1 << 2)
 #define NRF24_FEATURE_EN_ACK_PAY   (1 << 1)
 #define NRF24_FEATURE_EN_DYN_ACK   (1 << 0)
@@ -277,10 +282,23 @@ int nrf24_flush_tx_rx(nrf24_t *dev)
 
 int nrf24_clear_interrupts(nrf24_t *dev)
 {
-    return nrf24_write_reg(dev, NRF24_REG_STATUS,
-                           NRF24_STATUS_RX_DR |
-                           NRF24_STATUS_TX_DS |
-                           NRF24_STATUS_MAX_RT);
+    if (!dev) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    uint8_t fifo_status = 0;
+    if (nrf24_read_reg(dev, NRF24_REG_FIFO_STATUS, &fifo_status) < 0) {
+        return -1;
+    }
+
+    /* Leave RX_DR asserted if there is still unread payload in the FIFO. */
+    uint8_t status_mask = NRF24_STATUS_TX_DS | NRF24_STATUS_MAX_RT;
+    if (fifo_status & NRF24_FIFO_STATUS_RX_EMPTY) {
+        status_mask |= NRF24_STATUS_RX_DR;
+    }
+
+    return nrf24_write_reg(dev, NRF24_REG_STATUS, status_mask);
 }
 
 int nrf24_set_address(nrf24_t *dev, uint8_t reg, const uint8_t addr[5])
