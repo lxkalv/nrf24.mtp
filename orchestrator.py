@@ -37,17 +37,17 @@ class OrchestratorLogger:
     """Mimics the robust_mode logger: colored console output + timestamped file."""
 
     def __init__(self, base_name: str = "orchestrator") -> None:
-        self._base_name = base_name
+        self._base_name            = base_name
         self.log_path: Path | None = None
-        self._file_handle = None
-        self._lock = threading.Lock()
-        self._domain_prefix = f"[{self._base_name.lower()}]"
+        self._file_handle          = None
+        self._lock                 = threading.Lock()
+        self._domain_prefix        = f"[{self._base_name.lower()}]"
         self._open_log_file()
 
     def _open_log_file(self) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            LOG_DIR.mkdir(parents = True, exist_ok = True)
             self.log_path = LOG_DIR / f"{self._base_name}_{timestamp}.log"
             self._file_handle = self.log_path.open("w", encoding="utf-8")
             header_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -122,16 +122,16 @@ class SoftReset(Exception):
 
 # --- PIN CONFIGURATION ---
 # LEDs
-led_insert_usb = LED(25) #este esta mal
-led_extract_usb = LED(26)
-led_device_config = LED(23) #este bien 
-led_rxtx_status = LED(16)
+led_insert_usb    = LED(25)
+led_extract_usb   = LED(26)
+led_device_config = LED(23)
+led_rxtx_status   = LED(16)
 
 # Inputs
-btn_interact = Button(19)
-btn_stop = Button(6)
-switch_mode = DigitalInputDevice(27, pull_up=True)     
-switch_scenario = DigitalInputDevice(17, pull_up=True) 
+btn_interact    = Button(19)
+btn_stop        = Button(6)
+switch_mode     = DigitalInputDevice(27, pull_up = True)     
+switch_scenario = DigitalInputDevice(17, pull_up = True) 
 
 # --- CONSTANTS ---
 USB_MOUNT_PATH = Path("/media")

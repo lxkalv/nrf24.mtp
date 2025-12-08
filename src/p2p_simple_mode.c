@@ -973,6 +973,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     uint8_t  burst_frame_index = 0;
     uint8_t  burst_page_id = 0;
     int      in_burst = 0;
+    int      warned_outside_burst = 0;
     int      have_stream_info = 0;
     uint32_t total_orig_size = 0;
     uint64_t expected_total_comp = 0;
@@ -1192,8 +1193,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 }
 
                 if (burst_id == 0 && active_page_received > 0) {
-                    logger_warn("p2p RX: restart detected for Page %u; discarding partial data", page_id);
-                    active_page_received = 0;
+                    logger_warn("p2p RX: duplicate burst start for Page %u; keeping prior data", page_id);
                 }
 
                 if (active_page_expected > page_buffer_cap) {
@@ -1210,6 +1210,7 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 burst_page_id = page_id;
                 burst_frame_index = 0;
                 in_burst = 1;
+                warned_outside_burst = 0;
                 continue;
             }
 
@@ -1228,7 +1229,10 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
         }
 
         if (!in_burst) {
-            logger_warn("p2p RX: data frame received outside of burst context");
+            if (!warned_outside_burst) {
+                logger_warn("p2p RX: data frame received outside of burst context (muted)");
+                warned_outside_burst = 1;
+            }
             continue;
         }
 
@@ -1246,14 +1250,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             logger_warn("p2p RX: frame len mismatch (expected %u, got %u)",
                         burst_frame_lengths[burst_frame_index],
                         len);
-            continue;
-        }
-
-        uint8_t frame_id = buf[0];
-        if (frame_id != burst_frame_index) {
-            logger_warn("p2p RX: frame order mismatch (expected %u, got %u)",
-                        burst_frame_index,
-                        frame_id);
             continue;
         }
 
