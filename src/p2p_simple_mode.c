@@ -31,19 +31,21 @@
 #define CONTROL_TIMEOUT_MS                        200
 #define DATA_TIMEOUT_MS                            60
 #define CHECKSUM_TIMEOUT_MS                      1000
-#define PAGE_CHECKSUM_TIMEOUT_MS                 1500
+#define BURST_CHECKSUM_TIMEOUT_MS                1500
 #define FINISH_ACK_TIMEOUT_MS                    2000
 
 #define STREAM_INFO_SIZE                           32
 #define STREAM_READY_SIZE                          11
 #define STREAM_READY_MAX_ATTEMPTS                 400
 #define STREAM_READY_WINDOW_MS                   2000
-#define PAGE_CHECKSUM_MSG_SIZE   (2 + 1 + CHECKSUM_SIZE)
+#define BURST_CHECKSUM_MSG_SIZE  (2 + 2 + CHECKSUM_SIZE)
 #define MODE_SWITCH_TX_DELAY_MS                    50
 #define MODE_SWITCH_RX_DELAY_MS                    10
 
 #define FNV64_OFFSET_BASIS        1469598103934665603ULL
 #define FNV64_PRIME                     1099511628211ULL
+
+#define MAX_BURSTS_PER_PAGE  (((TRANS_STREAM_MAX_PAGE_COMP_SIZE) / TRANS_DATA_BYTES_PER_BURST) + 2)
 
 typedef struct {
     uint8_t  channel;
@@ -283,14 +285,16 @@ static int build_tx_pages(const uint8_t *file_data,
                           uint32_t page_comp_sizes[TRANS_NUM_PAGES],
                           uint64_t *total_comp_len,
                           uint32_t *total_frames_planned);
-static int wait_for_page_checksum(nrf24_t *radio,
-                                  uint8_t expected_page_id,
-                                  uint64_t expected_checksum);
-static int send_page_checksum(nrf24_t *radio,
-                              uint8_t page_id,
-                              uint64_t checksum,
-                              uint64_t *rf_bytes_total,
-                              uint64_t *rf_frames_total);
+static int wait_for_burst_checksum(nrf24_t *radio,
+                                   uint8_t expected_page_id,
+                                   uint8_t expected_burst_id,
+                                   uint64_t expected_checksum);
+static int send_burst_checksum(nrf24_t *radio,
+                               uint8_t page_id,
+                               uint8_t burst_id,
+                               uint64_t checksum,
+                               uint64_t *rf_bytes_total,
+                               uint64_t *rf_frames_total);
 static void compute_page_orig_sizes(uint32_t total_orig_len,
                                     uint32_t out_sizes[TRANS_NUM_PAGES]);
 static uint32_t estimate_total_frames(const uint32_t page_comp_sizes[TRANS_NUM_PAGES]);
@@ -801,19 +805,21 @@ static int run_tx(const char *spi_dev,
                         page->burst_count);
         }
 
-        int page_done = 0;
-        unsigned resend_round = 0;
+        if (page->burst_count == 0 && page->comp_len == 0) {
+            uint8_t empty_info[6] = {
+                TRANS_MSG_INFO,
+                TRANS_MSG_BURST_INFO,
+                (uint8_t)page_id,
+                0,
+                0,
+                0
+            };
+            unsigned attempt = 0;
+            uint64_t checksum_state;
+            trans_checksum_init(&checksum_state);
+            uint64_t empty_checksum = trans_checksum_final(checksum_state);
 
-        while (!page_done) {
-            if (page->burst_count == 0 && page->comp_len == 0) {
-                uint8_t empty_info[6] = {
-                    TRANS_MSG_INFO,
-                    TRANS_MSG_BURST_INFO,
-                    (uint8_t)page_id,
-                    0,
-                    0,
-                    0
-                };
+            while (1) {
                 if (send_with_retries(&radio,
                                       empty_info,
                                       sizeof(empty_info),
@@ -824,16 +830,37 @@ static int run_tx(const char *spi_dev,
                     logger_error("Failed to signal empty page %u", page_id);
                     goto cleanup;
                 }
+
+                int ack_rc = wait_for_burst_checksum(&radio,
+                                                      (uint8_t)page_id,
+                                                      0,
+                                                      empty_checksum);
+                if (ack_rc == 0) {
+                    break;
+                }
+                if (ack_rc < 0) {
+                    goto cleanup;
+                }
+                ++attempt;
+                logger_warn("p2p TX: resending empty burst for Page %u (attempt %u)",
+                            page_id,
+                            attempt + 1);
             }
+            continue;
+        }
 
-            for (size_t burst_idx = 0; burst_idx < page->burst_count; ++burst_idx) {
-                const trans_burst_t *burst = &page->bursts[burst_idx];
-                uint8_t info[6];
-                trans_build_burst_info((uint8_t)page_id,
-                                       (uint8_t)burst_idx,
-                                       burst,
-                                       info);
+        for (size_t burst_idx = 0; burst_idx < page->burst_count; ++burst_idx) {
+            const trans_burst_t *burst = &page->bursts[burst_idx];
+            uint8_t info[6];
+            trans_build_burst_info((uint8_t)page_id,
+                                   (uint8_t)burst_idx,
+                                   burst,
+                                   info);
 
+            uint64_t expected_checksum = trans_compute_burst_checksum(burst);
+            unsigned attempt = 0;
+
+            while (1) {
                 if (send_with_retries(&radio,
                                       info,
                                       sizeof(info),
@@ -870,23 +897,24 @@ static int run_tx(const char *spi_dev,
                         goto cleanup;
                     }
                 }
-            }
 
-            int checksum_rc = wait_for_page_checksum(&radio,
+                int ack_rc = wait_for_burst_checksum(&radio,
                                                       (uint8_t)page_id,
-                                                      page->checksum);
-            if (checksum_rc == 0) {
-                page_done = 1;
-                break;
-            }
-            if (checksum_rc < 0) {
-                goto cleanup;
-            }
+                                                      (uint8_t)burst_idx,
+                                                      expected_checksum);
+                if (ack_rc == 0) {
+                    break;
+                }
+                if (ack_rc < 0) {
+                    goto cleanup;
+                }
 
-            ++resend_round;
-            logger_warn("p2p TX: resending Page %u (attempt %u)",
-                        page_id,
-                        resend_round + 1);
+                ++attempt;
+                logger_warn("p2p TX: resending Page %u Burst %zu (attempt %u)",
+                            page_id,
+                            burst_idx,
+                            attempt + 1);
+            }
         }
     }
 
@@ -972,6 +1000,12 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     uint8_t  burst_expected_frames = 0;
     uint8_t  burst_frame_index = 0;
     uint8_t  burst_page_id = 0;
+    uint8_t  burst_id = 0;
+    uint8_t  next_expected_burst_id = 0;
+    uint32_t burst_data_received = 0;
+    int      burst_is_duplicate = 0;
+    uint64_t burst_checksum_state = 0;
+    uint32_t burst_offsets[MAX_BURSTS_PER_PAGE] = {0};
     int      in_burst = 0;
     int      warned_outside_burst = 0;
     int      have_stream_info = 0;
@@ -1082,6 +1116,11 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 active_page_id = 0;
                 active_page_expected = page_expected_comp[0];
                 active_page_received = 0;
+                next_expected_burst_id = 0;
+                burst_data_received = 0;
+                burst_is_duplicate = 0;
+                warned_outside_burst = 0;
+                memset(burst_offsets, 0, sizeof(burst_offsets));
                 in_burst = 0;
 
                 logger_info("p2p RX: STREAM_INFO -> total_orig=%u bytes, total_comp=%llu bytes",
@@ -1143,12 +1182,12 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 }
 
                 uint8_t page_id = 0;
-                uint8_t burst_id = 0;
+                uint8_t parsed_burst_id = 0;
                 uint16_t burst_size = 0;
                 if (trans_parse_burst_info(buf,
                                            len,
                                            &page_id,
-                                           &burst_id,
+                                           &parsed_burst_id,
                                            &burst_size) != 0) {
                     logger_warn("p2p RX: malformed BURST_INFO frame");
                     continue;
@@ -1159,27 +1198,50 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                     continue;
                 }
 
+                if (parsed_burst_id >= MAX_BURSTS_PER_PAGE) {
+                    logger_warn("p2p RX: burst %u exceeds local tracking capacity", parsed_burst_id);
+                    continue;
+                }
+
                 if (page_id != active_page_id) {
                     logger_info("p2p RX: switching to Page %u", page_id);
                     active_page_id = page_id;
                     active_page_expected = page_expected_comp[page_id];
                     active_page_received = 0;
-                    in_burst = 0;
+                    next_expected_burst_id = 0;
                 }
 
                 if (burst_size == 0) {
-                    logger_info("p2p RX: Page %u declared empty", page_id);
+                    logger_info("p2p RX: Page %u burst %u declared empty", page_id, parsed_burst_id);
                     uint64_t checksum_state;
                     trans_checksum_init(&checksum_state);
                     uint64_t checksum_value = trans_checksum_final(checksum_state);
-                    if (send_page_checksum(&radio,
-                                           page_id,
-                                           checksum_value,
-                                           &rf_tx_bytes,
-                                           &rf_tx_frames) < 0) {
+                    burst_offsets[parsed_burst_id] = active_page_received;
+                    if (send_burst_checksum(&radio,
+                                            page_id,
+                                            parsed_burst_id,
+                                            checksum_value,
+                                            &rf_tx_bytes,
+                                            &rf_tx_frames) < 0) {
                         goto cleanup_rx;
                     }
-                    ++pages_completed;
+                    if (parsed_burst_id == next_expected_burst_id) {
+                        next_expected_burst_id = (uint8_t)(parsed_burst_id + 1);
+                    }
+                    if (active_page_expected == 0) {
+                        ++pages_completed;
+                        active_page_id += 1;
+                        if (active_page_id < TRANS_NUM_PAGES) {
+                            active_page_expected = page_expected_comp[active_page_id];
+                        } else {
+                            active_page_expected = 0;
+                        }
+                        active_page_received = 0;
+                        next_expected_burst_id = 0;
+                        burst_data_received = 0;
+                        burst_is_duplicate = 0;
+                        memset(burst_offsets, 0, sizeof(burst_offsets));
+                    }
                     continue;
                 }
 
@@ -1190,10 +1252,6 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                                 page_id,
                                 burst_size);
                     continue;
-                }
-
-                if (burst_id == 0 && active_page_received > 0) {
-                    logger_warn("p2p RX: duplicate burst start for Page %u; keeping prior data", page_id);
                 }
 
                 if (active_page_expected > page_buffer_cap) {
@@ -1208,7 +1266,14 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 }
 
                 burst_page_id = page_id;
+                burst_id = parsed_burst_id;
                 burst_frame_index = 0;
+                burst_data_received = 0;
+                burst_is_duplicate = (burst_id < next_expected_burst_id);
+                if (!burst_is_duplicate) {
+                    burst_offsets[burst_id] = active_page_received;
+                }
+                trans_checksum_init(&burst_checksum_state);
                 in_burst = 1;
                 warned_outside_burst = 0;
                 continue;
@@ -1253,38 +1318,43 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
             continue;
         }
 
-        if (active_page_received + (len - 1) > active_page_expected) {
+        uint32_t burst_offset = burst_offsets[burst_id];
+        if (burst_offset + burst_data_received + (len - 1) > active_page_expected) {
             logger_warn("p2p RX: page buffer overflow (page %u)", active_page_id);
             continue;
         }
 
-        memcpy(page_buffer + active_page_received, &buf[1], len - 1);
-        active_page_received += (len - 1);
+        memcpy(page_buffer + burst_offset + burst_data_received, &buf[1], len - 1);
+        burst_data_received += (len - 1);
+        trans_checksum_update(&burst_checksum_state, buf, len);
 
         ++burst_frame_index;
         if (burst_frame_index == burst_expected_frames) {
+            uint64_t checksum_value = trans_checksum_final(burst_checksum_state);
+            if (send_burst_checksum(&radio,
+                                    burst_page_id,
+                                    burst_id,
+                                    checksum_value,
+                                    &rf_tx_bytes,
+                                    &rf_tx_frames) < 0) {
+                goto cleanup_rx;
+            }
+            if (!burst_is_duplicate) {
+                active_page_received = burst_offset + burst_data_received;
+                next_expected_burst_id = (uint8_t)(burst_id + 1);
+            }
+
+            burst_data_received = 0;
+            burst_is_duplicate = 0;
             in_burst = 0;
             burst_frame_index = 0;
         }
 
-        if (active_page_received == active_page_expected) {
-            uint64_t checksum_state;
-            trans_checksum_init(&checksum_state);
-            /* hash the assembled compressed page so TX/RX share identical bytes */
-            trans_checksum_update(&checksum_state, page_buffer, active_page_received);
-            uint64_t checksum_value = trans_checksum_final(checksum_state);
-            if (send_page_checksum(&radio,
-                                   active_page_id,
-                                   checksum_value,
-                                   &rf_tx_bytes,
-                                   &rf_tx_frames) < 0) {
-                goto cleanup_rx;
-            }
-
+        if (active_page_expected == 0 || active_page_received == active_page_expected) {
             if (page_orig_sizes[active_page_id] > 0) {
                 uint8_t *page_out = NULL;
                 if (decompress_buffer(page_buffer,
-                                       active_page_received,
+                                       active_page_expected,
                                        &page_out,
                                        page_orig_sizes[active_page_id]) != 0) {
                     logger_error("p2p RX: failed to decompress page %u", active_page_id);
@@ -1306,6 +1376,10 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 active_page_expected = 0;
             }
             active_page_received = 0;
+            next_expected_burst_id = 0;
+            burst_data_received = 0;
+            burst_is_duplicate = 0;
+            memset(burst_offsets, 0, sizeof(burst_offsets));
         }
     }
 
@@ -1535,16 +1609,17 @@ static int build_tx_pages(const uint8_t *file_data,
     return 0;
 }
 
-static int wait_for_page_checksum(nrf24_t *radio,
-                                  uint8_t expected_page_id,
-                                  uint64_t expected_checksum)
+static int wait_for_burst_checksum(nrf24_t *radio,
+                                   uint8_t expected_page_id,
+                                   uint8_t expected_burst_id,
+                                   uint64_t expected_checksum)
 {
     if (ensure_mode_rx(radio) != 0) {
         return -1;
     }
 
     double wait_start = now_seconds();
-    while ((now_seconds() - wait_start) * 1000.0 < PAGE_CHECKSUM_TIMEOUT_MS) {
+    while ((now_seconds() - wait_start) * 1000.0 < BURST_CHECKSUM_TIMEOUT_MS) {
         uint8_t buf[MAX_PAYLOAD];
         uint8_t len = sizeof(buf);
         int ret = nrf24_recv_blocking(radio, buf, &len, CONTROL_TIMEOUT_MS);
@@ -1552,33 +1627,36 @@ static int wait_for_page_checksum(nrf24_t *radio,
             if (errno == ETIMEDOUT) {
                 continue;
             }
-            logger_error("p2p TX: waiting for page checksum failed: %s", strerror(errno));
+            logger_error("p2p TX: waiting for burst checksum failed: %s", strerror(errno));
             (void)ensure_mode_tx(radio);
             return -1;
         }
 
         if (len < 2 || buf[0] != CONTROL_PREFIX) {
-            logger_warn("p2p TX: ignoring non-control frame while waiting for page checksum");
+            logger_warn("p2p TX: ignoring non-control frame while waiting for burst checksum");
             continue;
         }
 
         if (buf[1] != MSG_CHECKSUM) {
-            logger_warn("p2p TX: control 0x%02X while waiting for page checksum", buf[1]);
+            logger_warn("p2p TX: control 0x%02X while waiting for burst checksum", buf[1]);
             continue;
         }
 
-        if (len < PAGE_CHECKSUM_MSG_SIZE) {
-            logger_warn("p2p TX: malformed page checksum frame (len=%u)", len);
+        if (len < BURST_CHECKSUM_MSG_SIZE) {
+            logger_warn("p2p TX: malformed burst checksum frame (len=%u)", len);
             continue;
         }
 
         uint8_t page_id = buf[2];
-        uint64_t rx_checksum = decode_u64_le(&buf[3]);
+        uint8_t burst_id = buf[3];
+        uint64_t rx_checksum = decode_u64_le(&buf[4]);
 
-        if (page_id != expected_page_id) {
-            logger_warn("p2p TX: checksum for unexpected page %u (expecting %u)",
+        if (page_id != expected_page_id || burst_id != expected_burst_id) {
+            logger_warn("p2p TX: checksum for unexpected burst (page %u vs %u, burst %u vs %u)",
                         page_id,
-                        expected_page_id);
+                        expected_page_id,
+                        burst_id,
+                        expected_burst_id);
             continue;
         }
 
@@ -1587,35 +1665,42 @@ static int wait_for_page_checksum(nrf24_t *radio,
         }
 
         if (rx_checksum == expected_checksum) {
-            logger_info("p2p TX: Page %u checksum confirmed", page_id);
+            logger_info("p2p TX: Page %u Burst %u checksum confirmed",
+                        page_id,
+                        burst_id);
             return 0;
         }
 
-        logger_warn("p2p TX: checksum mismatch on page %u (expected 0x%016llX, got 0x%016llX)",
+        logger_warn("p2p TX: checksum mismatch on page %u burst %u (expected 0x%016llX, got 0x%016llX)",
                     page_id,
+                    burst_id,
                     (unsigned long long)expected_checksum,
                     (unsigned long long)rx_checksum);
         return 1;
     }
 
-    logger_warn("p2p TX: timeout waiting for checksum of page %u", expected_page_id);
+    logger_warn("p2p TX: timeout waiting for checksum of page %u burst %u",
+                expected_page_id,
+                expected_burst_id);
     if (ensure_mode_tx(radio) != 0) {
         return -1;
     }
     return 1;
 }
 
-static int send_page_checksum(nrf24_t *radio,
-                              uint8_t page_id,
-                              uint64_t checksum,
-                              uint64_t *rf_bytes_total,
-                              uint64_t *rf_frames_total)
+static int send_burst_checksum(nrf24_t *radio,
+                               uint8_t page_id,
+                               uint8_t burst_id,
+                               uint64_t checksum,
+                               uint64_t *rf_bytes_total,
+                               uint64_t *rf_frames_total)
 {
-    uint8_t msg[PAGE_CHECKSUM_MSG_SIZE];
+    uint8_t msg[BURST_CHECKSUM_MSG_SIZE];
     msg[0] = CONTROL_PREFIX;
     msg[1] = MSG_CHECKSUM;
     msg[2] = page_id;
-    encode_u64_le(&msg[3], checksum);
+    msg[3] = burst_id;
+    encode_u64_le(&msg[4], checksum);
 
     if (ensure_mode_tx(radio) != 0) {
         return -1;
@@ -1625,7 +1710,7 @@ static int send_page_checksum(nrf24_t *radio,
                                 msg,
                                 sizeof(msg),
                                 CONTROL_TIMEOUT_MS,
-                                "PAGE_CHECKSUM",
+                                "BURST_CHECKSUM",
                                 rf_bytes_total,
                                 rf_frames_total);
 
@@ -1634,9 +1719,9 @@ static int send_page_checksum(nrf24_t *radio,
     }
 
     if (ret == 0) {
-        logger_info("p2p RX: checksum sent for Page %u", page_id);
+        logger_info("p2p RX: checksum sent for Page %u Burst %u", page_id, burst_id);
     } else {
-        logger_warn("p2p RX: failed to send checksum for Page %u", page_id);
+        logger_warn("p2p RX: failed to send checksum for Page %u Burst %u", page_id, burst_id);
     }
     return ret;
 }
