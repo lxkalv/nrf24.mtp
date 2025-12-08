@@ -39,6 +39,9 @@
 #define STREAM_READY_MAX_ATTEMPTS                 400
 #define STREAM_READY_WINDOW_MS                   2000
 #define BURST_CHECKSUM_MSG_SIZE  (2 + 2 + CHECKSUM_SIZE)
+#define BURST_RX_GUARD_MS                         5
+#define CHECKSUM_RESEND_COOLDOWN_MS               50
+#define CHECKSUM_RESEND_MAX_WINDOW_MS           2000
 #define MODE_SWITCH_TX_DELAY_MS                    50
 #define MODE_SWITCH_RX_DELAY_MS                    10
 
@@ -831,6 +834,11 @@ static int run_tx(const char *spi_dev,
                     goto cleanup;
                 }
 
+                if (ensure_mode_rx(&radio) != 0) {
+                    goto cleanup;
+                }
+                sleep_ms_posix(BURST_RX_GUARD_MS);
+
                 int ack_rc = wait_for_burst_checksum(&radio,
                                                       (uint8_t)page_id,
                                                       0,
@@ -861,6 +869,11 @@ static int run_tx(const char *spi_dev,
             unsigned attempt = 0;
 
             while (1) {
+                logger_info("p2p TX: sending BURST_INFO (page %u, burst %zu, checksum 0x%016llX, attempt %u)",
+                            page_id,
+                            burst_idx,
+                            (unsigned long long)expected_checksum,
+                            attempt + 1);
                 if (send_with_retries(&radio,
                                       info,
                                       sizeof(info),
@@ -897,6 +910,11 @@ static int run_tx(const char *spi_dev,
                         goto cleanup;
                     }
                 }
+
+                if (ensure_mode_rx(&radio) != 0) {
+                    goto cleanup;
+                }
+                sleep_ms_posix(BURST_RX_GUARD_MS);
 
                 int ack_rc = wait_for_burst_checksum(&radio,
                                                       (uint8_t)page_id,
@@ -1020,6 +1038,12 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
     double   rx_start = 0.0;
     int      transfer_finished = 0;
     int      output_stored = 0;
+    uint8_t  last_checksum_page = 0;
+    uint8_t  last_checksum_burst = 0;
+    uint64_t last_checksum_value = 0;
+    double   last_checksum_sent_at = 0.0;
+    double   last_checksum_repeat_at = 0.0;
+    int      last_checksum_valid = 0;
     int      radio_ready = 0;
     int      exit_code = 1;
 
@@ -1225,6 +1249,12 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                                             &rf_tx_frames) < 0) {
                         goto cleanup_rx;
                     }
+                    last_checksum_page = page_id;
+                    last_checksum_burst = parsed_burst_id;
+                    last_checksum_value = checksum_value;
+                    last_checksum_sent_at = now_seconds();
+                    last_checksum_repeat_at = last_checksum_sent_at;
+                    last_checksum_valid = 1;
                     if (parsed_burst_id == next_expected_burst_id) {
                         next_expected_burst_id = (uint8_t)(parsed_burst_id + 1);
                     }
@@ -1298,6 +1328,29 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                 logger_warn("p2p RX: data frame received outside of burst context (muted)");
                 warned_outside_burst = 1;
             }
+
+            if (last_checksum_valid) {
+                double now = now_seconds();
+                double since_last_send_ms = (now - last_checksum_sent_at) * 1000.0;
+                double since_last_repeat_ms = (now - last_checksum_repeat_at) * 1000.0;
+                if (since_last_send_ms >= 0.0 &&
+                    since_last_send_ms <= CHECKSUM_RESEND_MAX_WINDOW_MS &&
+                    since_last_repeat_ms >= CHECKSUM_RESEND_COOLDOWN_MS) {
+                    logger_warn("p2p RX: re-sending checksum for Page %u Burst %u due to stray data",
+                                last_checksum_page,
+                                last_checksum_burst);
+                    if (send_burst_checksum(&radio,
+                                            last_checksum_page,
+                                            last_checksum_burst,
+                                            last_checksum_value,
+                                            &rf_tx_bytes,
+                                            &rf_tx_frames) < 0) {
+                        goto cleanup_rx;
+                    }
+                    last_checksum_sent_at = now_seconds();
+                    last_checksum_repeat_at = last_checksum_sent_at;
+                }
+            }
             continue;
         }
 
@@ -1339,6 +1392,12 @@ static int run_rx(const char *spi_dev, const app_config_t *cfg)
                                     &rf_tx_frames) < 0) {
                 goto cleanup_rx;
             }
+            last_checksum_page = burst_page_id;
+            last_checksum_burst = burst_id;
+            last_checksum_value = checksum_value;
+            last_checksum_sent_at = now_seconds();
+            last_checksum_repeat_at = last_checksum_sent_at;
+            last_checksum_valid = 1;
             if (!burst_is_duplicate) {
                 active_page_received = burst_offset + burst_data_received;
                 next_expected_burst_id = (uint8_t)(burst_id + 1);
@@ -1614,9 +1673,10 @@ static int wait_for_burst_checksum(nrf24_t *radio,
                                    uint8_t expected_burst_id,
                                    uint64_t expected_checksum)
 {
-    if (ensure_mode_rx(radio) != 0) {
-        return -1;
-    }
+    logger_info("p2p TX: awaiting checksum (page %u, burst %u, expect 0x%016llX)",
+                expected_page_id,
+                expected_burst_id,
+                (unsigned long long)expected_checksum);
 
     double wait_start = now_seconds();
     while ((now_seconds() - wait_start) * 1000.0 < BURST_CHECKSUM_TIMEOUT_MS) {
@@ -1633,7 +1693,9 @@ static int wait_for_burst_checksum(nrf24_t *radio,
         }
 
         if (len < 2 || buf[0] != CONTROL_PREFIX) {
-            logger_warn("p2p TX: ignoring non-control frame while waiting for burst checksum");
+            logger_warn("p2p TX: ignoring non-control frame (len=%u, first=0x%02X) while waiting for checksum",
+                        len,
+                        len > 0 ? buf[0] : 0);
             continue;
         }
 
@@ -1652,11 +1714,12 @@ static int wait_for_burst_checksum(nrf24_t *radio,
         uint64_t rx_checksum = decode_u64_le(&buf[4]);
 
         if (page_id != expected_page_id || burst_id != expected_burst_id) {
-            logger_warn("p2p TX: checksum for unexpected burst (page %u vs %u, burst %u vs %u)",
+            logger_warn("p2p TX: checksum for unexpected burst (page %u vs %u, burst %u vs %u, value=0x%016llX)",
                         page_id,
                         expected_page_id,
                         burst_id,
-                        expected_burst_id);
+                        expected_burst_id,
+                        (unsigned long long)rx_checksum);
             continue;
         }
 
