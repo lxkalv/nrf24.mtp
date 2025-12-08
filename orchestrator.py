@@ -252,7 +252,7 @@ def Tx_flow(scenario):
     if scenario == "P2P":
 
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
-        cmd = "./bin/robust_mode --verify-config --mode TX --file-path-tx file_to_transmit.txt --pa-level MAX --channel 90--data-rate 250KBPS"
+        cmd = "./bin/robust_mode --verify-config --mode TX --file-path-tx file_to_transmit.txt --pa-level MAX --channel 90 --data-rate 250KBPS"
         INFO(f"Executing: {cmd}")
         result = os.system(cmd)
         exit_code = result >> 8 if result >= 0 else result
