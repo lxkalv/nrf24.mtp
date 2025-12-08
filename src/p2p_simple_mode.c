@@ -1719,7 +1719,10 @@ static int send_burst_checksum(nrf24_t *radio,
     }
 
     if (ret == 0) {
-        logger_info("p2p RX: checksum sent for Page %u Burst %u", page_id, burst_id);
+        logger_info("p2p RX: checksum sent for Page %u Burst %u (0x%016llX)",
+                    page_id,
+                    burst_id,
+                    (unsigned long long)checksum);
     } else {
         logger_warn("p2p RX: failed to send checksum for Page %u Burst %u", page_id, burst_id);
     }
