@@ -379,6 +379,13 @@ int nrf24_init(nrf24_t *dev, const nrf24_config_t *cfg)
         return -1;
     }
 
+    /* Ensure FIFOs start empty before higher layers touch the radio. */
+    if (nrf24_flush_tx_rx(dev) < 0) {
+        perror("nrf24_flush_tx_rx");
+        nrf24_deinit(dev);
+        return -1;
+    }
+
     return 0;
 }
 
@@ -771,8 +778,6 @@ int nrf24_set_mode_rx(nrf24_t *dev)
     sleep_ms(2); /* tpd2stby ~1.5ms */
 
     if (nrf24_clear_interrupts(dev) < 0)
-        return -1;
-    if (nrf24_flush_rx(dev) < 0)
         return -1;
 
     return ce_set(dev, 1);  /* start listening */
