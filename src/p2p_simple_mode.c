@@ -40,6 +40,7 @@
 #define STREAM_READY_WINDOW_MS                   2000
 #define BURST_CHECKSUM_MSG_SIZE  (2 + 2 + CHECKSUM_SIZE)
 #define BURST_RX_GUARD_MS                         5
+#define BURST_INFO_GUARD_MS                       4
 #define CHECKSUM_RESEND_COOLDOWN_MS               50
 #define CHECKSUM_RESEND_MAX_WINDOW_MS           2000
 #define MODE_SWITCH_TX_DELAY_MS                    50
@@ -834,6 +835,8 @@ static int run_tx(const char *spi_dev,
                     goto cleanup;
                 }
 
+                sleep_ms_posix(BURST_INFO_GUARD_MS);
+
                 if (ensure_mode_rx(&radio) != 0) {
                     goto cleanup;
                 }
@@ -850,6 +853,9 @@ static int run_tx(const char *spi_dev,
                     goto cleanup;
                 }
                 ++attempt;
+                if (nrf24_flush_tx(&radio) < 0) {
+                    logger_warn("p2p TX: failed to flush TX FIFO before retry");
+                }
                 logger_warn("p2p TX: resending empty burst for Page %u (attempt %u)",
                             page_id,
                             attempt + 1);
@@ -886,6 +892,8 @@ static int run_tx(const char *spi_dev,
                                  burst_idx);
                     goto cleanup;
                 }
+
+                sleep_ms_posix(BURST_INFO_GUARD_MS);
 
                 for (size_t frame_idx = 0; frame_idx < burst->frame_count; ++frame_idx) {
                     const trans_frame_t *frame = &burst->frames[frame_idx];
@@ -925,6 +933,10 @@ static int run_tx(const char *spi_dev,
                 }
                 if (ack_rc < 0) {
                     goto cleanup;
+                }
+
+                if (nrf24_flush_tx(&radio) < 0) {
+                    logger_warn("p2p TX: failed to flush TX FIFO before retry");
                 }
 
                 ++attempt;
@@ -1731,6 +1743,9 @@ static int wait_for_burst_checksum(nrf24_t *radio,
             logger_info("p2p TX: Page %u Burst %u checksum confirmed",
                         page_id,
                         burst_id);
+            if (ensure_mode_tx(radio) != 0) {
+                return -1;
+            }
             return 0;
         }
 
@@ -1739,6 +1754,9 @@ static int wait_for_burst_checksum(nrf24_t *radio,
                     burst_id,
                     (unsigned long long)expected_checksum,
                     (unsigned long long)rx_checksum);
+        if (ensure_mode_tx(radio) != 0) {
+            return -1;
+        }
         return 1;
     }
 
