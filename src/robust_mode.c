@@ -1498,11 +1498,11 @@ int main(int argc, char **argv)
 
     char log_path[64];
     if (cfg.mode == APP_MODE_TX) {
-        snprintf(log_path, sizeof(log_path), "robust_tx.log");
+        snprintf(log_path, sizeof(log_path), "robust/robust_tx.log");
     } else if (cfg.mode == APP_MODE_RX) {
-        snprintf(log_path, sizeof(log_path), "robust_rx.log");
+        snprintf(log_path, sizeof(log_path), "robust/robust_rx.log");
     } else {
-        snprintf(log_path, sizeof(log_path), "robust.log");
+        snprintf(log_path, sizeof(log_path), "robust/robust.log");
     }
 
     if (logger_init(log_path) != 0) {
