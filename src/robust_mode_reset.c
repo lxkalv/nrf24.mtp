@@ -37,6 +37,8 @@
 #define STREAM_READY_SIZE   11
 #define STREAM_READY_MAX_ATTEMPTS 400
 #define STREAM_READY_WINDOW_MS    2000
+#define MODE_SWITCH_TX_DELAY_MS    50
+#define MODE_SWITCH_RX_DELAY_MS    10
 
 #define FNV64_OFFSET_BASIS  1469598103934665603ULL
 #define FNV64_PRIME         1099511628211ULL
@@ -399,6 +401,7 @@ static int ensure_mode_tx(nrf24_t *radio)
         logger_error("nrf24_set_mode_tx failed: %s", strerror(errno));
         return -1;
     }
+    sleep_ms_posix(MODE_SWITCH_TX_DELAY_MS);
     return 0;
 }
 
@@ -408,6 +411,7 @@ static int ensure_mode_rx(nrf24_t *radio)
         logger_error("nrf24_set_mode_rx failed: %s", strerror(errno));
         return -1;
     }
+    sleep_ms_posix(MODE_SWITCH_RX_DELAY_MS);
     return 0;
 }
 
@@ -1024,6 +1028,9 @@ static int run_tx(const char *spi_dev,
         }
 
         if (!checksum_ok) {
+            if (nrf24_flush_tx(&radio) < 0) {
+                logger_warn("robust TX: failed to flush TX FIFO before retry");
+            }
             logger_warn("robust TX: checksum not confirmed, resending data");
             if (ensure_mode_tx(&radio) != 0) {
                 nrf24_deinit(&radio);
