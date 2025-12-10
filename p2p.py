@@ -374,8 +374,6 @@ def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> tuple[bytes, float]:
 
             else:
                 WARN("The checksum is incorrect, retrying")
-                    
-        tic = time.time()
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
