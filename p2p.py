@@ -33,7 +33,7 @@ CE_PIN = 22
 BYTES_IN_FRAME              = 30
 
 CHANNEL_READ_TIMEOUT        = 200e-3
-NUMBER_OF_CYCLES            = 10
+NUMBER_OF_CYCLES            = 5
 
 FILE_TO_TX_STR              = "file_to_transmit.txt"
 FILE_TO_RX_STR              = "file_to_save.txt"
@@ -93,7 +93,7 @@ def create_radio_object(ce_pin: int) -> NRF24 | None:
         pi            = pi,
         ce            = ce_pin,
         spi_speed     = 10e6,
-        data_rate     = RF24_DATA_RATE.RATE_2MBPS, # NOTE: The lowest possible to increase range and reduce BER
+        data_rate     = RF24_DATA_RATE.RATE_1MBPS, # NOTE: The lowest possible to increase range and reduce BER
         payload_size  = RF24_PAYLOAD.DYNAMIC,
         address_bytes = 4,
         crc_bytes     = RF24_CRC.BYTES_2,
@@ -229,7 +229,7 @@ def choose_free_channel(nrf: NRF24, own_channels: list[int]) -> int:
     for _ in range(NUMBER_OF_CYCLES):
         for idx, channel in enumerate(own_channels):
             nrf.set_channel(channel)
-            time.sleep(.2) # Wait for 200 ms
+            time.sleep(.1) # Wait for 200 ms
             channel_occupancy[idx] += is_channel_free(nrf)
     SUCC("Channel scan completed")
 
@@ -385,7 +385,7 @@ def main(nrf: NRF24, node_id: str, is_first_node: bool) -> None:
     """
     Main flow of the application
     """
-    all_channels                 = [channel for channel in range(0, 115 + 1, 5)]
+    all_channels                 = [15,45,76,90]
     own_channels, other_channels = get_channels_based_on_node_id(all_channels, node_id)
 
     INFO(f"TX channels: {own_channels}")
