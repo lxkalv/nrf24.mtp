@@ -167,18 +167,22 @@ def Tx_flow(scenario):
     led_rxtx_status.blink()
 
     if scenario == "P2P":
-
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
+
+        # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
         cmd = [sys.executable, "p2p.py", "--first"]
         INFO(f"Executing: {cmd}")
-        result = os.system(cmd)
-        exit_code = result >> 8 if result >= 0 else result
+
+        result = subprocess.run(cmd, text=True)
+        exit_code = result.returncode
+
         if exit_code == 0:
             SUCC("P2P TX completed successfully")
         else:
             ERROR(f"P2P TX failed (exit code {exit_code})")
 
-        led_rxtx_status.off() 
+        led_rxtx_status.off()
+
 
 
 
