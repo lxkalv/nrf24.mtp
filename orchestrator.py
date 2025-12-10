@@ -238,7 +238,7 @@ def RX_flow(scenario) :
 
         reset = False
         while True:
-            result = subprocess.run(cmd, text=True)
+            result = subprocess.Popen(cmd, text=True)
             while result.poll() is None:
                 if btn_stop.is_pressed:
                     reset = True
