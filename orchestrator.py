@@ -191,12 +191,13 @@ def RX_flow(scenario) :
         cmd = "/usr/bin/python3.13 p2p.py"
         INFO(f"Executing: {cmd}")
         # result = os.system(cmd)
-        result = subprocess.run([sys.executable, "p2p.py"], check = True, text = True)
-        exit_code = result >> 8 if result >= 0 else result
-        if exit_code == 0:
-            SUCC("robust_mode RX completed successfully")
-        else:
-            ERROR(f"robust_mode RX failed (exit code {exit_code})")
+        result = subprocess.run(cmd, text=True)
+        
+        #exit_code = result >> 8 if result >= 0 else result
+        #if exit_code == 0:
+        #    SUCC("robust_mode RX completed successfully")
+        #else:
+        #    ERROR(f"robust_mode RX failed (exit code {exit_code})")
 
         led_rxtx_status.off() 
 
