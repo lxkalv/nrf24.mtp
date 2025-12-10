@@ -369,7 +369,7 @@ def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> tuple[bytes, float]:
                 tac = time.time()
                 elapsed = tac - tic
                 SUCC("The checksum is correct")
-                INFO(f"RF throughput: {len(b''.join(slots)) / elapsed / 1024:.2f} KiBps")
+                INFO(f"RF throughput: {len(b''.join(slots)) / elapsed / 1024:.2f} KiBps | Elapsed time: {elapsed:.2f} s | Received bytes: {len(b''.join(slots))} B")
                 return b"".join(slots), elapsed
 
             else:
@@ -404,7 +404,7 @@ def main(nrf: NRF24, node_id: str, is_first_node: bool) -> None:
     else:
         content, elapsed = ACT_AS_RX(nrf, other_channels)
         content          = decompress_file(content)
-        INFO(f"Data throughput: {len(content) / elapsed / 1024:.2f} KiBps")
+        INFO(f"Data throughput: {len(content) / elapsed / 1024:.2f} KiBps | Elapsed time: {elapsed:.2f} s | Received bytes: {len(content)} B")
         file_path        = Path(FILE_TO_RX_STR).resolve()
         file_path.write_bytes(content)
         SUCC(f"File successfully saved to: {file_path}")
