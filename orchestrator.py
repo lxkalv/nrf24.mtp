@@ -188,7 +188,7 @@ def RX_flow(scenario) :
 
     if scenario == "P2P":
         INFO("[State] Simple mode (P2P). Recieving P2P...")
-        cmd = "~/.venv/bin/python p2p.py"
+        cmd = "python p2p.py"
         INFO(f"Executing: {cmd}")
         # result = os.system(cmd)
         result = subprocess.run(cmd, text=True)
