@@ -24,7 +24,8 @@ def WARN(message: str)  -> None: print(f"{YELLOW('[WARN]:')} {message}")
 def INFO(message: str)  -> None: print(f"{BLUE('[INFO]:')} {message}")
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
-
+FILE_TO_TX_STR = "file_to_transmit.txt"
+FILE_TO_RX_STR = "file_to_save.txt"
 
 
 # --- CUSTOM EXCEPTION ---
