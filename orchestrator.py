@@ -5,7 +5,6 @@ import sys
 import threading
 import os
 from pathlib import Path
-from datetime import datetime
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -126,7 +125,7 @@ def Tx_flow(scenario):
     # USB Detected: LED goes Solid
     led_insert_usb.on()
 
-    path_archivo_usb=find_valid_txt_file_in_usb(path)
+    path_archivo_usb = find_valid_txt_file_in_usb(path)
     if path_archivo_usb is None:
         ERROR("No valid .txt file found on USB. Resetting flow.")
         raise SoftReset
@@ -168,14 +167,14 @@ def Tx_flow(scenario):
     if scenario == "P2P":
 
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
-        cmd = "./bin/robust_mode --verify-config --mode TX --file-path-tx file_to_transmit.txt --pa-level MAX --channel 90 --data-rate 250KBPS"
+        cmd = "python p2p.py --first"
         INFO(f"Executing: {cmd}")
         result = os.system(cmd)
         exit_code = result >> 8 if result >= 0 else result
         if exit_code == 0:
-            SUCC("robust_mode TX completed successfully")
+            SUCC("P2P TX completed successfully")
         else:
-            ERROR(f"robust_mode TX failed (exit code {exit_code})")
+            ERROR(f"P2P TX failed (exit code {exit_code})")
 
         led_rxtx_status.off() 
 
@@ -187,7 +186,7 @@ def RX_flow(scenario) :
 
     if scenario == "P2P":
         INFO("[State] Simple mode (P2P). Recieving P2P...")
-        cmd = "./bin/robust_mode --verify-config --mode RX --file-path-rx received_file.txt --pa-level MAX --channel 90 --data-rate 250KBPS"
+        cmd = "python p2p.py"
         INFO(f"Executing: {cmd}")
         result = os.system(cmd)
         exit_code = result >> 8 if result >= 0 else result
@@ -211,11 +210,11 @@ def RX_flow(scenario) :
         # USB Detected: LED goes Solid
         led_insert_usb.on()
 
-        file_path = Path("received_file.txt").resolve()
+        file_path = Path("file_to_save.txt").resolve()
         content = file_path.read_bytes()
 
-        (path / "received_file.txt").write_bytes(content)
-        SUCC(f"Wrote {(path / 'received_file.txt').resolve()} ({len(content)} bytes)")
+        (path / "file_to_save.txt").write_bytes(content)
+        SUCC(f"Wrote {(path / 'file_to_save.txt').resolve()} ({len(content)} bytes)")
 
         check_stop()
         INFO("[State] Please Remove USB.")
@@ -233,12 +232,6 @@ def RX_flow(scenario) :
 
 
 def main():
-    logger_instance = get_logger()
-    if logger_instance.log_path:
-        INFO(f"Logging to file '{logger_instance.log_path}'")
-    else:
-        WARN("File logging disabled; falling back to console-only output")
-
     btn_stop.when_pressed = trigger_reset
 
     INFO("--- SYSTEM ONLINE ---")
