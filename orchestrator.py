@@ -120,7 +120,6 @@ def Tx_flow(scenario):
     while path is None:
         check_stop()
         path = check_usb_connected()
-      
 
     INFO(f"USB connected at '{path.resolve()}'")
 
@@ -202,8 +201,21 @@ def Tx_flow(scenario):
         cmd = [sys.executable, "nm.py", "--first"]
         INFO(f"Executing: {cmd}")
 
-        result = subprocess.run(cmd, text=True)
-        exit_code = result.returncode
+        reset = False
+        while True:
+            result = subprocess.run(cmd, text=True)
+            while result.poll() is None:
+                if btn_stop.is_pressed:
+                    reset = True
+                    break
+                time.sleep(3)
+            if reset:
+                result.terminate()
+                led_rxtx_status.off() 
+                os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                led_rxtx_status.off() 
+                break
 
         if exit_code == 0:
             SUCC("NW TX completed successfully")
@@ -223,7 +235,22 @@ def RX_flow(scenario) :
         cmd = [sys.executable, "p2p.py"]
         INFO(f"Executing: {cmd}")
         # result = os.system(cmd)
-        result = subprocess.run(cmd, text=True)
+
+        reset = False
+        while True:
+            result = subprocess.run(cmd, text=True)
+            while result.poll() is None:
+                if btn_stop.is_pressed:
+                    reset = True
+                    break
+                time.sleep(3)
+            if reset:
+                result.terminate()
+                led_rxtx_status.off() 
+                os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                led_rxtx_status.off() 
+                break
         
         #exit_code = result >> 8 if result >= 0 else result
         #if exit_code == 0:
@@ -266,13 +293,27 @@ def RX_flow(scenario) :
         cmd = [sys.executable, "nm.py"]
         INFO(f"Executing: {cmd}")
 
-        result = subprocess.run(cmd, text=True)
-        exit_code = result.returncode
+        reset = False
+        while True:
+            result = subprocess.run(cmd, text=True)
+            while result.poll() is None:
+                if btn_stop.is_pressed:
+                    reset = True
+                    break
+                time.sleep(3)
+            if reset:
+                result.terminate()
+                led_rxtx_status.off() 
+                os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                led_rxtx_status.off() 
+                break
+        #exit_code = result.returncode
 
-        if exit_code == 0:
-            SUCC("NW TX completed successfully")
-        else:
-            ERROR(f"NW TX failed (exit code {exit_code})")
+        #if exit_code == 0:
+        #    SUCC("NW TX completed successfully")
+        #else:
+        #    ERROR(f"NW TX failed (exit code {exit_code})")
 
         led_rxtx_status.off()
 
