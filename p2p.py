@@ -33,8 +33,6 @@ CE_PIN = 22
 BYTES_IN_FRAME              = 30
 
 CHANNEL_READ_TIMEOUT        = 200e-3
-PERSEVERANCE                = 50
-CHANNEL_PERMANENCE_TIMEOUT  = 3
 NUMBER_OF_CYCLES            = 10
 
 FILE_TO_TX_STR              = "file_to_transmit.txt"
@@ -250,12 +248,13 @@ def choose_free_channel(nrf: NRF24, own_channels: list[int]) -> int:
 
 
 
-def choose_occupied_channel(nrf: NRF24, other_channels: list[int], channel_idx: int) -> tuple[int, int]:
+def choose_occupied_channel(nrf: NRF24, other_channels: list[int]) -> int:
     """
     Listen to RX channels to detect a frame in any channel
     """
     INFO("Listening to RX channels to look for transmitters")
     
+    channel_idx = 0
     while True:
         channel = other_channels[channel_idx % len(other_channels)]
         INFO(f"Listening on channel: {channel}")
@@ -270,8 +269,7 @@ def choose_occupied_channel(nrf: NRF24, other_channels: list[int], channel_idx: 
             if not nrf.data_ready(): continue
             
             INFO(f"Detected a transmitter on channel {channel}")
-            return channel, channel_idx
-
+            return channel
         channel_idx += 1
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
@@ -313,30 +311,27 @@ def ACT_AS_TX(nrf: NRF24, content: bytes, own_channels: list[int]) -> NoReturn:
 
 
 
-def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> bytes:
+def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> tuple[bytes, float]:
     nrf.power_up_rx()
-    channel, channel_idx = choose_occupied_channel(nrf, other_channels, 0)
+    channel = choose_occupied_channel(nrf, other_channels)
     nrf.set_channel(channel)
+
+    tic_started        = False
 
     checksum           = None
     is_reading_frames  = False
     slots              = []
-    tries              = 0
 
-    prev_len      = -1
-    prev_checksum = -1
+    prev_len           = -1
+    prev_checksum      = -1
 
-    tic = time.time()
     while True:
         if not nrf.data_ready():
-            tac = time.time()
-            
-            if (tac- tic) > CHANNEL_PERMANENCE_TIMEOUT:
-                WARN(f"Time-out of {CHANNEL_PERMANENCE_TIMEOUT} s while receiving frames, scanning channels again")
-                channel, channel_idx = choose_occupied_channel(nrf, other_channels, channel_idx + 1)
-                nrf.set_channel(channel)
-
             continue
+
+        if not tic_started:
+            tic = time.time()
+            tic_started = True
 
         frame: bytes = nrf.get_payload()
         FrameID = int.from_bytes(frame[0:2])
@@ -371,17 +366,14 @@ def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> bytes:
             computed_checksum = shake_256(b"".join(slots)).digest(27)
 
             if computed_checksum == checksum:
+                tac = time.time()
+                elapsed = tac - tic
                 SUCC("The checksum is correct")
-                return b"".join(slots)
+                INFO(f"RF throughput: {len(b''.join(slots)) / elapsed / 1024:.2f} KiBps")
+                return b"".join(slots), elapsed
 
             else:
                 WARN("The checksum is incorrect, retrying")
-                
-                tries += 1
-                if tries >= PERSEVERANCE:
-                    WARN("Detected bad channel, scanning again")
-                    channel, channel_idx = choose_occupied_channel(nrf, other_channels, channel_idx + 1)
-                    nrf.set_channel(channel)
                     
         tic = time.time()
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -410,9 +402,10 @@ def main(nrf: NRF24, node_id: str, is_first_node: bool) -> None:
         ACT_AS_TX(nrf, compressed_content, own_channels)
 
     else:
-        content   = ACT_AS_RX(nrf, other_channels)
-        content   = decompress_file(content)
-        file_path = Path(FILE_TO_RX_STR).resolve()
+        content, elapsed = ACT_AS_RX(nrf, other_channels)
+        content          = decompress_file(content)
+        INFO(f"Data throughput: {len(content) / elapsed / 1024:.2f} KiBps")
+        file_path        = Path(FILE_TO_RX_STR).resolve()
         file_path.write_bytes(content)
         SUCC(f"File successfully saved to: {file_path}")
     return
