@@ -167,7 +167,7 @@ def Tx_flow(scenario):
     if scenario == "P2P":
 
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
-        cmd = "python p2p.py --first"
+        cmd = "/usr/bin/python3.13 p2p.py --first"
         INFO(f"Executing: {cmd}")
         result = os.system(cmd)
         exit_code = result >> 8 if result >= 0 else result
@@ -186,7 +186,7 @@ def RX_flow(scenario) :
 
     if scenario == "P2P":
         INFO("[State] Simple mode (P2P). Recieving P2P...")
-        cmd = "python p2p.py"
+        cmd = "/usr/bin/python3.13 p2p.py"
         INFO(f"Executing: {cmd}")
         result = os.system(cmd)
         exit_code = result >> 8 if result >= 0 else result
