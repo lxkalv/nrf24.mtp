@@ -183,7 +183,7 @@ def Tx_flow(scenario):
 
         led_rxtx_status.off()
     else:
-        INFO("[State] Nerwork Mode (NM). Launching Networ Mode flow...")
+        INFO("[State] Nerwork Mode (NM). Launching Networ Mode flow TX...")
         # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
         cmd = [sys.executable, "nm.py", "--first"]
         INFO(f"Executing: {cmd}")
@@ -247,7 +247,7 @@ def RX_flow(scenario) :
         INFO("[State] USB Removed.")
         SUCC("RX flow complete; file delivered to USB drive")
     else:
-        INFO("[State] Nerwork Mode (NM). Launching Network Mode flow...")
+        INFO("[State] Nerwork Mode (NM). Launching Network Mode flow RX...")
         # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
         cmd = [sys.executable, "nm.py"]
         INFO(f"Executing: {cmd}")
