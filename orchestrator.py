@@ -173,8 +173,22 @@ def Tx_flow(scenario):
         cmd = [sys.executable, "p2p.py", "--first"]
         INFO(f"Executing: {cmd}")
 
-        result = subprocess.run(cmd, text=True)
-        exit_code = result.returncode
+        reset = False
+        while True:
+            result = subprocess.Popen(cmd, text=True)
+            while result.poll() is None:
+                if btn_stop.is_pressed:
+                    reset = True
+                    break
+                time.sleep(3)
+            if reset:
+                result.terminate()
+                led_rxtx_status.off() 
+                os.execl(sys.executable, sys.executable, *sys.argv)
+            else:
+                led_rxtx_status.off() 
+                break
+        #exit_code = result.returncode
 
         if exit_code == 0:
             SUCC("P2P TX completed successfully")
