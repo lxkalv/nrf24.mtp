@@ -68,11 +68,11 @@ def get_id() -> str:
 
 
 def disable_auto_ack(nrf: NRF24) -> None:
-    nrf.unset_ce()
-    nrf._nrf_write_reg(nrf.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
-    nrf.set_ce()
+    #nrf.unset_ce()
+    #nrf._nrf_write_reg(nrf.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
+    #nrf.set_ce()
 
-    nrf.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
+    nrf.set_retransmission(1, 15)  # <<< disable auto-retransmissions (x+1) * 250 µs
     return
 
 
@@ -93,11 +93,11 @@ def create_radio_object(ce_pin: int) -> NRF24 | None:
         pi            = pi,
         ce            = ce_pin,
         spi_speed     = 10e6,
-        data_rate     = RF24_DATA_RATE.RATE_250KBPS, # NOTE: The lowest possible to increase range and reduce BER
+        data_rate     = RF24_DATA_RATE.RATE_2MBPS, # NOTE: The lowest possible to increase range and reduce BER
         payload_size  = RF24_PAYLOAD.DYNAMIC,
         address_bytes = 4,
         crc_bytes     = RF24_CRC.BYTES_2,
-        pa_level      = RF24_PA.HIGH,                # NOTE: Maybe increase this to MAX
+        pa_level      = RF24_PA.MAX,                # NOTE: Maybe increase this to MAX
     )
 
     # Shared address across all network nodes to simulate broadcast
