@@ -1,3 +1,4 @@
+# :::: LIBRARY IMPORTS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 from gpiozero import LED, Button, DigitalInputDevice
 import time
 import sys
@@ -5,113 +6,26 @@ import threading
 import os
 from pathlib import Path
 from datetime import datetime
-
-# :::: COLORING FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def RED(message: str) -> str:
-    """
-    Returns a copy of the string wrapped in ANSI scape sequences to make it red
-    """
-    return f"\033[31m{message}\033[0m"
-
-def GREEN(message: str) -> str:
-    """
-    Returns a copy of the string wrapped in ANSI scape sequences to make it green
-    """
-    return f"\033[32m{message}\033[0m"
-
-def YELLOW(message: str) -> str:
-    """
-    Returns a copy of the string wrapped in ANSI scape sequences to make it yellow
-    """
-    return f"\033[33m{message}\033[0m"
-
-def BLUE(message: str) -> str:
-    """
-    Returns a copy of the string wrapped in ANSI scape sequences to make it blue
-    """
-    return f"\033[34m{message}\033[0m"
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
-class OrchestratorLogger:
-    """Mimics the robust_mode logger: colored console output + timestamped file."""
-
-    def __init__(self, base_name: str = "orchestrator") -> None:
-        self._base_name            = base_name
-        self.log_path: Path | None = None
-        self._file_handle          = None
-        self._lock                 = threading.Lock()
-        self._domain_prefix        = f"[{self._base_name.lower()}]"
-        self._open_log_file()
-
-    def _open_log_file(self) -> None:
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        try:
-            LOG_DIR.mkdir(parents = True, exist_ok = True)
-            self.log_path = LOG_DIR / f"{self._base_name}_{timestamp}.log"
-            self._file_handle = self.log_path.open("w", encoding="utf-8")
-            header_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            self._file_handle.write(
-                f"[{header_ts}] Log file created (requested name '{self._base_name}.log')\n"
-            )
-            self._file_handle.flush()
-        except OSError as exc:
-            self._file_handle = None
-            warning = f"Could not open log file '{self.log_path}' ({exc})"
-            print(f"{YELLOW('[WARN]:')} {warning}")
-
-    def log(self, level: str, message: str, colorizer, end: str = "\n") -> None:
-        prefix = f"{self._domain_prefix}[{level}]"
-        console_line = f"{colorizer(prefix + ':')} {message}"
-        print(console_line, end=end, flush=True)
-
-        if not self._file_handle:
-            return
-
-        with self._lock:
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            self._file_handle.write(f"[{ts}] {prefix}: {message}\n")
-            self._file_handle.flush()
-
-
-LOGGER: OrchestratorLogger | None = None
-
-
-def get_logger() -> OrchestratorLogger:
-    global LOGGER
-    if LOGGER is None:
-        LOGGER = OrchestratorLogger()
-    return LOGGER
 
 
 
+# :::: HELPER FUNCTIONS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+def RED(message: str)    -> str: return f"\033[31m{message}\033[0m"
+def GREEN(message: str)  -> str: return f"\033[32m{message}\033[0m"
+def YELLOW(message: str) -> str: return f"\033[33m{message}\033[0m"
+def BLUE(message: str)   -> str: return f"\033[34m{message}\033[0m"
 
-
-# :::: MESSAGING FUNCTIONS ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def ERROR(message: str, end = "\n") -> None:
-    """
-    Prints a message to the console with the red prefix `[~ERR]:`
-    """
-    get_logger().log("ERRO", message, RED, end=end)
-
-def SUCC(message: str, end = "\n") -> None:
-    """
-    Prints a message to the console with the green prefix `[SUCC]:`
-    """
-    get_logger().log("SUCC", message, GREEN, end=end)
-
-def WARN(message: str, end = "\n") -> None:
-    """
-    Prints a message to the console with the yellow prefix `[WARN]:`
-    """
-    get_logger().log("WARN", message, YELLOW, end=end)
-
-def INFO(message: str, end = "\n") -> None:
-    """
-    Prints a message to the console with the blue prefix `[INFO]:`
-    """
-    get_logger().log("INFO", message, BLUE, end=end)
+def ERROR(message: str) -> None: print(f"{RED('[ERRO]:')} {message}")
+def SUCC(message: str)  -> None: print(f"{GREEN('[SUCC]:')} {message}")
+def WARN(message: str)  -> None: print(f"{YELLOW('[WARN]:')} {message}")
+def INFO(message: str)  -> None: print(f"{BLUE('[INFO]:')} {message}")
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+
+
+
 
 # --- CUSTOM EXCEPTION ---
 class SoftReset(Exception):
@@ -134,8 +48,7 @@ switch_mode     = DigitalInputDevice(27, pull_up = True)
 switch_scenario = DigitalInputDevice(17, pull_up = True) 
 
 # --- CONSTANTS ---
-USB_MOUNT_PATH = Path("/media")
-LOG_DIR = Path("logs")
+USB_MOUNT_PATH   = Path("/media")
 global_stop_flag = threading.Event()
 
 def check_usb_connected() -> bool:
@@ -181,16 +94,19 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
     INFO(f"Selected USB source file '{selected}'")
     return selected
 
+
 def trigger_reset():
     """Runs in background when STOP is pressed."""
     if not global_stop_flag.is_set():
         INFO("\n[Interrupt] STOP Pressed! Resetting to Start...")
         global_stop_flag.set()
 
+
 def check_stop():
     """Checks flag and raises exception to restart loop."""
     if global_stop_flag.is_set():
         raise SoftReset
+
 
 def Tx_flow(scenario):
     INFO("we are in TX mode")
