@@ -182,7 +182,21 @@ def Tx_flow(scenario):
             ERROR(f"P2P TX failed (exit code {exit_code})")
 
         led_rxtx_status.off()
+    else:
+        INFO("[State] Nerwork Mode (NM). Launching Networ Mode flow...")
+        # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
+        cmd = [sys.executable, "nm.py", "--first"]
+        INFO(f"Executing: {cmd}")
 
+        result = subprocess.run(cmd, text=True)
+        exit_code = result.returncode
+
+        if exit_code == 0:
+            SUCC("NW TX completed successfully")
+        else:
+            ERROR(f"NW TX failed (exit code {exit_code})")
+
+        led_rxtx_status.off()
 
 
 
@@ -232,6 +246,21 @@ def RX_flow(scenario) :
 
         INFO("[State] USB Removed.")
         SUCC("RX flow complete; file delivered to USB drive")
+    else:
+        INFO("[State] Nerwork Mode (NM). Launching Network Mode flow...")
+        # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
+        cmd = [sys.executable, "nm.py"]
+        INFO(f"Executing: {cmd}")
+
+        result = subprocess.run(cmd, text=True)
+        exit_code = result.returncode
+
+        if exit_code == 0:
+            SUCC("NW TX completed successfully")
+        else:
+            ERROR(f"NW TX failed (exit code {exit_code})")
+
+        led_rxtx_status.off()
 
 
 
