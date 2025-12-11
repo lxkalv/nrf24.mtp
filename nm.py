@@ -38,7 +38,7 @@ NUMBER_OF_CYCLES            = 10
 
 RECEIVED_FILE_NAME          = "MTP-F25-NM-A-RX.txt"
 
-TAN0_CHANNELS               = [ 3, 20, 42, 60, 80, 100]
+TAN0_CHANNELS               = [ 7, 20, 42, 60, 80, 100]
 TAN1_CHANNELS               = [ 5, 25, 45, 65, 85, 105]
 TBN0_CHANNELS               = [10, 30, 50, 70, 90, 110]
 TBN1_CHANNELS               = [15, 35, 55, 75, 95, 115]
