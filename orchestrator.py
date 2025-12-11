@@ -64,7 +64,7 @@ def check_usb_connected() -> bool:
     return None
 
 
-def find_valid_txt_file_in_usb(usb_mount_path: Path, mode, distance) -> Path | None:
+def find_valid_txt_file_in_usb(usb_mount_path: Path, scenario, distance) -> Path | None:
     """
     Searches for all the txt files in the first level of depth of the USB mount
     location and returns the path to first one ordered alphabetically
@@ -85,16 +85,16 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path, mode, distance) -> Path | N
         if file.suffix.lower() != ".txt":
             continue
 
-        if mode == "P2P":
+        if scenario == "P2P":
             if distance == "Short":
                 if name == "MTP-F25-SRI-A-TX.txt":
-                    return name
+                    return file.resolve()
             else: 
                 if file.name == "MTP-F25-MRM-A-TX.txt":
-                    return name
+                    return file.resolve()
         else:
             if name == "MTP-F25-NM-TX.txt":
-                return name
+                return file.resolve()
     WARN(f"No .txt files found on USB mount '{usb_mount_path}'")
     return None
 
