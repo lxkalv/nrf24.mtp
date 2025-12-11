@@ -85,15 +85,19 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
         if file.suffix.lower() != ".txt":
             continue
 
-        candidates.append(file)
+        if mode == "P2P":
+            if distance == "Short":
+                if name == "MTP-F25-SRI-A-TX.txt":
+                    return name
+            else: 
+                if file.name == "MTP-F25-MRM-A-TX.txt":
+                    return name
+        else:
+            if name == "MTP-F25-NM-TX.txt":
+                return name
+    WARN(f"No .txt files found on USB mount '{usb_mount_path}'")
+    return None
 
-    if not candidates:
-        WARN(f"No .txt files found on USB mount '{usb_mount_path}'")
-        return None
-
-    selected = sorted(candidates)[0].resolve()
-    INFO(f"Selected USB source file '{selected}'")
-    return selected
 
 
 def trigger_reset():
@@ -399,6 +403,34 @@ def RX_flow(scenario, distance) :
         #    ERROR(f"NW TX failed (exit code {exit_code})")
 
         led_rxtx_status.off()
+
+        # Device Config is SOLID here. Insert USB starts BLINKING here.
+        led_insert_usb.blink(on_time=0.5, off_time=0.5)
+                        
+        path = None
+        while path is None:
+            check_stop()
+            path = check_usb_connected()
+
+        path = path.resolve()
+        INFO(f"USB connected at '{path}'")
+        # USB Detected: LED goes Solid
+        led_insert_usb.on()
+
+        file_path = Path("MTP-F25-NM-A-RX.txt").resolve()
+        content = file_path.read_bytes()
+
+        (path / "MTP-F25-NM-A-RX.txt").write_bytes(content)
+        SUCC(f"Wrote {(path / 'MTP-F25-NM-A-RX.txt').resolve()} ({len(content)} bytes)")
+
+        check_stop()
+        INFO("[State] Please Remove USB.")
+        led_extract_usb.blink(on_time=0.5, off_time=0.5)        
+        while check_usb_connected() is not None:
+            check_stop()
+
+        INFO("[State] USB Removed.")
+        SUCC("RX flow complete; file delivered to USB drive")
 
 
 
