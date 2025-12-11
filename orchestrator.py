@@ -470,7 +470,6 @@ def RX_flow(scenario, distance) :
                 (path / "MTP-F25-NM-A-RX.txt").write_bytes(content)
                 SUCC(f"Wrote {(path / 'MTP-F25-NM-A-RX.txt').resolve()} ({len(content)} bytes)")
 
-                check_stop()
                 INFO("[State] Please Remove USB.")
                 led_extract_usb.blink(on_time=0.5, off_time=0.5)        
                 while check_usb_connected() is not None:
