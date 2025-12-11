@@ -379,13 +379,13 @@ def ACT_AS_TX(nrf: NRF24, node_id: str, content: bytes, own_channels: list[int],
         idx += 1
         
 
-        if "tbn" in node_id and not is_first_node:
-            usb_mount_path = get_usb_mount_path()
-            if usb_mount_path:
-                INFO("SE HA ENCONTRADO UN USB PA GUARDAR LAS COSAS ERMANIKO") 
-                (usb_mount_path / RECEIVED_FILE_NAME).write_bytes(content)
-                is_first_node = True # No es que sea el primer nodo, pero como ya ha guardado el archivo lo pongo en TRUE porque ya ha cumplido su funcion
-                SUCC("ARCHIVO GUARDADO EN EL USB")
+        # if "tbn" in node_id and not is_first_node:
+        #     usb_mount_path = get_usb_mount_path()
+        #     if usb_mount_path:
+        #         INFO("SE HA ENCONTRADO UN USB PA GUARDAR LAS COSAS ERMANIKO") 
+        #         (usb_mount_path / RECEIVED_FILE_NAME).write_bytes(content)
+        #         is_first_node = True # No es que sea el primer nodo, pero como ya ha guardado el archivo lo pongo en TRUE porque ya ha cumplido su funcion
+        #         SUCC("ARCHIVO GUARDADO EN EL USB")
 
 
 def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> bytes:
@@ -398,15 +398,15 @@ def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> bytes:
     slots              = []
     tries              = 0
 
-    prev_len      = -1
-    prev_checksum = -1
+    prev_len           = -1
+    prev_checksum      = -1
 
     tic = time.time()
     while True:
         if not nrf.data_ready():
             tac = time.time()
             
-            if (tac- tic) > CHANNEL_PERMANENCE_TIMEOUT:
+            if (tac - tic) > CHANNEL_PERMANENCE_TIMEOUT:
                 WARN(f"Time-out of {CHANNEL_PERMANENCE_TIMEOUT} s while receiving frames, scanning channels again")
                 channel, channel_idx = choose_occupied_channel(nrf, other_channels, channel_idx + 1)
                 nrf.set_channel(channel)
