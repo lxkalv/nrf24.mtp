@@ -151,7 +151,7 @@ def get_file_to_transmit() -> Path | None:
     """
     
     file_path = Path(FILE_TO_TX_STR).resolve()
-    
+    print(file_path)
     if file_path.exists():
         SUCC(f"Valid file detected inside USB: {file_path}")
         return file_path
