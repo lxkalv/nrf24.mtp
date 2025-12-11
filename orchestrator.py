@@ -346,7 +346,6 @@ def RX_flow(scenario, distance) :
             #    ERROR(f"robust_mode RX failed (exit code {exit_code})")
 
             led_rxtx_status.off()
-            time.sleep(2)
 
             # Device Config is SOLID here. Insert USB starts BLINKING here.
             led_insert_usb.blink(on_time=0.5, off_time=0.5)
@@ -452,6 +451,7 @@ def RX_flow(scenario, distance) :
                 # os.execl(sys.executable, sys.executable, *sys.argv)
 
                 led_rxtx_status.off()
+                time.sleep(2)
 
                 # Device Config is SOLID here. Insert USB starts BLINKING here.
                 led_insert_usb.blink(on_time=0.5, off_time=0.5)
