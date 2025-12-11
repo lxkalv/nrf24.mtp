@@ -85,10 +85,9 @@ def get_CE_pin(node_id: str) -> int:
 def disable_auto_ack(nrf: NRF24) -> None:
     nrf.unset_ce()
     nrf._nrf_write_reg(nrf.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
-    time.sleep(0.01)
     nrf.set_ce()
 
-    # nrf.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
+    nrf.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
     return
 
 
@@ -455,6 +454,7 @@ def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> bytes:
                 
                 tries += 1
                 if tries >= PERSEVERANCE:
+                    tries = 0
                     WARN("Detected bad channel, scanning again")
                     channel, channel_idx = choose_occupied_channel(nrf, other_channels, channel_idx + 1)
                     nrf.set_channel(channel)
