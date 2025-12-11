@@ -112,6 +112,7 @@ def create_radio_object(ce_pin: int) -> NRF24 | None:
 
     # Shared address across all network nodes to simulate broadcast
     address = b"NMND"
+    INFO(f"Selected address {address}")
     nrf.open_writing_pipe(address)
     nrf.open_reading_pipe(RF24_RX_ADDR.P1, address)
 
