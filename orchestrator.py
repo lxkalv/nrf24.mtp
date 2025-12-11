@@ -194,10 +194,10 @@ def Tx_flow(scenario, distance):
                     break
             #exit_code = result.returncode
 
-            if exit_code == 0:
-                SUCC("P2P TX completed successfully")
-            else:
-                ERROR(f"P2P TX failed (exit code {exit_code})")
+            # if exit_code == 0:
+            #     SUCC("P2P TX completed successfully")
+            # else:
+            #     ERROR(f"P2P TX failed (exit code {exit_code})")
         else:
             path_file_to_transmit = Path("MTP-F25-MRM-TX.txt").resolve()
             path_file_to_transmit.write_bytes(content)
@@ -248,10 +248,10 @@ def Tx_flow(scenario, distance):
                     break
             #exit_code = result.returncode
 
-            if exit_code == 0:
-                SUCC("P2P TX completed successfully")
-            else:
-                ERROR(f"P2P TX failed (exit code {exit_code})")
+            # if exit_code == 0:
+            #     SUCC("P2P TX completed successfully")
+            # else:
+            #     ERROR(f"P2P TX failed (exit code {exit_code})")
         led_rxtx_status.off()
     else:
         path_file_to_transmit = Path("MTP-F25-NM-TX.txt").resolve()
@@ -303,10 +303,10 @@ def Tx_flow(scenario, distance):
                 led_rxtx_status.off() 
                 break
 
-        if exit_code == 0:
-            SUCC("NW TX completed successfully")
-        else:
-            ERROR(f"NW TX failed (exit code {exit_code})")
+        # if exit_code == 0:
+        #     SUCC("NW TX completed successfully")
+        # else:
+        #     ERROR(f"NW TX failed (exit code {exit_code})")
 
         led_rxtx_status.off()
 
