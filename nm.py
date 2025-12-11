@@ -435,10 +435,10 @@ def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> bytes:
                 ]
 
                 is_reading_frames = True
-                INFO(f"Parsed header message: File length: {data_len} B | Checksum: {checksum.hex()}")
+                INFO(f"Parsed header message: File length: {data_len} B | Checksum: {checksum.hex()} | Number of frames: {num_of_frames}")
 
 
-        if is_reading_frames and (FrameID < 0xFF):
+        if is_reading_frames and (FrameID < len(slots)):
             slots[FrameID] = frame[1:]
     
 
