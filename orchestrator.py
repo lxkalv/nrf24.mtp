@@ -431,15 +431,16 @@ def main():
             # Wait for button press
             while not btn_interact.is_pressed:
                 check_stop()
-                time.sleep(5)
+                time.sleep(0.05)
             INFO("[User] INTERACT pressed")
-
             # Read Hardware Switches
             mode = "TX" if switch_mode.is_active else "RX"
             scenario = "Network" if switch_scenario.is_active else "P2P"
             INFO(f"[Info] Current Settings: Mode={mode}, Scenario={scenario}")
             
+            
             if scenario == "P2P":
+                time.sleep(5)
                 INFO("[User] Introduce the distance of P2P:")
                 while not btn_interact.is_pressed:
                     check_stop()
