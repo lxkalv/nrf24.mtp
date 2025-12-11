@@ -141,35 +141,35 @@ def Tx_flow(scenario, distance):
         file_size = 0
     INFO(f"Grabbing '{path_archivo_usb}' ({file_size} bytes)")
     content = path_archivo_usb.read_bytes()
-    path_file_to_transmit = Path("file_to_transmit.txt").resolve()
-    path_file_to_transmit.write_bytes(content)
-    SUCC(f"Cached '{path_file_to_transmit}' ({len(content)} bytes) for RF transmission")
-
-    led_insert_usb.off()
-    check_stop()
-    INFO("[State] Please Remove USB.")
-            
-    led_extract_usb.blink(on_time=0.5, off_time=0.5)
-            
-    while check_usb_connected() is not None:
-        check_stop()
-
-    
-    led_extract_usb.off()
-
-    # --- 3. INTERACT PHASE ---
-    check_stop()
-    INFO("[State] Ready. Press INTERACT to Execute Task.")
-            
-    while not btn_interact.is_pressed:
-        check_stop()
-        time.sleep(0.05)
-    check_stop()
-
-    INFO(f"[State] Performing TX Task...")
-    led_rxtx_status.blink()
 
     if scenario == "P2P":
+        path_file_to_transmit = Path("MTP-F25-SRI-A-TX.txt").resolve()
+        path_file_to_transmit.write_bytes(content)
+        SUCC(f"Cached '{path_file_to_transmit}' ({len(content)} bytes) for RF transmission")
+
+        led_insert_usb.off()
+        check_stop()
+        INFO("[State] Please Remove USB.")
+                
+        led_extract_usb.blink(on_time=0.5, off_time=0.5)
+                
+        while check_usb_connected() is not None:
+            check_stop()
+
+        
+        led_extract_usb.off()
+
+        # --- 3. INTERACT PHASE ---
+        check_stop()
+        INFO("[State] Ready. Press INTERACT to Execute Task.")
+                
+        while not btn_interact.is_pressed:
+            check_stop()
+            time.sleep(0.05)
+        check_stop()
+
+        INFO(f"[State] Performing TX Task...")
+        led_rxtx_status.blink()
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
         if distance == "Short":
             # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
@@ -198,6 +198,34 @@ def Tx_flow(scenario, distance):
             else:
                 ERROR(f"P2P TX failed (exit code {exit_code})")
         else:
+            path_file_to_transmit = Path("MTP-F25-MRM-A-TX.txt").resolve()
+            path_file_to_transmit.write_bytes(content)
+            SUCC(f"Cached '{path_file_to_transmit}' ({len(content)} bytes) for RF transmission")
+
+            led_insert_usb.off()
+            check_stop()
+            INFO("[State] Please Remove USB.")
+                    
+            led_extract_usb.blink(on_time=0.5, off_time=0.5)
+                    
+            while check_usb_connected() is not None:
+                check_stop()
+
+            
+            led_extract_usb.off()
+
+            # --- 3. INTERACT PHASE ---
+            check_stop()
+            INFO("[State] Ready. Press INTERACT to Execute Task.")
+                    
+            while not btn_interact.is_pressed:
+                check_stop()
+                time.sleep(0.05)
+            check_stop()
+
+            INFO(f"[State] Performing TX Task...")
+            led_rxtx_status.blink()
+            INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
             # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
             cmd = [sys.executable, "p2p_long.py", "--first"]
             INFO(f"Executing: {cmd}")
@@ -225,6 +253,34 @@ def Tx_flow(scenario, distance):
                 ERROR(f"P2P TX failed (exit code {exit_code})")
         led_rxtx_status.off()
     else:
+        path_file_to_transmit = Path("MTP-F25-NM-TX.txt").resolve()
+        path_file_to_transmit.write_bytes(content)
+        SUCC(f"Cached '{path_file_to_transmit}' ({len(content)} bytes) for RF transmission")
+
+        led_insert_usb.off()
+        check_stop()
+        INFO("[State] Please Remove USB.")
+                
+        led_extract_usb.blink(on_time=0.5, off_time=0.5)
+                
+        while check_usb_connected() is not None:
+            check_stop()
+
+        
+        led_extract_usb.off()
+
+        # --- 3. INTERACT PHASE ---
+        check_stop()
+        INFO("[State] Ready. Press INTERACT to Execute Task.")
+                
+        while not btn_interact.is_pressed:
+            check_stop()
+            time.sleep(0.05)
+        check_stop()
+
+        INFO(f"[State] Performing TX Task...")
+        led_rxtx_status.blink()
+        INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
         INFO("[State] Nerwork Mode (NM). Launching Networ Mode flow TX...")
         # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
         cmd = [sys.executable, "nm.py", "--first"]

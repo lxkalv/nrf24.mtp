@@ -19,8 +19,6 @@ import os
 
 from typing import NoReturn
 
-os.system("sudo pigpiod")
-os.system("clear")
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
