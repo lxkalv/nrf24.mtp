@@ -198,7 +198,7 @@ def handle_tx_file_based_on_node_id(node_id: str) -> Path | None:
     Handle the path to the file to transmit based on the NODE_ID
     """
     if "tan" in node_id:
-        file_path = Path("MTP-F25-NM-A-TX.txt").resolve()
+        file_path = Path("MTP-F25-NM-TX.txt").resolve()
         if file_path.exists():
             SUCC(f"Valid file detected inside USB: {file_path}")
         else:
