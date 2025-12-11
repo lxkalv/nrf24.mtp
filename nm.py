@@ -85,6 +85,7 @@ def get_CE_pin(node_id: str) -> int:
 def disable_auto_ack(nrf: NRF24) -> None:
     nrf.unset_ce()
     nrf._nrf_write_reg(nrf.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
+    time.sleep(0.01)
     nrf.set_ce()
 
     # nrf.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
