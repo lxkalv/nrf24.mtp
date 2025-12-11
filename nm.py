@@ -103,7 +103,7 @@ def create_radio_object(ce_pin: int) -> NRF24 | None:
         pi            = pi,
         ce            = ce_pin,
         spi_speed     = 10e6,
-        data_rate     = RF24_DATA_RATE.RATE_250KBPS, # NOTE: The lowest possible to increase range and reduce BER
+        data_rate     = RF24_DATA_RATE.RATE_1MBPS, # NOTE: The lowest possible to increase range and reduce BER
         payload_size  = RF24_PAYLOAD.DYNAMIC,
         address_bytes = 4,
         crc_bytes     = RF24_CRC.BYTES_2,
