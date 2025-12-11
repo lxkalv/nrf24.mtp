@@ -198,7 +198,7 @@ def Tx_flow(scenario, distance):
             else:
                 ERROR(f"P2P TX failed (exit code {exit_code})")
         else:
-            path_file_to_transmit = Path("MTP-F25-MRM-A-TX.txt").resolve()
+            path_file_to_transmit = Path("MTP-F25-MRM-TX.txt").resolve()
             path_file_to_transmit.write_bytes(content)
             SUCC(f"Cached '{path_file_to_transmit}' ({len(content)} bytes) for RF transmission")
 
