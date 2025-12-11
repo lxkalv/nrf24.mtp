@@ -231,26 +231,48 @@ def handle_tx_file_based_on_node_id(node_id: str) -> Path | None:
 
 
 # :::: CHANNELS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-def get_channels_based_on_node_id(node_id: str) -> tuple[list[int], list[int]]:
+# def get_channels_based_on_node_id(node_id: str) -> tuple[list[int], list[int]]:
+#     """
+#     Return a list with the own channels and a list with the channels assigned to the other nodes
+#     """
+# 
+#     own_channels: list[int]   = []
+#     other_channels: list[int] = []
+# 
+#     if   node_id == "tan0":
+#         own_channels = TAN0_CHANNELS
+#         other_channels = TAN1_CHANNELS + TBN0_CHANNELS + TBN1_CHANNELS
+#     elif node_id == "tan1":
+#         own_channels = TAN1_CHANNELS
+#         other_channels = TAN0_CHANNELS + TBN0_CHANNELS + TBN1_CHANNELS
+#     elif node_id == "tbn0":
+#         own_channels = TBN0_CHANNELS
+#         other_channels = TAN0_CHANNELS + TAN1_CHANNELS + TBN1_CHANNELS
+#     elif node_id == "tbn1":
+#         own_channels = TBN1_CHANNELS
+#         other_channels = TAN0_CHANNELS + TAN1_CHANNELS + TBN0_CHANNELS
+# 
+#     return own_channels, other_channels
+
+def get_channels_based_on_node_id(all_channels: list[int], node_id: str) -> tuple[list[int], list[int]]:
     """
     Return a list with the own channels and a list with the channels assigned to the other nodes
     """
-
-    own_channels: list[int]   = []
-    other_channels: list[int] = []
-
     if   node_id == "tan0":
-        own_channels = TAN0_CHANNELS
-        other_channels = TAN1_CHANNELS + TBN0_CHANNELS + TBN1_CHANNELS
+        offset = 0
     elif node_id == "tan1":
-        own_channels = TAN1_CHANNELS
-        other_channels = TAN0_CHANNELS + TBN0_CHANNELS + TBN1_CHANNELS
+        offset = 1
     elif node_id == "tbn0":
-        own_channels = TBN0_CHANNELS
-        other_channels = TAN0_CHANNELS + TAN1_CHANNELS + TBN1_CHANNELS
+        offset = 2
     elif node_id == "tbn1":
-        own_channels = TBN1_CHANNELS
-        other_channels = TAN0_CHANNELS + TAN1_CHANNELS + TBN0_CHANNELS
+        offset = 3
+
+    INFO(f"Selected offset: {offset}")
+    own_channels   = all_channels[offset : -1 : 4]
+    other_channels = all_channels.copy()
+
+    for channel in own_channels:
+        other_channels.remove(channel)
 
     return own_channels, other_channels
 
@@ -448,7 +470,9 @@ def main(nrf: NRF24, node_id: str, is_first_node: bool) -> None:
     """
     Main flow of the application
     """
-    own_channels, other_channels = get_channels_based_on_node_id(node_id)
+    # own_channels, other_channels = get_channels_based_on_node_id(node_id)
+    all_channels                 = [15,45,76,90]
+    own_channels, other_channels = get_channels_based_on_node_id(all_channels, node_id)
 
     INFO(f"TX channels: {own_channels}")
     INFO(f"RX channels: {other_channels}")
