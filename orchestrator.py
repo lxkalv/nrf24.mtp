@@ -257,7 +257,7 @@ def RX_flow(scenario, distance) :
 
     if scenario == "P2P":
         if distance == "Short":
-            INFO("[State] Long mode (P2P). Recieving P2P...")
+            INFO("[State] Short mode (P2P). Recieving P2P...")
             cmd = [sys.executable, "p2p_short.py"]
             INFO(f"Executing: {cmd}")
             # result = os.system(cmd)
@@ -314,7 +314,7 @@ def RX_flow(scenario, distance) :
             INFO("[State] USB Removed.")
             SUCC("RX flow complete; file delivered to USB drive")
         else:
-            INFO("[State] Short mode (P2P). Recieving P2P...")
+            INFO("[State] Long mode (P2P). Recieving P2P...")
             cmd = [sys.executable, "p2p_long.py"]
             INFO(f"Executing: {cmd}")
             # result = os.system(cmd)
