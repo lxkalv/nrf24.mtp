@@ -66,11 +66,11 @@ def get_id() -> str:
 
 
 def disable_auto_ack(nrf: NRF24) -> None:
-    #nrf.unset_ce()
-    #nrf._nrf_write_reg(nrf.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
-    #nrf.set_ce()
+    nrf.unset_ce()
+    nrf._nrf_write_reg(nrf.EN_AA, 0x00)   # <<< disable auto-ack for all pipes
+    nrf.set_ce()
 
-    nrf.set_retransmission(1, 15)  # <<< disable auto-retransmissions (x+1) * 250 µs
+    nrf.set_retransmission(0, 0)  # <<< disable auto-retransmissions (x+1) * 250 µs
     return
 
 
