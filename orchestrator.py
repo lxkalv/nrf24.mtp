@@ -447,8 +447,38 @@ def RX_flow(scenario, distance) :
                 time.sleep(3)
             if reset:
                 result.terminate()
-                led_rxtx_status.off() 
-                os.execl(sys.executable, sys.executable, *sys.argv)
+                # led_rxtx_status.off() 
+                # os.execl(sys.executable, sys.executable, *sys.argv)
+
+                led_rxtx_status.off()
+
+                # Device Config is SOLID here. Insert USB starts BLINKING here.
+                led_insert_usb.blink(on_time=0.5, off_time=0.5)
+                                
+                path = None
+                while path is None:
+                    check_stop()
+                    path = check_usb_connected()
+
+                path = path.resolve()
+                INFO(f"USB connected at '{path}'")
+                # USB Detected: LED goes Solid
+                led_insert_usb.on()
+
+                file_path = Path("MTP-F25-NM-A-RX.txt").resolve()
+                content = file_path.read_bytes()
+
+                (path / "MTP-F25-NM-A-RX.txt").write_bytes(content)
+                SUCC(f"Wrote {(path / 'MTP-F25-NM-A-RX.txt').resolve()} ({len(content)} bytes)")
+
+                check_stop()
+                INFO("[State] Please Remove USB.")
+                led_extract_usb.blink(on_time=0.5, off_time=0.5)        
+                while check_usb_connected() is not None:
+                    check_stop()
+
+                INFO("[State] USB Removed.")
+                SUCC("RX flow complete; file delivered to USB drive")
             else:
                 led_rxtx_status.off() 
                 break
@@ -459,35 +489,7 @@ def RX_flow(scenario, distance) :
         #else:
         #    ERROR(f"NW TX failed (exit code {exit_code})")
 
-        led_rxtx_status.off()
-
-        # Device Config is SOLID here. Insert USB starts BLINKING here.
-        led_insert_usb.blink(on_time=0.5, off_time=0.5)
-                        
-        path = None
-        while path is None:
-            check_stop()
-            path = check_usb_connected()
-
-        path = path.resolve()
-        INFO(f"USB connected at '{path}'")
-        # USB Detected: LED goes Solid
-        led_insert_usb.on()
-
-        file_path = Path("MTP-F25-NM-A-RX.txt").resolve()
-        content = file_path.read_bytes()
-
-        (path / "MTP-F25-NM-A-RX.txt").write_bytes(content)
-        SUCC(f"Wrote {(path / 'MTP-F25-NM-A-RX.txt').resolve()} ({len(content)} bytes)")
-
-        check_stop()
-        INFO("[State] Please Remove USB.")
-        led_extract_usb.blink(on_time=0.5, off_time=0.5)        
-        while check_usb_connected() is not None:
-            check_stop()
-
-        INFO("[State] USB Removed.")
-        SUCC("RX flow complete; file delivered to USB drive")
+        
 
 
 
