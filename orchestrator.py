@@ -109,7 +109,7 @@ def check_stop():
         raise SoftReset
 
 
-def Tx_flow(scenario):
+def Tx_flow(scenario, distance):
     INFO("we are in TX mode")
     INFO("[State] Waiting for USB or checking USB...")
                 
@@ -167,33 +167,58 @@ def Tx_flow(scenario):
 
     if scenario == "P2P":
         INFO("[State] Simple mode (P2P). Launching point-to-point flow...")
+        if distance == "Short":
+            # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
+            cmd = [sys.executable, "p2p_short.py", "--first"]
+            INFO(f"Executing: {cmd}")
 
-        # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
-        cmd = [sys.executable, "p2p.py", "--first"]
-        INFO(f"Executing: {cmd}")
-
-        reset = False
-        while True:
-            result = subprocess.Popen(cmd, text=True)
-            while result.poll() is None:
-                if btn_stop.is_pressed:
-                    reset = True
+            reset = False
+            while True:
+                result = subprocess.Popen(cmd, text=True)
+                while result.poll() is None:
+                    if btn_stop.is_pressed:
+                        reset = True
+                        break
+                    time.sleep(3)
+                if reset:
+                    result.terminate()
+                    led_rxtx_status.off() 
+                    os.execl(sys.executable, sys.executable, *sys.argv)
+                else:
+                    led_rxtx_status.off() 
                     break
-                time.sleep(3)
-            if reset:
-                result.terminate()
-                led_rxtx_status.off() 
-                os.execl(sys.executable, sys.executable, *sys.argv)
+            #exit_code = result.returncode
+
+            if exit_code == 0:
+                SUCC("P2P TX completed successfully")
             else:
-                led_rxtx_status.off() 
-                break
-        #exit_code = result.returncode
-
-        if exit_code == 0:
-            SUCC("P2P TX completed successfully")
+                ERROR(f"P2P TX failed (exit code {exit_code})")
         else:
-            ERROR(f"P2P TX failed (exit code {exit_code})")
+            # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
+            cmd = [sys.executable, "p2p_long.py", "--first"]
+            INFO(f"Executing: {cmd}")
 
+            reset = False
+            while True:
+                result = subprocess.Popen(cmd, text=True)
+                while result.poll() is None:
+                    if btn_stop.is_pressed:
+                        reset = True
+                        break
+                    time.sleep(3)
+                if reset:
+                    result.terminate()
+                    led_rxtx_status.off() 
+                    os.execl(sys.executable, sys.executable, *sys.argv)
+                else:
+                    led_rxtx_status.off() 
+                    break
+            #exit_code = result.returncode
+
+            if exit_code == 0:
+                SUCC("P2P TX completed successfully")
+            else:
+                ERROR(f"P2P TX failed (exit code {exit_code})")
         led_rxtx_status.off()
     else:
         INFO("[State] Nerwork Mode (NM). Launching Networ Mode flow TX...")
@@ -226,67 +251,125 @@ def Tx_flow(scenario):
 
 
 
-def RX_flow(scenario) :
+def RX_flow(scenario, distance) :
     INFO("We are in RX mode")
     led_rxtx_status.blink()
 
     if scenario == "P2P":
-        INFO("[State] Simple mode (P2P). Recieving P2P...")
-        cmd = [sys.executable, "p2p.py"]
-        INFO(f"Executing: {cmd}")
-        # result = os.system(cmd)
+        if distance == "Short":
+            INFO("[State] Long mode (P2P). Recieving P2P...")
+            cmd = [sys.executable, "p2p_short.py"]
+            INFO(f"Executing: {cmd}")
+            # result = os.system(cmd)
 
-        reset = False
-        while True:
-            result = subprocess.Popen(cmd, text=True)
-            while result.poll() is None:
-                if btn_stop.is_pressed:
-                    reset = True
+            reset = False
+            while True:
+                result = subprocess.Popen(cmd, text=True)
+                while result.poll() is None:
+                    if btn_stop.is_pressed:
+                        reset = True
+                        break
+                    time.sleep(3)
+                if reset:
+                    result.terminate()
+                    led_rxtx_status.off() 
+                    os.execl(sys.executable, sys.executable, *sys.argv)
+                else:
+                    led_rxtx_status.off() 
                     break
-                time.sleep(3)
-            if reset:
-                result.terminate()
-                led_rxtx_status.off() 
-                os.execl(sys.executable, sys.executable, *sys.argv)
-            else:
-                led_rxtx_status.off() 
-                break
         
-        #exit_code = result >> 8 if result >= 0 else result
-        #if exit_code == 0:
-        #    SUCC("robust_mode RX completed successfully")
-        #else:
-        #    ERROR(f"robust_mode RX failed (exit code {exit_code})")
+            #exit_code = result >> 8 if result >= 0 else result
+            #if exit_code == 0:
+            #    SUCC("robust_mode RX completed successfully")
+            #else:
+            #    ERROR(f"robust_mode RX failed (exit code {exit_code})")
 
-        led_rxtx_status.off() 
+            led_rxtx_status.off() 
 
-        # Device Config is SOLID here. Insert USB starts BLINKING here.
-        led_insert_usb.blink(on_time=0.5, off_time=0.5)
-                    
-        path = None
-        while path is None:
+            # Device Config is SOLID here. Insert USB starts BLINKING here.
+            led_insert_usb.blink(on_time=0.5, off_time=0.5)
+                        
+            path = None
+            while path is None:
+                check_stop()
+                path = check_usb_connected()
+
+            path = path.resolve()
+            INFO(f"USB connected at '{path}'")
+            # USB Detected: LED goes Solid
+            led_insert_usb.on()
+
+            file_path = Path("MTP-F25-SRI-A-RX.txt").resolve()
+            content = file_path.read_bytes()
+
+            (path / "MTP-F25-SRI-A-RX.txt").write_bytes(content)
+            SUCC(f"Wrote {(path / 'MTP-F25-SRI-A-RX.txt').resolve()} ({len(content)} bytes)")
+
             check_stop()
-            path = check_usb_connected()
+            INFO("[State] Please Remove USB.")
+            led_extract_usb.blink(on_time=0.5, off_time=0.5)        
+            while check_usb_connected() is not None:
+                check_stop()
 
-        path = path.resolve()
-        INFO(f"USB connected at '{path}'")
-        # USB Detected: LED goes Solid
-        led_insert_usb.on()
+            INFO("[State] USB Removed.")
+            SUCC("RX flow complete; file delivered to USB drive")
+        else:
+            INFO("[State] Short mode (P2P). Recieving P2P...")
+            cmd = [sys.executable, "p2p_long.py"]
+            INFO(f"Executing: {cmd}")
+            # result = os.system(cmd)
 
-        file_path = Path("file_to_save.txt").resolve()
-        content = file_path.read_bytes()
+            reset = False
+            while True:
+                result = subprocess.Popen(cmd, text=True)
+                while result.poll() is None:
+                    if btn_stop.is_pressed:
+                        reset = True
+                        break
+                    time.sleep(3)
+                if reset:
+                    result.terminate()
+                    led_rxtx_status.off() 
+                    os.execl(sys.executable, sys.executable, *sys.argv)
+                else:
+                    led_rxtx_status.off() 
+                    break
+        
+            #exit_code = result >> 8 if result >= 0 else result
+            #if exit_code == 0:
+            #    SUCC("robust_mode RX completed successfully")
+            #else:
+            #    ERROR(f"robust_mode RX failed (exit code {exit_code})")
 
-        (path / "file_to_save.txt").write_bytes(content)
-        SUCC(f"Wrote {(path / 'file_to_save.txt').resolve()} ({len(content)} bytes)")
+            led_rxtx_status.off() 
 
-        check_stop()
-        INFO("[State] Please Remove USB.")
-        led_extract_usb.blink(on_time=0.5, off_time=0.5)        
-        while check_usb_connected() is not None:
+            # Device Config is SOLID here. Insert USB starts BLINKING here.
+            led_insert_usb.blink(on_time=0.5, off_time=0.5)
+                        
+            path = None
+            while path is None:
+                check_stop()
+                path = check_usb_connected()
+
+            path = path.resolve()
+            INFO(f"USB connected at '{path}'")
+            # USB Detected: LED goes Solid
+            led_insert_usb.on()
+
+            file_path = Path("MTP-F25-MRM-A-RX.txt").resolve()
+            content = file_path.read_bytes()
+
+            (path / "MTP-F25-MRM-A-RX.txt").write_bytes(content)
+            SUCC(f"Wrote {(path / 'MTP-F25-MRM-A-RX.txt').resolve()} ({len(content)} bytes)")
+
             check_stop()
+            INFO("[State] Please Remove USB.")
+            led_extract_usb.blink(on_time=0.5, off_time=0.5)        
+            while check_usb_connected() is not None:
+                check_stop()
 
-        INFO("[State] USB Removed.")
-        SUCC("RX flow complete; file delivered to USB drive")
+            INFO("[State] USB Removed.")
+            SUCC("RX flow complete; file delivered to USB drive")
     else:
         INFO("[State] Nerwork Mode (NM). Launching Network Mode flow RX...")
         # Usamos el MISMO intérprete con el que se ha lanzado orchestrator.py
@@ -349,12 +432,22 @@ def main():
             while not btn_interact.is_pressed:
                 check_stop()
                 time.sleep(0.05)
-            INFO("[User] INTERACT pressed; locking configuration switches")
+            INFO("[User] INTERACT pressed")
 
             # Read Hardware Switches
             mode = "TX" if switch_mode.is_active else "RX"
             scenario = "Network" if switch_scenario.is_active else "P2P"
             INFO(f"[Info] Current Settings: Mode={mode}, Scenario={scenario}")
+            
+            if scenario == "P2P":
+                INFO("[User] Introduce the distance of P2P:")
+                while not btn_interact.is_pressed:
+                    check_stop()
+                    time.sleep(0.05)
+                INFO("[User] INTERACT pressed; locking P2P configuration")
+                
+            distance = "Short" if switch_scenario.is_active else "Long"
+            INFO(f"[Info] Current Settings: Mode={mode}, Scenario={scenario}, Distance{distance}")
             
             # Button Pressed -> LED turns Solid ON
             # Calling .on() automatically stops the background blinking thread
@@ -365,12 +458,12 @@ def main():
             check_stop()
             
             if mode=="TX":
-                Tx_flow(scenario)
+                Tx_flow(scenario, distance)
                 led_rxtx_status.off()
                 INFO("[State] Task Finished. Press interact please")
                 time.sleep(1)
             elif mode=="RX":
-                RX_flow(scenario)
+                RX_flow(scenario, distance)
                 time.sleep(1)
             else:
                 ERROR(f"Unsupported mode '{mode}' selected; restarting")

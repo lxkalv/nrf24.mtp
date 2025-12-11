@@ -35,8 +35,8 @@ BYTES_IN_FRAME              = 30
 CHANNEL_READ_TIMEOUT        = 200e-3
 NUMBER_OF_CYCLES            = 5
 
-FILE_TO_TX_STR              = "file_to_transmit.txt"
-FILE_TO_RX_STR              = "file_to_save.txt"
+FILE_TO_TX_STR              = "MTP-F25-SRI-A-TX.txt"
+FILE_TO_RX_STR              = "MTP-F25-SRI-A-RX.txt"
 RECEIVED_FILE_NAME          = "received_file.txt"
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
