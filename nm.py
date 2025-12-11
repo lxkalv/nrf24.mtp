@@ -477,4 +477,4 @@ if __name__ == "__main__":
 
     finally:
         if nrf is not None: nrf.power_down()
-        os.system("sudo killall pigpiod")
+        
