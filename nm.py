@@ -31,7 +31,7 @@ CE_PIN_B                    = 25
 
 BYTES_IN_FRAME              = 31
 
-CHANNEL_READ_TIMEOUT        = 200e-3
+CHANNEL_READ_TIMEOUT        = 500e-3
 PERSEVERANCE                = 50
 CHANNEL_PERMANENCE_TIMEOUT  = 3
 NUMBER_OF_CYCLES            = 10
