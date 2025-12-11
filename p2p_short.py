@@ -357,7 +357,7 @@ def ACT_AS_RX(nrf: NRF24, other_channels: list[int]) -> tuple[bytes, float]:
                 INFO(f"Parsed header message: File length: {data_len} B | Checksum: {checksum.hex()}")
 
 
-        if is_reading_frames and (FrameID < 0xFFFF):
+        if is_reading_frames and (FrameID < num_of_frames):
             slots[FrameID] = frame[2:]
     
 
