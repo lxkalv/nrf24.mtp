@@ -94,7 +94,7 @@ def find_valid_txt_file_in_usb(usb_mount_path: Path, scenario, distance) -> Path
                     return file.resolve()
         else:
             if name == "MTP-F25-NM-TX.txt":
-                print(Estoy en el Network)
+                print("Estoy en el Network")
                 return file.resolve()
     WARN(f"No .txt files found on USB mount '{usb_mount_path}'")
     return None
