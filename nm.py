@@ -442,7 +442,7 @@ def main(nrf: NRF24, node_id: str, is_first_node: bool) -> None:
     """
     Main flow of the application
     """
-    all_channels = [channel for channel in range(25, 115 + 1, 5)]
+    all_channels = [channel for channel in range(45, 115 + 1, 5)]
     own_channels, other_channels = get_channels_based_on_node_id(all_channels, node_id)
 
     INFO(f"TX channels: {own_channels}")
