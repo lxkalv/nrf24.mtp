@@ -431,7 +431,7 @@ def main():
             # Wait for button press
             while not btn_interact.is_pressed:
                 check_stop()
-                time.sleep(0.05)
+                time.sleep(5)
             INFO("[User] INTERACT pressed")
 
             # Read Hardware Switches
@@ -445,7 +445,7 @@ def main():
                     check_stop()
                     time.sleep(0.05)
                 INFO("[User] INTERACT pressed; locking P2P configuration")
-                
+
             distance = "Short" if switch_scenario.is_active else "Long"
             INFO(f"[Info] Current Settings: Mode={mode}, Scenario={scenario}, Distance{distance}")
             
