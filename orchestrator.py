@@ -64,7 +64,7 @@ def check_usb_connected() -> bool:
     return None
 
 
-def find_valid_txt_file_in_usb(usb_mount_path: Path) -> Path | None:
+def find_valid_txt_file_in_usb(usb_mount_path: Path, mode, distance) -> Path | None:
     """
     Searches for all the txt files in the first level of depth of the USB mount
     location and returns the path to first one ordered alphabetically
@@ -130,7 +130,7 @@ def Tx_flow(scenario, distance):
     # USB Detected: LED goes Solid
     led_insert_usb.on()
 
-    path_archivo_usb = find_valid_txt_file_in_usb(path)
+    path_archivo_usb = find_valid_txt_file_in_usb(path, scenario, distance)
     if path_archivo_usb is None:
         ERROR("No valid .txt file found on USB. Resetting flow.")
         raise SoftReset
