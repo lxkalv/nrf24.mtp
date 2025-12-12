@@ -9,6 +9,7 @@ from nrf24 import (
     RF24_CRC,
 )
 
+from gpiozero import LED, Button, DigitalInputDevice
 from hashlib import shake_256
 from pathlib import Path
 from math import ceil
@@ -42,6 +43,12 @@ TAN0_CHANNELS               = [ 0, 20, 40, 60, 80, 100]
 TAN1_CHANNELS               = [ 5, 25, 45, 65, 85, 105]
 TBN0_CHANNELS               = [10, 30, 50, 70, 90, 110]
 TBN1_CHANNELS               = [15, 35, 55, 75, 95, 115]
+
+# --- PIN CONFIGURATION ---
+# LEDs
+led_insert_usb    = LED(25)
+led_extract_usb   = LED(26)
+
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -466,7 +473,7 @@ def main(nrf: NRF24, node_id: str, is_first_node: bool) -> None:
         content   = ACT_AS_RX(nrf, other_channels)
         file_path = Path(RECEIVED_FILE_NAME)
         file_path.write_bytes(content)
-       
+        led_insert_usb.on()
         ACT_AS_TX(nrf, node_id, content, own_channels, is_first_node)
     return
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
