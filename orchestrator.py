@@ -454,7 +454,8 @@ def RX_flow(scenario, distance) :
 
                 # Device Config is SOLID here. Insert USB starts BLINKING here.
                 led_insert_usb.blink(on_time=0.5, off_time=0.5)
-                                
+
+                INFO("Waiting for USB")     
                 path = None
                 while path is None:
                     path = check_usb_connected()
@@ -473,7 +474,8 @@ def RX_flow(scenario, distance) :
                 INFO("[State] Please Remove USB.")
                 led_extract_usb.blink(on_time=0.5, off_time=0.5)        
                 while check_usb_connected() is not None:
-                    check_stop()
+                    # check_stop()
+                    pass
 
                 INFO("[State] USB Removed.")
                 SUCC("RX flow complete; file delivered to USB drive")
