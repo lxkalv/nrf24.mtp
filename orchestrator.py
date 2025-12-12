@@ -479,6 +479,7 @@ def RX_flow(scenario, distance) :
 
                 INFO("[State] USB Removed.")
                 SUCC("RX flow complete; file delivered to USB drive")
+                led_extract_usb.off()
             else:
                 led_rxtx_status.off() 
                 break
