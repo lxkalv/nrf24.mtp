@@ -38,10 +38,10 @@ NUMBER_OF_CYCLES            = 10
 
 RECEIVED_FILE_NAME          = "MTP-F25-NM-A-RX.txt"
 
-TAN0_CHANNELS               = [76]
-TAN1_CHANNELS               = [76] # [ 5, 25, 45, 65, 85, 105]
-TBN0_CHANNELS               = [76] # [10, 30, 50, 70, 90, 110]
-TBN1_CHANNELS               = [76] # [15, 35, 55, 75, 95, 115]
+TAN0_CHANNELS               = [ 0, 20, 40, 60, 80, 100]
+TAN1_CHANNELS               = [ 5, 25, 45, 65, 85, 105]
+TBN0_CHANNELS               = [10, 30, 50, 70, 90, 110]
+TBN1_CHANNELS               = [15, 35, 55, 75, 95, 115]
 # :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 
@@ -231,29 +231,6 @@ def handle_tx_file_based_on_node_id(node_id: str) -> Path | None:
 
 
 # :::: CHANNELS :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
-# def get_channels_based_on_node_id(node_id: str) -> tuple[list[int], list[int]]:
-#     """
-#     Return a list with the own channels and a list with the channels assigned to the other nodes
-#     """
-# 
-#     own_channels: list[int]   = []
-#     other_channels: list[int] = []
-# 
-#     if   node_id == "tan0":
-#         own_channels = TAN0_CHANNELS
-#         other_channels = TAN1_CHANNELS + TBN0_CHANNELS + TBN1_CHANNELS
-#     elif node_id == "tan1":
-#         own_channels = TAN1_CHANNELS
-#         other_channels = TAN0_CHANNELS + TBN0_CHANNELS + TBN1_CHANNELS
-#     elif node_id == "tbn0":
-#         own_channels = TBN0_CHANNELS
-#         other_channels = TAN0_CHANNELS + TAN1_CHANNELS + TBN1_CHANNELS
-#     elif node_id == "tbn1":
-#         own_channels = TBN1_CHANNELS
-#         other_channels = TAN0_CHANNELS + TAN1_CHANNELS + TBN0_CHANNELS
-# 
-#     return own_channels, other_channels
-
 def get_channels_based_on_node_id(all_channels: list[int], node_id: str) -> tuple[list[int], list[int]]:
     """
     Return a list with the own channels and a list with the channels assigned to the other nodes
@@ -471,8 +448,8 @@ def main(nrf: NRF24, node_id: str, is_first_node: bool) -> None:
     """
     Main flow of the application
     """
-    # own_channels, other_channels = get_channels_based_on_node_id(node_id)
-    all_channels                 = [15,45,76,90]
+    
+    all_channels = sorted(TAN0_CHANNELS + TAN1_CHANNELS + TBN0_CHANNELS + TBN1_CHANNELS)
     own_channels, other_channels = get_channels_based_on_node_id(all_channels, node_id)
 
     INFO(f"TX channels: {own_channels}")
